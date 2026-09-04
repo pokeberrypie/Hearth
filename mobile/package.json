@@ -1,0 +1,13 @@
+{
+  "name": "hearth-mobile-build",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bundle": "node build.mjs"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^1.13.7",
+    "esbuild": "^0.24.0",
+    "sql.js": "^1.11.0"
+  }
+}

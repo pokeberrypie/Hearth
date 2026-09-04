@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Loopback only — the server never listens on anything but 127.0.0.1,
+         so this is for the WebView to reach it, not for reaching the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- To read a SillyTavern folder wherever it happens to live on the device.
+         Scoped storage gives an app its own sandbox and the media collections,
+         and neither is where SillyTavern keeps anything — so importing a real
+         install needs all-files access, which the user grants by hand in
+         Settings (see MainActivity.requestAllFiles). Hearth only ever reads
+         through it, and only the folder you point it at. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <application
+        android:name=".HearthApplication"
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.Hearth"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".BootstrapActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The Node runtime is isolated. If a native loader aborts this
+             process, BootstrapActivity is still alive to show a report. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:process=":engine"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+    </application>
+</manifest>

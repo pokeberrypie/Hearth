@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Firelight on the wall behind the hearth. A flat colour left the stone sitting
+  on nothing; this is the same deep ground, warmed where the opening is, so the
+  icon reads as a lit fireplace rather than a drawing of one.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54" android:centerY="64"
+                android:gradientRadius="54"
+                android:startColor="#3c2415"
+                android:centerColor="#241711"
+                android:endColor="#16110e" />
+        </aapt:attr>
+    </path>
+</vector>

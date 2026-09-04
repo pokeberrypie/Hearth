@@ -1,0 +1,58 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.hearth.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.hearth.app"
+        // Adaptive icons only exist from API 26 â€” targeting that as the floor
+        // means no legacy launcher-icon PNGs are needed at all.
+        minSdk 26
+        targetSdk 34
+        // Each diagnostic build must be newer than the last one the phone
+        // saw; otherwise Package Installer can reject it before evaluating
+        // the package we are trying to test.
+        versionCode 43
+        versionName "0.1.0"
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        // The nodejs-project assets folder (main.js, sql-wasm.wasm, public/)
+        // is bundled as a raw asset, not compressed â€” sql.js needs its WASM
+        // byte-exact and uncompressed at a real filesystem path once copied
+        // out at first run, and there is no reason to double-compress a
+        // bundle that is already minified JS plus already-compressed images.
+        jniLibs {
+            // Extract native libraries before loading them. This avoids the
+            // Android 16 direct-from-APK loader path while diagnosing the
+            // embedded Node runtime's startup failure.
+            useLegacyPackaging = true
+        }
+    }
+
+    aaptOptions {
+        // Store these uncompressed in the APK; AssetManager can stream them
+        // as-is when RNNodeJsMobileModule.copyAsset copies them out.
+        noCompress "wasm", "db"
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation project(':nodejsmobile-lib')
+}

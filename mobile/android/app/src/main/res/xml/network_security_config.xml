@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Everything Hearth does happens on 127.0.0.1 — the whole point of running
+  the server on-device. Android blocks plain HTTP by default from API 28
+  onward; this is the one exception, scoped to loopback only, never to the
+  open network.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

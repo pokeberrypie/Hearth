@@ -1,0 +1,5323 @@
+/* Hearth — smoke-stained oak, tallow light, brass.
+   Token names mirror Lumiverse so its themes drop in without translation. */
+
+:root {
+  --lumiverse-bg:            #16110e;
+  --lumiverse-bg-elevated:   #201812;
+  --lumiverse-bg-hover:      #2a2019;
+  --lumiverse-bg-deep:       #0e0a08;
+
+  --lumiverse-text:          #e6d8bd;
+  --lumiverse-text-muted:    #a8937a;
+  --lumiverse-text-dim:      #7d6a55;
+  --lumiverse-text-hint:     #5e5043;
+
+  --lumiverse-primary:       #c8994f;
+  --lumiverse-primary-hover: #dcae62;
+  --lumiverse-primary-muted: #8a6b38;
+
+  --lumiverse-border:        rgba(200, 153, 79, 0.16);
+  --lumiverse-border-hover:  rgba(200, 153, 79, 0.34);
+
+  --lumiverse-prose-dialogue: #dcb878;
+  --lumiverse-prose-italic:   #bda88a;
+  --lumiverse-danger:         #a84a38;
+
+  /**
+   * A fight's two directions, kept apart from --lumiverse-danger on purpose.
+   * Danger is the colour of a delete button and means "are you sure"; taking
+   * five off a wolf is not a warning, it is the good part. So: a warmer, less
+   * alarming red for damage, and a green that reads as relief without turning
+   * the room into a status dashboard.
+   */
+  --hearth-hurt:              #c05d45;
+  --hearth-mend:              #7fa46a;
+
+  /**
+   * Two faces, both bundled — see public/fonts. They used to come from Google
+   * on demand, which means on a phone with no signal, and offline generally,
+   * the whole app fell back to Georgia for everything and the distinction
+   * between headings and text disappeared.
+   *
+   * EB Garamond sets the prose: an old-style face, warm, made for reading at
+   * length. Cinzel sets the headings: Roman inscriptional capitals, the
+   * lettering of a carved sign. The pairing is the point — one is what the
+   * tavern's ledger is written in, the other is what is over the door.
+   */
+  --lumiverse-font-family:  "EB Garamond", Georgia, "Times New Roman", serif;
+  /**
+   * Three roles, not two. Cinzel is a signage face — inscriptional capitals,
+   * no real lowercase — so it is magnificent over a door and wrong in a list:
+   * set a hundred character names in it and they turn into wide caps that wrap
+   * onto two lines. It is reserved for the few places that are genuinely a
+   * heading, and everything that is *a name* uses the reading face with a
+   * little more weight, which is what --font-display now means.
+   */
+  --lumiverse-font-heading: "Cinzel", "Trajan Pro", Georgia, serif;
+  /**
+   * And a third, for names — the one thing that is neither a heading nor
+   * running text. Marcellus SC is Cinzel's kin, Roman capitals, but lighter
+   * and much narrower: measured on the longest name in this library, Cinzel
+   * needs 193px where Marcellus needs 160 and the card allows 136. Small caps
+   * also stay legible far below the size a full capital does.
+   */
+  --lumiverse-font-display: "Marcellus SC", "Cinzel", Georgia, serif;
+
+  /* EB Garamond sets small for its point size, so the whole app is nudged up
+     to keep the reading size where it was. */
+  --lumiverse-font-scale-base: 1.06;
+  --lumiverse-font-scale:   1;
+  --lumiverse-radius:    10px;
+  --lumiverse-radius-sm: 6px;
+
+  --lcs-glass-bg:   rgba(22, 17, 14, 0.86);
+  --lcs-glass-blur: 14px;
+
+  --overlay-opacity: 0.72;
+  --glow-opacity:    0.20;
+  --panel-w:         21rem;
+  --measure:         40rem;
+  --fade-start:      55%;
+  --plate-blur:      14px;
+  --plate-opacity:   0.78;
+  --tuck:            0.08;
+  --bar-h:           76px;
+  --bar-icon:        42px;   /* one bar button, and what a bar side reserves two of */
+}
+
+* { box-sizing: border-box; }
+
+/**
+ * Controls do not inherit type. A button, an input, a select and a textarea
+ * each start from the browser's own UI font, so anything inside one that does
+ * not name a family shows up in the system sans — which is how a card's
+ * "2 h ago" ended up in a different, far more modern face than the name an
+ * inch above it. Say it once, here, rather than remembering it every time.
+ */
+button, input, select, textarea, optgroup { font-family: inherit; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--lumiverse-bg);
+  color: var(--lumiverse-text);
+  font-family: var(--lumiverse-font-family);
+  font-size: calc(16px * var(--lumiverse-font-scale-base) * var(--lumiverse-font-scale));
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---- backdrop layers ---------------------------------------------------- */
+
+.wallpaper, .overlay, .hearthglow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.wallpaper {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.overlay { background: var(--lumiverse-bg); opacity: var(--overlay-opacity); }
+.hearthglow {
+  top: auto;
+  height: 62vh;
+  opacity: var(--glow-opacity);
+  background: radial-gradient(120% 100% at 50% 118%,
+      rgba(214, 132, 46, 1) 0%, rgba(160, 78, 26, 0.45) 38%, transparent 70%);
+}
+
+svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
+      stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- frame -------------------------------------------------------------- */
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 100dvh;
+}
+
+.stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(var(--bar-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 10px 0 10px;
+  border-bottom: 1px solid var(--lumiverse-border);
+  background: var(--lcs-glass-bg);
+  backdrop-filter: blur(var(--lcs-glass-blur));
+}
+/* ---- ornamented title ----------------------------------------------------
+   Deco flourishes flank the name: graduated rules, a chevron fan stepping down
+   in weight, a scrolled curl, and a diamond terminal. Mirrored on the right. */
+
+/* Each side reserves room for two buttons whether it holds two, one or none,
+   so the title is centred on the bar rather than on the space between whatever
+   happens to be showing. The chat menu appears only inside a chat and the
+   hamburger only on narrow screens, so that space was never symmetrical. */
+.barside {
+  flex: 0 0 auto;
+  min-width: calc(2 * var(--bar-icon, 42px) + 4px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.barside.right { justify-content: flex-end; }
+
+.title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+}
+
+.bar h1 {
+  margin: 0;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(178deg,
+      color-mix(in srgb, var(--lumiverse-primary) 55%, var(--lumiverse-text)) 0%,
+      var(--lumiverse-primary) 52%,
+      color-mix(in srgb, var(--lumiverse-primary) 70%, var(--lumiverse-bg-deep)) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.flourish {
+  /* Shrinks to nothing before the title does: the ornament is worth less than
+     the name, and fitBarTitle only reduces the type once these have given up
+     what they can. */
+  flex: 0 4 150px;
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  color: var(--lumiverse-primary);
+  opacity: 0.72;
+  stroke: currentColor;
+}
+.flourish:last-of-type, .title .flourish + h1 + .flourish { transform: scaleX(-1); }
+
+@media (max-width: 900px) {
+  :root { --bar-h: 62px; }
+  .bar h1 { font-size: 1.25rem; }
+  .flourish { flex: 0 1 84px; height: 24px; opacity: 0.6; }
+}
+/* A phone is where Hearth is meant to live, so the title keeps its flourishes
+   there. They shrink to a pair of short rules rather than disappearing — the
+   name alone in the bar reads as an unfinished header, not a tidier one. */
+@media (max-width: 560px) {
+  .title { gap: 0.45rem; }
+  .flourish { flex: 0 1 52px; height: 18px; opacity: 0.5; }
+  .bar h1 { font-size: 1.1rem; }
+}
+@media (max-width: 380px) {
+  .flourish { flex: 0 1 32px; height: 15px; }
+}
+
+.icon {
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  background: none; border: 0; padding: 0;
+  color: var(--lumiverse-text-muted);
+  border-radius: var(--lumiverse-radius-sm);
+  cursor: pointer;
+}
+.icon:hover { color: var(--lumiverse-primary); }
+
+/* ---- thread ------------------------------------------------------------- */
+
+#scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.2rem 1.4rem 0;
+}
+
+#thread {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding-bottom: 2rem;
+}
+
+.msg { padding: 0.9rem 0 1.1rem; }
+/**
+ * A turned diamond sitting on the rule between messages.
+ *
+ * A plain hairline is a divider; a hairline with an ornament on it is a page.
+ * Drawn rather than typed — a glyph like a fleuron depends on a font having
+ * it, and this has to look the same on a phone as on a desktop. It is
+ * decoration only: aria-hidden by construction, since a pseudo-element with
+ * no text is not announced.
+ */
+.msg + .msg { position: relative; }
+.msg + .msg::before {
+  content: "";
+  position: absolute;
+  top: -3.5px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  transform: rotate(45deg);
+  background: var(--lumiverse-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  pointer-events: none;
+}
+.msg + .msg {
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent,
+      var(--lumiverse-border) 22%, var(--lumiverse-border) 78%, transparent) 1;
+}
+
+.who {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  color: var(--lumiverse-primary);
+  margin-bottom: 0.3rem;
+}
+.msg.mine .who { color: var(--lumiverse-text-dim); }
+.msg.mine .body {
+  padding-left: 0.95rem;
+  border-left: 2px solid var(--lumiverse-primary-muted);
+  color: var(--lumiverse-text-muted);
+}
+
+.body { white-space: pre-wrap; word-wrap: break-word; }
+.body em   { font-style: italic; color: var(--lumiverse-prose-italic); }
+.body .say { color: var(--lumiverse-prose-dialogue); }
+.body[contenteditable="true"] {
+  outline: 1px solid var(--lumiverse-border-hover);
+  border-radius: var(--lumiverse-radius-sm);
+  padding: 0.5rem 0.7rem;
+  white-space: pre-wrap;
+}
+
+.tools { margin-top: 0.5rem; opacity: 0; transition: opacity .18s; }
+.msg:hover .tools, .msg:focus-within .tools { opacity: 1; }
+@media (hover: none) { .tools { opacity: 0.55; } }
+.tools button {
+  background: none; border: 0; padding: 2px 12px 2px 0;
+  color: var(--lumiverse-text-hint);
+  font: inherit; font-size: 0.8rem; cursor: pointer;
+}
+.tools button:hover { color: var(--lumiverse-primary); }
+
+.cursor::after {
+  content: ""; display: inline-block;
+  width: 0.42em; height: 1.05em; margin-left: 2px;
+  vertical-align: -0.16em;
+  background: var(--lumiverse-primary); opacity: 0.75;
+}
+
+.notice {
+  margin: 1rem 0; padding: 0.7rem 0.9rem;
+  border-left: 2px solid var(--lumiverse-danger);
+  color: var(--lumiverse-text-muted);
+  font-size: 0.9rem;
+  background: rgba(168, 74, 56, 0.08);
+}
+
+.empty {
+  max-width: var(--measure);
+  margin: 20vh auto 0;
+  text-align: center;
+  color: var(--lumiverse-text-dim);
+}
+.empty p { font-style: italic; margin-bottom: 1.4rem; }
+
+/* ---- composer ----------------------------------------------------------- */
+
+.composer {
+  flex: none;
+  padding: 0.6rem 1.4rem calc(0.7rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--lumiverse-border);
+  background: var(--lcs-glass-bg);
+  backdrop-filter: blur(var(--lcs-glass-blur));
+}
+
+.quickrow {
+  display: flex;
+  gap: 0.4rem;
+  padding-bottom: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.quickrow::-webkit-scrollbar { display: none; }
+
+
+
+.composer textarea {
+  flex: 1;
+  min-height: 2.6rem;
+  max-height: 11rem;
+  padding: 0.6rem 0.85rem;
+  resize: none;
+  background: var(--lumiverse-bg-elevated);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  font-family: var(--lumiverse-font-family);
+  font-size: max(16px, 1rem); /* below 16px and mobile browsers zoom on focus */
+  line-height: 1.5;
+}
+.composer textarea:focus { outline: none; border-color: var(--lumiverse-border-hover); }
+
+/* The arrow is the button. A gilt disc around it only competed with the
+   filigree it sits between. */
+.send {
+  flex: none;
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: none;
+  color: var(--lumiverse-primary);
+  cursor: pointer;
+  transition: color .18s, transform .18s;
+}
+.send:hover { color: var(--lumiverse-text); transform: translate(1px, -1px); }
+.send:disabled { color: var(--lumiverse-primary-muted); opacity: 0.5; transform: none; }
+.send svg { stroke-width: 2.2; }
+
+/* ---- right panel -------------------------------------------------------- */
+
+.panelbar {
+  flex: none;
+  width: var(--panel-w);
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--lumiverse-bg-elevated);
+  border-left: 1px solid var(--lumiverse-border);
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+.tabs { display: flex; flex: none; border-bottom: 1px solid var(--lumiverse-border); }
+/* Icon tabs. The active one names itself, so nothing has to be guessed at
+   while still keeping the bar quiet. */
+.tabs button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.18rem;
+  padding: 0.7rem 0.2rem 0.55rem;
+  background: none; border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--lumiverse-text-dim);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: color 0.14s ease;
+}
+.tabs button svg { width: 20px; height: 20px; stroke-width: 1.6; }
+.tabs button:hover { color: var(--lumiverse-text-muted); }
+.tabs button.on { color: var(--lumiverse-primary); border-bottom-color: var(--lumiverse-primary); }
+
+.tablabel {
+  height: 0.95rem;
+  line-height: 0.95rem;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+.tabs button.on .tablabel { opacity: 1; }
+.tabs button:hover .tablabel { opacity: 0.6; }
+
+.panel { flex: 1; overflow-y: auto; padding: 1rem 1.1rem 2.5rem; }
+/**
+ * Section headings, cut rather than written.
+ *
+ * Cinzel is a Roman capital: it wants air between the letters, no added
+ * weight, and a rule under it the way an engraved line sits under a name on a
+ * plaque. Small and spaced reads as a label; large and bold reads as shouting.
+ */
+.panel h3 {
+  margin: 1.9rem 0 0.9rem;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lumiverse-primary-muted, var(--lumiverse-text-muted));
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
+}
+.panel h3:first-child { margin-top: 0; }
+
+/* A dialog's title is the same voice, one size up and without the rule. */
+dialog h2 {
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.list { display: flex; flex-direction: column; }
+
+.item {
+  display: block; width: 100%; text-align: left;
+  padding: 0.8rem 0;
+  background: none; border: 0;
+  border-bottom: 1px solid var(--lumiverse-border);
+  color: var(--lumiverse-text);
+  font: inherit; cursor: pointer;
+}
+.item:hover { background: var(--lumiverse-bg-hover); }
+.item .t { font-family: var(--lumiverse-font-display); font-size: 1rem; }
+.item .s { display: block; font-size: 0.82rem; color: var(--lumiverse-text-dim); }
+.item .x { float: right; color: var(--lumiverse-text-hint); font-size: 0.82rem; padding-left: 10px; }
+.item .x:hover { color: var(--lumiverse-danger); }
+
+label { display: block; margin-bottom: 1rem; font-size: 0.85rem; color: var(--lumiverse-text-muted); }
+label .v { float: right; color: var(--lumiverse-text-hint); font-variant-numeric: tabular-nums; }
+
+input, select, textarea {
+  display: block; width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--lumiverse-bg);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  font-family: var(--lumiverse-font-family);
+  font-size: max(16px, 1rem);
+}
+textarea { resize: vertical; line-height: 1.55; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--lumiverse-border-hover); }
+
+input[type="range"] { padding: 0; accent-color: var(--lumiverse-primary); background: none; border: 0; }
+input[type="color"] { padding: 0; height: 30px; width: 46px; border-radius: var(--lumiverse-radius-sm); cursor: pointer; }
+
+.row { display: flex; gap: 0.7rem; }
+.row label { flex: 1; }
+
+/* A note under a control, not on top of it. The negative top margin here was
+   pulling every hint up into whatever sat above it, which is what made them
+   look like they were colliding with the page. */
+.hint {
+  margin: 0.35rem 0 1.1rem;
+  font-size: 0.78rem;
+  color: var(--lumiverse-text-hint);
+  line-height: 1.5;
+}
+.hint a { color: var(--lumiverse-primary-muted); }
+
+.ghost, .solid, .filebtn {
+  display: block;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--lumiverse-radius-sm);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.92rem;
+  text-align: center;
+  cursor: pointer;
+}
+.ghost, .filebtn {
+  background: none;
+  border: 1px solid var(--lumiverse-border-hover);
+  color: var(--lumiverse-primary);
+}
+.solid {
+  background: var(--lumiverse-primary);
+  border: 1px solid var(--lumiverse-primary);
+  color: var(--lumiverse-bg-deep);
+}
+.wide, .filebtn { width: 100%; margin: 0.6rem 0 0; }
+
+/* wallpaper picker */
+.wallgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+.wallgrid button {
+  aspect-ratio: 3 / 4;
+  padding: 0; border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background-size: cover; background-position: center;
+  cursor: pointer;
+}
+.wallgrid button.on { border-color: var(--lumiverse-primary); border-width: 2px; }
+
+/* colour swatches */
+.swatch {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.35rem 0;
+  font-size: 0.84rem;
+  color: var(--lumiverse-text-muted);
+}
+.swatch span { flex: 1; }
+.swatch input { margin: 0; width: 46px; flex: none; }
+
+/* ---- mobile ------------------------------------------------------------- */
+
+@media (max-width: 899px) {
+  .panelbar {
+    position: fixed;
+    top: 0; bottom: 0; right: 0;
+    z-index: 41;
+    width: min(88vw, 24rem);
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+  }
+  .panelbar.open { transform: none; }
+  .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(8, 5, 4, 0.62); }
+  #scroll, .composer { padding-left: 1rem; padding-right: 1rem; }
+}
+
+@media (min-width: 900px) {
+  #menuBtn, .scrim { display: none; }
+  .bar { padding-right: 14px; }
+}
+
+dialog {
+  width: min(94vw, 34rem);
+  max-height: 88dvh;
+  padding: 1.3rem;
+  background: var(--lumiverse-bg-elevated);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: var(--lumiverse-radius);
+}
+dialog::backdrop { background: rgba(8, 5, 4, 0.7); }
+dialog h2 { margin: 0 0 1.1rem; font-family: var(--lumiverse-font-heading); font-size: 1.15rem; }
+dialog form { max-height: 76dvh; overflow-y: auto; }
+.actions { display: flex; justify-content: flex-end; gap: 0.6rem; padding-top: 0.4rem; }
+.actions button { width: auto; margin: 0; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+:focus-visible { outline: 2px solid var(--lumiverse-primary); outline-offset: 2px; }
+
+/* ---- splash & portraits -------------------------------------------------- */
+
+.splash { max-width: 62rem; margin: 0 auto; padding: 1.5rem 0 3rem; }
+.splashhead h2 {
+  margin: 0 0 1.6rem;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--lumiverse-text-muted);
+}
+
+.portraits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 1rem;
+}
+
+/* A portrait reads as a card in a hand rather than a tile in a grid: tall,
+   image bleeding under a scrim, name resting on the lower edge. */
+.portrait {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  padding: 0;
+  border: 0;
+  border-radius: var(--lumiverse-radius);
+  overflow: hidden;
+  background: var(--lumiverse-bg-elevated);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px var(--lumiverse-border);
+  transition: box-shadow .2s, transform .2s;
+  /**
+   * Makes the card its own backdrop root, which is what stops the frosted
+   * name bar shivering as the grid scrolls.
+   *
+   * Without it the bar's blur samples everything painted behind it right back
+   * to the page, and that backdrop slides under the bar as you scroll — so it
+   * is re-read every frame and rounded to a different subpixel each time.
+   * On a fractional device pixel ratio (1.25 on this machine) that reads as
+   * the label jiggling. Isolated, the bar can only blur its own card, which
+   * does not move relative to it, so there is nothing left to shimmer. The
+   * card art is opaque and fills the tile, so it looks the same either way.
+   */
+  isolation: isolate;
+  contain: paint;
+  /**
+   * Keeps the card and its name bar on one compositing layer.
+   *
+   * A backdrop-filter always gets a layer of its own, so the bar was being
+   * composited separately from the art it sits on. While the grid scrolls the
+   * art moves on the compositor thread immediately and the blurred bar has to
+   * be recomputed, which lands a frame or two later — so the label visibly
+   * trails the photo, and worst on the cards whose art costs most to paint.
+   * Promoting the whole card means the compositor translates art and bar
+   * together as one texture, and there is nothing left to fall behind.
+   *
+   * will-change rather than translateZ(0), because the hover lift sets a
+   * transform of its own and a base transform here would fight it.
+   */
+  will-change: transform;
+  /**
+   * ...but only for the cards actually on screen. This library has 756 of
+   * them, and promoting every one would allocate 756 compositing layers and
+   * cost more than the lag it fixes. content-visibility lets the browser skip
+   * rendering the ones scrolled out of view entirely, so the promotion above
+   * only ever applies to a screenful. contain-intrinsic-size: auto remembers
+   * each card's last rendered height, so the scrollbar stays honest and the
+   * fallback only matters for cards never yet seen.
+   */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 14rem;
+}
+.portrait:hover, .portrait:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--lumiverse-border-hover),
+              0 6px 22px rgba(0, 0, 0, 0.45);
+  transform: translateY(-2px);
+}
+/* A wheel leaves the cursor still and slides the cards under it, so without
+   this every card that passes beneath the pointer lifts and settles in turn —
+   a ripple of bobbing tiles exactly where you are looking. The lift is for
+   pointing at a card, not for a card arriving under a stationary pointer.
+   #scroll carries .scrolling while it moves; see app.js. */
+#scroll.scrolling .portrait {
+  transition: none;
+  transform: none;
+  box-shadow: inset 0 0 0 1px var(--lumiverse-border);
+}
+.portrait .face {
+  position: absolute; inset: 0;
+  background-size: cover;
+  background-position: center top;
+}
+.portrait .face.blank {
+  display: grid; place-items: center;
+  font-family: var(--lumiverse-font-display);
+  font-size: 2.6rem;
+  color: var(--lumiverse-primary-muted);
+  background: linear-gradient(160deg, var(--lumiverse-bg-hover), var(--lumiverse-bg-deep));
+}
+/* Just enough darkening to seat the bar; the bar itself carries the contrast. */
+.portrait .scrim {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(8, 5, 4, 0.34) 0%, transparent 42%);
+}
+
+/* The label gets its own frosted bar so names stay readable over any artwork. */
+.portrait .label {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 0.5rem 0.7rem 0.55rem;
+  text-align: left;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 60%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+          backdrop-filter: blur(12px) saturate(1.2);
+  border-top: 1px solid color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
+}
+.portrait .label .n {
+  /* Two lines rather than an ellipsis: "Grand Maester Pycelle" does not fit a
+     card's width in any face worth using, and half a name is worse than a
+     name on two lines. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: 0.015em;
+  color: var(--lumiverse-text);
+  line-height: 1.22;
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/**
+ * The second line of the plaque. Set in the reading face, not the name face,
+ * and with no added tracking.
+ *
+ * Tracking is for capitals. Applied to "5 h ago" it opens up the space either
+ * side of the numeral as well as between the letters, so the line reads as
+ * "5   h ago" — the gap after a digit is already generous in a small-caps face
+ * and the extra pushed it apart. A text face also draws its numerals to sit
+ * with lowercase, which is what this line actually is.
+ */
+.portrait .label .when {
+  display: block;
+  font-family: var(--lumiverse-font-family);
+  font-size: 0.72rem;
+  letter-spacing: normal;
+  margin-top: 0.12rem;
+  color: var(--lumiverse-text-muted);
+}
+
+/* Cast list medallions */
+.item.withface { display: flex; align-items: center; gap: 0.75rem; }
+.medallion {
+  display: block;          /* spans are inline; without this the box has no size */
+  flex: none;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background-size: cover; background-position: center top;
+  box-shadow: 0 0 0 1px var(--lumiverse-border-hover), 0 0 12px rgba(200,153,79,0.14);
+}
+.medallion.blank {
+  display: grid; place-items: center;
+  font-family: var(--lumiverse-font-display);
+  color: var(--lumiverse-primary-muted);
+  background: var(--lumiverse-bg-hover);
+}
+.item .meta { flex: 1; min-width: 0; }
+.item .meta .s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Speaker medallion in the thread */
+.who { display: flex; align-items: center; gap: 0.5rem; }
+.who .medallion { width: 22px; height: 22px; box-shadow: 0 0 0 1px var(--lumiverse-border-hover); }
+
+/* ---- scrollbars ---------------------------------------------------------- */
+
+* { scrollbar-color: var(--lumiverse-primary-muted) transparent; scrollbar-width: thin; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--lumiverse-primary-muted);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--lumiverse-primary); background-clip: content-box; }
+
+/* Textareas and selects inherit the page palette rather than the OS one. */
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--lumiverse-text-dim) 50%),
+                    linear-gradient(135deg, var(--lumiverse-text-dim) 50%, transparent 50%);
+  background-position: right 0.95rem center, right 0.6rem center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+select option { background: var(--lumiverse-bg-elevated); color: var(--lumiverse-text); }
+dialog, .panel, #scroll, textarea { color-scheme: dark; }
+
+/* ---- message style: portrait --------------------------------------------
+   Avatar sits in a left gutter and overlaps the edge of the text plate, so the
+   face reads as pinned to the message rather than floating beside it. */
+
+:root { --avatar-size: 56px; }
+
+body[data-msgstyle="portrait"] .msg {
+  position: relative;
+  padding: 0 0 1.1rem;
+  min-height: var(--avatar-size);
+  border: 0;
+}
+body[data-msgstyle="portrait"] .msg + .msg { border-image: none; border-top: 0; }
+
+body[data-msgstyle="portrait"] .who {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  margin: 0;
+  z-index: 2;
+  gap: 0;
+}
+/* The name moves onto the plate; only the face stays in the gutter. */
+body[data-msgstyle="portrait"] .who .nametext { display: none; }
+
+body[data-msgstyle="portrait"] .who .medallion {
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: 14px;
+  font-size: calc(var(--avatar-size) * 0.42);
+  box-shadow: 0 0 0 1px var(--lumiverse-border-hover),
+              0 3px 14px rgba(0, 0, 0, 0.5),
+              0 0 22px rgba(200, 153, 79, 0.10);
+}
+
+body[data-msgstyle="portrait"] .plate {
+  margin-left: calc(var(--avatar-size) * 0.62);
+  padding: 0.7rem 1rem 0.85rem calc(var(--avatar-size) * 0.5 + 1rem);
+  background: linear-gradient(100deg,
+      var(--lumiverse-bg-elevated), var(--lumiverse-bg-hover));
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 14px;
+  min-height: var(--avatar-size);
+}
+
+
+body[data-msgstyle="portrait"] .platename {
+  display: block;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--lumiverse-primary);
+  margin-bottom: 0.15rem;
+}
+body[data-msgstyle="portrait"] .msg.mine .platename { color: var(--lumiverse-text-dim); }
+
+body[data-msgstyle="portrait"] .msg.mine .body {
+  padding-left: 0;
+  border-left: 0;
+  color: var(--lumiverse-text-muted);
+}
+body[data-msgstyle="portrait"] .tools { padding-left: calc(var(--avatar-size) * 0.62 + 1rem); }
+
+/* Page style keeps the plate invisible. */
+body[data-msgstyle="page"] .plate { display: contents; }
+body[data-msgstyle="page"] .platename { display: none; }
+
+@media (max-width: 560px) {
+  body[data-msgstyle="portrait"] { --avatar-size: 44px; }
+}
+
+.styles { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; }
+.styles button {
+  flex: 1;
+  padding: 0.55rem 0.4rem;
+  background: none;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-dim);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+.styles button.on {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+  background: rgba(200, 153, 79, 0.08);
+}
+
+/* `input { display:block }` above outranks the UA rule for [hidden], which let
+   raw "Choose Files" controls show through the styled labels. */
+[hidden] { display: none !important; }
+
+/* ---- collapsible panel --------------------------------------------------- */
+
+.rail {
+  flex: none;
+  width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: calc(var(--bar-h) + env(safe-area-inset-top) + 0.6rem);
+}
+.railbtn {
+  width: 26px; height: 46px;
+  display: grid; place-items: center;
+  background: var(--lumiverse-bg-elevated);
+  border: 1px solid var(--lumiverse-border);
+  border-right: 0;
+  border-radius: var(--lumiverse-radius-sm) 0 0 var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-dim);
+  cursor: pointer;
+  margin-left: -26px;
+}
+.railbtn:hover { color: var(--lumiverse-primary); }
+.railbtn svg { width: 15px; }
+
+@media (min-width: 900px) {
+  .panelbar { transition: width 0.22s ease, opacity 0.18s ease; overflow: hidden; }
+  body.tucked .panelbar { width: 0; border-left: 0; opacity: 0; pointer-events: none; }
+  body.tucked .railbtn svg { transform: scaleX(-1); }
+}
+@media (max-width: 899px) { .rail { display: none; } }
+
+/* corner softness is user-set */
+.plate, .ghost, .solid, .filebtn, .item, dialog, .portrait,
+.wallgrid button, .styles button, input, select, textarea {
+  border-radius: var(--lumiverse-radius-sm);
+}
+.plate, dialog, .portrait { border-radius: calc(var(--lumiverse-radius) * 1.4); }
+body[data-msgstyle="portrait"] .who .medallion { border-radius: calc(var(--lumiverse-radius) * 1.4); }
+
+/* ---- personas ------------------------------------------------------------ */
+
+.item.active { box-shadow: inset 2px 0 0 var(--lumiverse-primary); padding-left: 0.6rem; }
+.item.active .t { color: var(--lumiverse-primary); }
+
+/* ---- message style: banner ----------------------------------------------
+   A tall portrait holds the left column, the name sits centred over the text,
+   with meta and swipe controls beneath it. Actions live under the portrait. */
+
+/* The slider writes --banner-w-user; everything reads --banner-w. Keeping the
+   two apart is what lets a phone bound the width without discarding the
+   choice — see the narrow-screen rule further down. */
+:root { --banner-w: var(--banner-w-user, 150px); }
+
+body[data-msgstyle="banner"] .msg {
+  display: grid;
+  grid-template-columns: var(--banner-w) minmax(0, 1fr);
+  column-gap: 1.4rem;
+  padding: 1.4rem 0 1.8rem;
+  border: 0;
+}
+body[data-msgstyle="banner"] .msg + .msg { border-top: 0; border-image: none; }
+
+body[data-msgstyle="banner"] .who {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  display: block;
+  margin: 0;
+}
+body[data-msgstyle="banner"] .who .nametext { display: none; }
+body[data-msgstyle="banner"] .who .medallion {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  border-radius: calc(var(--lumiverse-radius) * 1.2);
+  background-position: center top;
+  box-shadow: 0 0 0 1px var(--lumiverse-border-hover),
+              0 10px 30px rgba(0, 0, 0, 0.55);
+}
+body[data-msgstyle="banner"] .who .medallion.blank {
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--banner-w) * 0.34);
+}
+
+body[data-msgstyle="banner"] .plate { grid-column: 2; display: contents; }
+
+body[data-msgstyle="banner"] .platename {
+  display: block;
+  grid-column: 2;
+  text-align: center;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--lumiverse-primary);
+  line-height: 1.15;
+  margin-bottom: 0.15rem;
+}
+body[data-msgstyle="banner"] .msg.mine .platename { color: var(--lumiverse-text-muted); }
+
+.meta-line {
+  display: block;
+  text-align: center;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  color: var(--lumiverse-text-hint);
+  margin-bottom: 0.4rem;
+}
+
+.swipes {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  margin-bottom: 1.1rem;
+  color: var(--lumiverse-text-dim);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+.swipes button {
+  background: none; border: 0; padding: 2px 6px;
+  color: var(--lumiverse-text-hint);
+  font: inherit; font-size: 1rem; line-height: 1; cursor: pointer;
+}
+.swipes button:hover:not(:disabled) { color: var(--lumiverse-primary); }
+.swipes button:disabled { opacity: 0.3; cursor: default; }
+
+body[data-msgstyle="banner"] .body { grid-column: 2; }
+body[data-msgstyle="banner"] .msg.mine .body {
+  padding-left: 0; border-left: 0; color: var(--lumiverse-text-muted);
+}
+body[data-msgstyle="banner"] .tools {
+  grid-column: 1;
+  grid-row: 3;
+  padding: 0.6rem 0 0;
+  display: flex;
+  gap: 0.1rem;
+}
+body[data-msgstyle="banner"] .tools button { padding: 4px 6px; font-size: 0.76rem; }
+
+body[data-msgstyle="banner"] .msg { grid-template-rows: auto 1fr auto; }
+
+@media (max-width: 700px) {
+  /* A fixed 84px here ignored the portrait-width slider entirely: the value is
+     set on :root and this set it again on body, which is nearer, so the
+     setting had no effect on a phone at all. Bound it instead — the choice is
+     honoured up to the point where a portrait would crowd out the words. */
+  body[data-msgstyle="banner"] { --banner-w: min(var(--banner-w-user, 84px), 42vw); }
+  body[data-msgstyle="banner"] .msg { column-gap: 0.9rem; }
+  body[data-msgstyle="banner"] .platename { font-size: 1.15rem; text-align: left; }
+  /* The timestamp reads as a caption and belongs under the name it captions.
+     The swipe controls are not a caption — they are the one control in the
+     message, and a control the thumb has to find is centred. Left-aligning
+     both together was tidy in the stylesheet and wrong on the phone. */
+  body[data-msgstyle="banner"] .meta-line { text-align: left; justify-content: flex-start; }
+}
+
+
+/* ---- range inputs -------------------------------------------------------- */
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--lumiverse-border-hover);
+}
+input[type="range"]::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--lumiverse-border-hover);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px; height: 15px;
+  margin-top: -6px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--lumiverse-primary);
+  box-shadow: 0 0 8px rgba(200, 153, 79, 0.35);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 15px; height: 15px;
+  border: 0; border-radius: 50%;
+  background: var(--lumiverse-primary);
+}
+
+/* Buttons that follow a hint paragraph need their own air. */
+.filebtn + .hint, .ghost + .hint { margin-top: 0.5rem; }
+.hint + .ghost, .hint + .filebtn { margin-top: 0.9rem; }
+.panel > .ghost.wide + .ghost.wide { margin-top: 0.5rem; }
+
+/* ---- banner, revised -----------------------------------------------------
+   Portrait stands outside the message on the left; the text sits in its own
+   plate with an accent rule down the near edge. */
+
+body[data-msgstyle="banner"] .msg {
+  grid-template-columns: var(--banner-w) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: start;
+  column-gap: 1.1rem;
+}
+
+body[data-msgstyle="banner"] .who {
+  grid-column: 1;
+  grid-row: 1;
+  position: sticky;
+  top: 0.5rem;
+}
+
+/* `1fr` is `minmax(auto, 1fr)`, and that `auto` floor is the plate's own
+   min-content width — its tuck padding plus its longest unbreakable word. On a
+   phone that floor is wider than the space left over, so the track grew past
+   the message and the text ran off the right edge: the width slider appeared
+   to do nothing because the column had stopped honouring it. Both the track
+   and the item need a zero floor before either will shrink. */
+body[data-msgstyle="banner"] .plate {
+  display: block;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  padding: 1.1rem 1.4rem 1.3rem;
+  background: linear-gradient(160deg,
+      var(--lumiverse-bg-elevated), var(--lumiverse-bg));
+  border: 1px solid var(--lumiverse-border);
+  border-left: 3px solid var(--lumiverse-primary-muted);
+  border-radius: calc(var(--lumiverse-radius) * 1.2);
+}
+body[data-msgstyle="banner"] .msg.mine .plate {
+  border-left-color: var(--lumiverse-text-hint);
+}
+
+body[data-msgstyle="banner"] .platename { font-size: 1.35rem; margin-bottom: 0.1rem; }
+body[data-msgstyle="banner"] .meta-line { margin-bottom: 0.5rem; }
+body[data-msgstyle="banner"] .swipes {
+  margin: 0 0 0.9rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--lumiverse-border);
+}
+body[data-msgstyle="banner"] .body { grid-column: auto; }
+
+body[data-msgstyle="banner"] .tools {
+  grid-column: 1;
+  grid-row: 2;
+  padding: 0.55rem 0 0;
+  justify-content: flex-start;
+}
+
+/* No portrait? Don't leave a big empty card standing there — shrink the column
+   to a slim monogram so the text keeps the width. */
+body[data-msgstyle="banner"] .msg:has(.medallion.blank) {
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+}
+body[data-msgstyle="banner"] .medallion.blank {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  background: var(--lumiverse-bg-hover);
+  box-shadow: 0 0 0 1px var(--lumiverse-border);
+}
+body[data-msgstyle="banner"] .msg:has(.medallion.blank) .tools { grid-column: 2; padding-left: 0; }
+
+@media (max-width: 700px) {
+  body[data-msgstyle="banner"] .msg { column-gap: 0.7rem; }
+  body[data-msgstyle="banner"] .plate { padding: 0.8rem 0.9rem 1rem; }
+  body[data-msgstyle="banner"] .platename { font-size: 1.05rem; }
+}
+
+/* ---- thinking, stats, checks --------------------------------------------- */
+
+.think {
+  margin: 0 0 0.9rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: rgba(0, 0, 0, 0.22);
+}
+.think summary {
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.8rem;
+  color: var(--lumiverse-text-dim);
+}
+.think summary::-webkit-details-marker { display: none; }
+.think summary::before { content: "\25B8 "; color: var(--lumiverse-primary-muted); }
+.think[open] summary::before { content: "\25BE "; }
+.thinkbody {
+  padding: 0 0.9rem 0.8rem;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--lumiverse-text-dim);
+  white-space: pre-wrap;
+  max-height: 17rem;
+  overflow-y: auto;
+}
+
+body.nostats .meta-line { visibility: hidden; height: 0; margin: 0; }
+
+/* ---- toggle rows ---------------------------------------------------------
+   Same drawn checkbox as the list picker, on a row that reads as a control
+   rather than a stray label with a system widget beside it. */
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.45rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-muted);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+label.check:hover {
+  background: color-mix(in srgb, var(--lumiverse-bg) 55%, transparent);
+  border-color: var(--lumiverse-border);
+  color: var(--lumiverse-text);
+}
+label.check:has(input:checked) { color: var(--lumiverse-text); }
+
+label.check input[type="checkbox"] {
+  position: relative;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: calc(var(--lumiverse-radius-sm) * 0.8);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+label.check:hover input[type="checkbox"] { border-color: var(--lumiverse-primary); }
+label.check input[type="checkbox"]:checked {
+  background: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+}
+label.check input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--lumiverse-bg-deep);
+  border-width: 0 2px 2px 0;
+  transform: rotate(43deg);
+}
+
+/* ---- glass plate ---------------------------------------------------------
+   The message is frosted glass laid over the scene. Because it blurs what sits
+   behind it, a portrait tucked underneath softens at the boundary on its own. */
+
+body[data-msgstyle="banner"] .plate,
+body[data-msgstyle="portrait"] .plate {
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
+          backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 10px 34px rgba(0, 0, 0, 0.42);
+}
+
+/* ---- portrait frame ------------------------------------------------------
+   A brass hairline, a dark reveal, then a second finer line — the way a framed
+   picture is matted. Built from inset shadows so the mask fades the frame with
+   the image rather than leaving an outline behind. */
+
+body[data-msgstyle="banner"] .who .medallion:not(.blank),
+body[data-msgstyle="portrait"] .who .medallion:not(.blank) {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, var(--lumiverse-primary) 30%, transparent),
+    inset 0 0 26px rgba(0, 0, 0, 0.45),
+    0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- bleed ---------------------------------------------------------------
+   The portrait slides under the plate's near edge and fades out downward and
+   to the right, so it reads as a picture propped behind the page. The plate
+   casts its own shadow across it. */
+
+body.bleed[data-msgstyle="banner"] .msg { column-gap: 0; }
+
+body.bleed[data-msgstyle="banner"] .who { position: relative; z-index: 1; }
+
+body.bleed[data-msgstyle="banner"] .who .medallion:not(.blank),
+body.bleed[data-msgstyle="portrait"] .who .medallion:not(.blank) {
+  -webkit-mask-image:
+    linear-gradient(to bottom, #000 0%, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to right, #000 0%, #000 72%, rgba(0,0,0,0.45) 100%);
+          mask-image:
+    linear-gradient(to bottom, #000 0%, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to right, #000 0%, #000 72%, rgba(0,0,0,0.45) 100%);
+  -webkit-mask-size: 100% 100%;
+          mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-composite: source-in;
+          mask-composite: intersect;
+}
+
+body.bleed[data-msgstyle="banner"] .who .medallion:not(.blank) { aspect-ratio: 5 / 8; }
+
+/* Plate rides over the portrait and throws a shadow back across it. */
+body.bleed[data-msgstyle="banner"] .plate {
+  position: relative;
+  z-index: 2;
+  margin-left: calc(var(--banner-w) * var(--tuck) * -1);
+  padding-left: calc(var(--banner-w) * var(--tuck) + 1.4rem);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    -14px 0 28px -6px rgba(0, 0, 0, 0.62),
+    0 10px 34px rgba(0, 0, 0, 0.42);
+}
+
+/* The blank monogram must stay round in every style. */
+body[data-msgstyle="banner"] .who .medallion.blank {
+  width: 3.2rem;
+  height: 3.2rem;
+  aspect-ratio: auto;
+  border-radius: 50%;
+  font-size: 1.25rem;
+}
+
+/* ---- model picker -------------------------------------------------------- */
+
+.picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--lumiverse-bg);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  font-family: var(--lumiverse-font-family);
+  font-size: max(15px, 0.95rem);
+  text-align: left;
+  cursor: pointer;
+}
+.picker:hover { border-color: var(--lumiverse-border-hover); }
+.picker #modelLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pickerprice { flex: none; font-size: 0.78rem; color: var(--lumiverse-text-hint); }
+
+#modelDialog { width: min(96vw, 40rem); }
+#modelDialog h2 { margin-bottom: 0.7rem; }
+
+.modellist {
+  max-height: 52dvh;
+  overflow-y: auto;
+  margin: 0.4rem 0 0.8rem;
+  border-top: 1px solid var(--lumiverse-border);
+}
+.modelrow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.6rem 0.2rem;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--lumiverse-border);
+  color: var(--lumiverse-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.modelrow:hover { background: var(--lumiverse-bg-hover); }
+.modelrow.on { box-shadow: inset 2px 0 0 var(--lumiverse-primary); }
+.modelrow .mid { flex: 1; min-width: 0; }
+.modelrow .mname {
+  display: block;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.95rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.modelrow .msub { display: block; font-size: 0.74rem; color: var(--lumiverse-text-hint); }
+.modelrow .mprice {
+  flex: none;
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--lumiverse-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.modelrow .mprice .fill { display: block; font-size: 0.72rem; color: var(--lumiverse-text-hint); }
+.modelrow .free { color: var(--lumiverse-primary); }
+.modelrow .approx { opacity: 0.7; font-style: italic; }
+
+/* ---- icon controls -------------------------------------------------------
+   Message actions sit in the plate's top-left corner. The name is centred, so
+   the corner is free and the eye finds the controls in the same place always. */
+
+body[data-msgstyle="banner"] .plate,
+body[data-msgstyle="portrait"] .plate { position: relative; }
+
+body[data-msgstyle="banner"] .tools,
+body[data-msgstyle="portrait"] .tools {
+  position: absolute;
+  top: 0.55rem;
+  left: calc(var(--banner-w) * var(--tuck) + 0.8rem);
+  grid-column: auto;
+  grid-row: auto;
+  display: flex;
+  gap: 0.15rem;
+  padding: 0;
+  z-index: 4;
+}
+body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
+
+/**
+ * ...and on a phone, the other corner.
+ *
+ * The left corner is free only because the name is centred, which stops being
+ * true at 700px: the name goes flush left and the controls land on top of it
+ * and its timestamp. This has to sit *after* the rule above rather than with
+ * the other narrow-screen rules further up the file — same specificity, so
+ * whichever comes last wins, and an override written earlier simply loses.
+ */
+@media (max-width: 700px) {
+  body[data-msgstyle="banner"] .tools {
+    left: auto;
+    right: 0.5rem;
+    top: 0.45rem;
+  }
+  /* Four 26px buttons and their gaps come to ~111px; the reserve has to beat
+     that or the name simply runs underneath them instead of being clipped. */
+  body[data-msgstyle="banner"] .platename,
+  body[data-msgstyle="banner"] .meta-line { padding-right: 7.5rem; }
+  /**
+   * Two lines rather than an ellipsis.
+   *
+   * "Joffrey Baratheon" does not fit beside four controls on a phone, and
+   * shortening a name in code is a worse cure than the disease: the part worth
+   * keeping is not reliably the first word. "Grand Maester Pycelle" would
+   * become "Grand", "Ser Ilyn Payne" would become "Ser", and a name with no
+   * spaces in it at all would be untouched. Wrapping keeps every name intact
+   * and costs one line.
+   */
+  body[data-msgstyle="banner"] .platename {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    line-height: 1.18;
+  }
+  /* Banner sets padding: 4px 6px on these from its text-button days. At 26px
+     square with a 1px border that leaves a 12px content box for a 14px icon,
+     so the icon overflowed its own box and sat off to one side. The square is
+     the button; the grid centring does the rest. */
+  body[data-msgstyle="banner"] .tools button {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+  }
+  body[data-msgstyle="banner"] .tools button svg { width: 14px; }
+}
+
+.tools button {
+  width: 30px; height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--lumiverse-radius-sm);
+  background: none;
+  color: var(--lumiverse-text-hint);
+  cursor: pointer;
+}
+.tools button svg { width: 16px; stroke-width: 1.7; }
+.tools button:hover {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-border);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+}
+.tools button.done { color: var(--lumiverse-primary); }
+@media (hover: none) { .tools { opacity: 0.65; } }
+
+/* ---- composer ------------------------------------------------------------
+   One bordered box: actions in the corner, the field beneath, spark at the end. */
+
+.inputbox {
+  position: relative;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 0.7rem 3.6rem 0.8rem 1.7rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 88%, transparent);
+  -webkit-backdrop-filter: blur(var(--plate-blur));
+          backdrop-filter: blur(var(--plate-blur));
+  border: 1px solid var(--lumiverse-border);
+  border-radius: calc(var(--lumiverse-radius) * 1.3);
+}
+.inputbox:focus-within { border-color: var(--lumiverse-border-hover); }
+
+.quickrow {
+  display: flex;
+  gap: 0.1rem;
+  padding: 0 0 0.15rem;
+  overflow: visible;
+}
+
+.ico {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-hint);
+  cursor: pointer;
+}
+.ico svg { width: 17px; stroke-width: 1.7; }
+.ico:hover {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-border);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 40%, transparent);
+}
+.ico.danger { color: var(--lumiverse-danger); }
+.ico.danger svg { fill: currentColor; }
+
+.composer textarea {
+  width: 100%;
+  min-height: 2.2rem;
+  margin: 0;
+  padding: 0.15rem 0.35rem 0.2rem;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+.composer textarea:focus { border: 0; }
+
+/* Centred with a margin rather than a transform. It used to be
+   `translateY(-50%)`, which the :hover and :disabled rules then overwrote with
+   their own transform — so the arrow dropped half its height when the pointer
+   touched it, and again every time sending disabled it. Keeping the centring
+   out of `transform` leaves that property free for the nudge. */
+.send {
+  position: absolute;
+  right: 0.7rem;
+  top: 50%;
+  margin-top: -20px;          /* half of height */
+  width: 40px; height: 40px;
+}
+.send svg { width: 31px; height: 31px; }
+
+/* ---- list row controls --------------------------------------------------- */
+
+.rowtools { flex: none; display: flex; gap: 0.1rem; }
+.rowtools button {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-hint);
+  cursor: pointer;
+}
+.rowtools button svg { width: 15px; stroke-width: 1.7; pointer-events: none; }
+.rowtools button:hover { color: var(--lumiverse-primary); border-color: var(--lumiverse-border); }
+.rowtools button[data-del-p]:hover,
+.rowtools button[data-del-char]:hover,
+.rowtools button[data-del-chat]:hover { color: var(--lumiverse-danger); }
+.item .x { display: none; }
+
+/* Corner icons are a fixed landmark, so they stay visible rather than waiting
+   for a hover that never happens on touch. */
+.msg .tools { opacity: 1; }
+body[data-msgstyle="banner"] .tools button,
+body[data-msgstyle="portrait"] .tools button {
+  color: color-mix(in srgb, var(--lumiverse-primary) 62%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 34%, transparent);
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 16%, transparent);
+}
+body[data-msgstyle="banner"] .tools button:hover,
+body[data-msgstyle="portrait"] .tools button:hover {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-border-hover);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 65%, transparent);
+}
+
+/* ---- swipe controls, enlarged -------------------------------------------- */
+
+.swipes {
+  gap: 0.35rem;
+  font-size: 0.92rem;
+  color: var(--lumiverse-text-muted);
+}
+.swipes button {
+  width: 34px; height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 1.5rem;
+  line-height: 1;
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 20%, transparent);
+  border-radius: 50%;
+  color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 32%, transparent);
+}
+.swipes button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--lumiverse-primary) 16%, transparent);
+  border-color: var(--lumiverse-border-hover);
+}
+.swipes button:disabled { opacity: 0.22; }
+.swipes .sn {
+  min-width: 3.2rem;
+  text-align: center;
+  font-family: var(--lumiverse-font-display);
+  letter-spacing: 0.06em;
+  color: var(--lumiverse-text-muted);
+}
+
+/* The forward arrow doubles as "make another", so hint at that. */
+.swipes button[data-swipe="1"] {
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 34%, transparent);
+}
+
+/* The plate is the anchor for the corner icons; page style has no plate box,
+   so the tools fall back into the flow there. */
+body[data-msgstyle="page"] .tools { position: static; opacity: 1; padding-left: 0; }
+
+/* ---- guided generation ---------------------------------------------------
+   A steer applies to the next reply only and never enters the transcript, so
+   it gets its own field above the message box rather than living inside it. */
+
+.guiderow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.1rem 0 0.3rem;
+  padding: 0.15rem 0.15rem 0.15rem 0.5rem;
+  border: 1px dashed color-mix(in srgb, var(--lumiverse-primary) 34%, transparent);
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-primary) 6%, transparent);
+}
+.guiderow input {
+  flex: 1;
+  margin: 0;
+  padding: 0.3rem 0.2rem;
+  background: none;
+  border: 0;
+  font-size: max(15px, 0.92rem);
+  font-style: italic;
+  color: var(--lumiverse-prose-italic);
+}
+.guiderow input:focus { border: 0; outline: none; }
+.guiderow input::placeholder { color: var(--lumiverse-text-hint); font-style: italic; }
+.guiderow .ico { width: 26px; height: 26px; }
+.guiderow .ico svg { width: 14px; }
+
+.ico.on {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-border-hover);
+  background: color-mix(in srgb, var(--lumiverse-primary) 12%, transparent);
+}
+
+/* No "phone economy" here. Hearth is an Android app first and a desktop
+   convenience second, so the phone gets the same surfaces the desktop does —
+   the frosting is most of what the thing looks like. Where a frosted surface
+   was costing frames the answer is the compositing hint on .portrait below,
+   not a plainer app on the device it was built for.
+
+   A stated preference for plainer surfaces is different, and is still
+   honoured; see prefers-reduced-transparency. */
+
+/* Respect a stated preference for plainer surfaces. */
+@media (prefers-reduced-transparency: reduce) {
+  .plate, .inputbox, .bar, .portrait .label, .composer {
+    -webkit-backdrop-filter: none !important;
+            backdrop-filter: none !important;
+    background: var(--lumiverse-bg-elevated);
+  }
+}
+
+/* ---- settings sections --------------------------------------------------- */
+
+.navcard {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.55rem;
+  background: color-mix(in srgb, var(--lumiverse-bg) 55%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text);
+  font: inherit;
+  cursor: pointer;
+}
+.navcard:hover { border-color: var(--lumiverse-border-hover); background: var(--lumiverse-bg-hover); }
+.navcard .t {
+  display: block;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1rem;
+  color: var(--lumiverse-primary);
+}
+.navcard .s { display: block; font-size: 0.8rem; color: var(--lumiverse-text-dim); }
+
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 1rem;
+  padding: 0.3rem 0.1rem;
+  background: none;
+  border: 0;
+  color: var(--lumiverse-text-dim);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.backlink::before { content: "\2039 "; font-size: 1.25rem; line-height: 1; }
+.backlink:hover { color: var(--lumiverse-primary); }
+
+/* ---- bulk selection ------------------------------------------------------ */
+
+.listbar {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-bottom: 0.4rem;
+  min-height: 32px;
+}
+.selcount {
+  font-size: 0.78rem;
+  color: var(--lumiverse-text-dim);
+  font-variant-numeric: tabular-nums;
+  padding-right: 0.3rem;
+}
+.listbar .ico { width: 30px; height: 30px; }
+.listbar .ico svg { width: 16px; }
+.listbar .grow { flex: 1; }
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0.3rem 0.2rem;
+  color: var(--lumiverse-text-dim);
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+.linkish:hover:not(:disabled) { color: var(--lumiverse-primary); }
+.linkish.danger { color: var(--lumiverse-danger); }
+.linkish:disabled { opacity: 0.4; cursor: default; }
+
+.rowwrap { display: flex; align-items: center; gap: 0.6rem; }
+.rowwrap > .item { flex: 1; min-width: 0; }
+
+/* Hand-drawn checkbox: a brass-ruled tile that fills and shows a tick when set,
+   because the native control ignores the theme entirely. */
+.pick { display: none; }
+
+.list.selecting > .rowwrap > .pick {
+  display: block;
+  flex: none;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: calc(var(--lumiverse-radius-sm) * 0.8);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.list.selecting > .rowwrap > .pick:hover {
+  border-color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-primary) 12%, transparent);
+}
+.list.selecting > .rowwrap > .pick:checked {
+  background: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+}
+.list.selecting > .rowwrap > .pick:checked::after {
+  content: "";
+  position: absolute;
+  left: 6px; top: 2px;
+  width: 5px; height: 10px;
+  border: solid var(--lumiverse-bg-deep);
+  border-width: 0 2px 2px 0;
+  transform: rotate(43deg);
+}
+.list.selecting > .rowwrap:hover > .pick { border-color: var(--lumiverse-primary); }
+
+/* The whole row is a target while picking, so show that. */
+.list.selecting .rowwrap { cursor: pointer; user-select: none; }
+.list.selecting .rowwrap:hover > .item { background: var(--lumiverse-bg-hover); }
+.list.selecting .item { pointer-events: none; }
+.list.selecting .rowtools { display: none; }
+
+/* ---- character chat sublist ---------------------------------------------- */
+
+.sublist {
+  padding: 0.2rem 0 0.5rem 3.2rem;
+  border-bottom: 1px solid var(--lumiverse-border);
+}
+.sublist .hint { margin: 0.3rem 0; }
+.subrow {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-radius: var(--lumiverse-radius-sm);
+}
+.subrow:hover { background: var(--lumiverse-bg-hover); }
+
+.subitem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.2rem 0.45rem 0.45rem;
+  background: none;
+  border: 0;
+  color: var(--lumiverse-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.subrow:hover .subitem { color: var(--lumiverse-text); }
+
+/* Same weight and manners as every other icon control in the app. */
+.subdel {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin-right: 0.2rem;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-hint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease;
+}
+.subdel svg { width: 15px; stroke-width: 1.7; pointer-events: none; }
+.subrow:hover .subdel, .subdel:focus-visible { opacity: 1; }
+.subdel:hover {
+  color: var(--lumiverse-danger);
+  border-color: color-mix(in srgb, var(--lumiverse-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-danger) 10%, transparent);
+}
+@media (hover: none) { .subdel { opacity: 0.6; } }
+.subitem .t {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.88rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.subitem .s { flex: none; font-size: 0.74rem; color: var(--lumiverse-text-hint); }
+
+/* ---- wallpaper cells ----------------------------------------------------- */
+
+.wallcell { position: relative; }
+.wallcell button:first-child { width: 100%; }
+.wallx {
+  position: absolute;
+  top: 3px; right: 3px;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 78%, transparent);
+  color: var(--lumiverse-text-muted);
+  opacity: 0;
+  cursor: pointer;
+}
+.wallx svg { width: 13px; }
+.wallcell:hover .wallx, .wallx:focus-visible { opacity: 1; }
+.wallx:hover { color: var(--lumiverse-danger); }
+@media (hover: none) { .wallx { opacity: 0.8; } }
+
+/* ---- picture well -------------------------------------------------------- */
+
+.facepick {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+
+.facebtn {
+  position: relative;
+  flex: none;
+  width: 84px;
+  aspect-ratio: 2 / 3;
+  padding: 0;
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: calc(var(--lumiverse-radius) * 1.2);
+  background: var(--lumiverse-bg);
+  overflow: hidden;
+  cursor: pointer;
+}
+.facebtn:hover { border-color: var(--lumiverse-primary); }
+
+.facepreview {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center top;
+}
+.facepreview.empty {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, var(--lumiverse-bg-hover), var(--lumiverse-bg-deep));
+}
+.facepreview.empty::after {
+  content: "";
+  width: 26px; height: 26px;
+  border: 1.6px solid var(--lumiverse-primary-muted);
+  border-radius: 4px;
+  box-shadow: inset 0 -9px 0 -6px var(--lumiverse-primary-muted);
+}
+
+.faceoverlay {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 0.3rem 0;
+  text-align: center;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.72rem;
+  color: var(--lumiverse-text);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 78%, transparent);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.facebtn:hover .faceoverlay, .facebtn:focus-visible .faceoverlay { opacity: 1; }
+@media (hover: none) { .faceoverlay { opacity: 1; } }
+
+.faceside { flex: 1; min-width: 0; }
+.faceside .hint { margin: 0 0 0.3rem; }
+.faceside .linkish { padding-left: 0; }
+
+/* ---- progress ------------------------------------------------------------ */
+
+.progress { margin: 0.7rem 0 0.9rem; }
+
+.progress .track {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  overflow: hidden;
+}
+.progress .fill {
+  width: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+      var(--lumiverse-primary-muted), var(--lumiverse-primary));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  transition: width 0.25s ease;
+}
+.progress.failed .fill {
+  background: var(--lumiverse-danger);
+  box-shadow: none;
+}
+
+.progmeta {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--lumiverse-text-dim);
+}
+.progmeta span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progmeta span:last-child { font-variant-numeric: tabular-nums; }
+.progress.failed .progmeta { color: var(--lumiverse-danger); }
+
+/* ---- splash: characters above, chats below ------------------------------- */
+
+.splashsplit {
+  margin-top: 2.6rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent,
+      var(--lumiverse-border) 18%, var(--lumiverse-border) 82%, transparent) 1;
+}
+
+.splashhead {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+.splashhead h2 { flex: 1; margin: 0; }
+.splashhead .listbar { margin: 0; flex: none; }
+
+/* On the splash the rows sit on the scene, so give them a surface. */
+.splash .list .rowwrap { margin-bottom: 0.35rem; }
+.splash .list .item {
+  padding: 0.6rem 0.8rem;
+  border-bottom: 0;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 62%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
+}
+.splash .list .item:hover {
+  border-color: var(--lumiverse-border-hover);
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 82%, transparent);
+}
+.splash .list .medallion { width: 34px; height: 34px; }
+
+@media (max-width: 700px) {
+  .splashsplit { margin-top: 1.8rem; }
+}
+
+/* ---- last-message preview ------------------------------------------------ */
+
+.splash .list .item { align-items: flex-start; padding: 0.7rem 0.8rem; }
+.splash .list .medallion { margin-top: 0.1rem; }
+
+.splash .item .meta .t {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.splash .item .meta .t .when {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--lumiverse-font-family);
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--lumiverse-text-hint);
+}
+
+.splash .item .preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0.15rem 0 0.2rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--lumiverse-text-dim);
+}
+.splash .item .preview em { color: var(--lumiverse-text-hint); }
+.splash .item .preview .who-tag {
+  color: var(--lumiverse-primary-muted);
+  font-family: var(--lumiverse-font-display);
+}
+.splash .item .meta .s { font-size: 0.72rem; color: var(--lumiverse-text-hint); }
+
+@media (max-width: 700px) {
+  .splash .item .preview { -webkit-line-clamp: 1; }
+}
+
+/* Sublist rows carry a short preview under the title. */
+.subtext { flex: 1; min-width: 0; }
+.subtext .t { display: block; }
+.subpreview {
+  display: block;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--lumiverse-text-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subpreview em { font-style: italic; }
+.subpreview .who-tag { color: var(--lumiverse-primary-muted); }
+.subitem { align-items: flex-start; }
+.subitem > .s { padding-top: 0.1rem; }
+
+/* ---- undo toast ---------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1.4rem + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.7rem 0.6rem 1.1rem;
+  transform: translate(-50%, 1.4rem);
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 94%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  font-size: 0.88rem;
+  color: var(--lumiverse-text);
+}
+.toast.in { opacity: 1; transform: translate(-50%, 0); }
+.toast .linkish {
+  font-family: var(--lumiverse-font-display);
+  color: var(--lumiverse-primary);
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+}
+.toast .linkish:hover { border-color: var(--lumiverse-primary); }
+
+@media (max-width: 700px) {
+  .toast { left: 0.8rem; right: 0.8rem; transform: translateY(1.4rem); }
+  .toast.in { transform: none; }
+}
+
+/* Restore links in the bin read as an action, not a label. */
+#binList .rowtools .linkish { pointer-events: none; }
+#binList .item:hover .linkish { color: var(--lumiverse-primary); }
+
+/* ---- portrait: its own corner -------------------------------------------
+   Banner centres the name, which leaves the top-left free for the controls.
+   Portrait sets the name flush left, so the icons move to the other corner
+   and the header gets room to clear them. */
+
+body[data-msgstyle="portrait"] .tools {
+  left: auto;
+  right: 0.5rem;
+  top: 0.45rem;
+}
+body[data-msgstyle="portrait"] .platename {
+  padding-right: 6.5rem;
+  min-height: 1.4rem;
+}
+body[data-msgstyle="portrait"] .plate { padding-top: 0.8rem; }
+
+/* Long names should truncate rather than slide under the controls. */
+body[data-msgstyle="portrait"] .platename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Keep the reading column honest in portrait: the plate is what holds text,
+   so cap the plate itself rather than trusting the thread width. */
+body[data-msgstyle="portrait"] .plate { max-width: var(--measure); }
+body[data-msgstyle="portrait"] .msg { align-items: flex-start; }
+
+@media (max-width: 700px) {
+  body[data-msgstyle="portrait"] .platename { padding-right: 5.6rem; }
+  body[data-msgstyle="portrait"] .tools button { width: 26px; height: 26px; }
+  body[data-msgstyle="portrait"] .tools button svg { width: 14px; }
+}
+
+/* ---- page mode ----------------------------------------------------------
+   No plates and no faces — the point of this style is unbroken prose. But long
+   passages still need to sit on something over a busy wallpaper, so the glass
+   moves from the individual message to the column as a whole, which keeps the
+   blur and solidity sliders meaningful here too. */
+
+body[data-msgstyle="page"] .who .medallion { display: none; }
+body[data-msgstyle="page"] .who { gap: 0; }
+
+body[data-msgstyle="page"] #thread {
+  padding: 1.4rem 1.6rem 2.4rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
+          backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: calc(var(--lumiverse-radius) * 1.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 10px 34px rgba(0, 0, 0, 0.42);
+  max-width: calc(var(--measure) + 3.2rem);
+}
+
+/* The column is the surface now, so messages just divide inside it. */
+body[data-msgstyle="page"] .msg { padding: 1rem 0 1.1rem; }
+body[data-msgstyle="page"] .msg:first-child { padding-top: 0.2rem; }
+
+@media (max-width: 700px) {
+  body[data-msgstyle="page"] #thread {
+    padding: 1rem 1rem 2rem;
+  }
+}
+
+
+/* ---- shared message furniture -------------------------------------------
+   Timestamps, counters and swipe controls belong to every style. Only their
+   alignment differs, so set that per mode rather than hiding them outright. */
+
+.msg.mine .swipes { display: none; }
+body.nostats .meta-line { display: none; }
+
+body[data-msgstyle="portrait"] .meta-line,
+body[data-msgstyle="page"] .meta-line {
+  text-align: left;
+  margin-bottom: 0.45rem;
+}
+
+body[data-msgstyle="portrait"] .swipes,
+body[data-msgstyle="page"] .swipes {
+  justify-content: flex-start;
+  margin: 0 0 0.8rem;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+body[data-msgstyle="portrait"] .swipes button,
+body[data-msgstyle="page"] .swipes button { width: 28px; height: 28px; font-size: 1.2rem; }
+body[data-msgstyle="portrait"] .swipes .sn,
+body[data-msgstyle="page"] .swipes .sn { font-size: 0.8rem; min-width: 2.8rem; }
+
+/* Portrait puts the controls top-right, so the header must not run under them. */
+body[data-msgstyle="portrait"] .meta-line { padding-right: 6.5rem; }
+
+/* ---- folder browser ------------------------------------------------------ */
+
+#fsDialog { width: min(96vw, 40rem); }
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.1rem;
+  margin: 0.3rem 0 0.5rem;
+}
+.crumb {
+  padding: 0.2rem 0.4rem;
+  background: none;
+  border: 0;
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-dim);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.crumb:hover { color: var(--lumiverse-primary); background: var(--lumiverse-bg-hover); }
+.crumb + .crumb::before {
+  content: "/";
+  margin-right: 0.4rem;
+  color: var(--lumiverse-text-hint);
+}
+
+.fslist {
+  height: 44dvh;
+  overflow-y: auto;
+  padding: 0.2rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 40%, transparent);
+}
+
+.fsrow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  background: none;
+  border: 0;
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-muted);
+  font: inherit;
+  font-size: 0.92rem;
+  text-align: left;
+  cursor: pointer;
+}
+.fsrow:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
+.fsrow svg { width: 17px; flex: none; color: var(--lumiverse-primary-muted); pointer-events: none; }
+.fsrow span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.fsrow.up { color: var(--lumiverse-text-dim); }
+
+#fsPath {
+  margin-top: 0.6rem;
+  font-family: var(--lumiverse-font-mono, ui-monospace, monospace);
+  font-size: 0.84rem;
+}
+
+/* Shortcut chips — the difference between one tap and typing a Termux path. */
+.places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.2rem;
+}
+.place {
+  padding: 0.28rem 0.7rem;
+  background: none;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+  color: var(--lumiverse-text-dim);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.place:hover { color: var(--lumiverse-primary); border-color: var(--lumiverse-border-hover); }
+.place.strong {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent);
+}
+
+/* ---- search field -------------------------------------------------------- */
+
+.searchrow {
+  position: relative;
+  margin-bottom: 0.5rem;
+}
+.searchrow .searchicon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px;
+  color: var(--lumiverse-text-hint);
+  pointer-events: none;
+}
+.searchrow input {
+  margin: 0;
+  padding-left: 2rem;
+  font-size: max(15px, 0.9rem);
+}
+.searchrow input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  background: var(--lumiverse-text-hint);
+  mask: linear-gradient(45deg, transparent 44%, #000 44%, #000 56%, transparent 56%),
+        linear-gradient(-45deg, transparent 44%, #000 44%, #000 56%, transparent 56%);
+  cursor: pointer;
+}
+
+/* ---- keeping short messages from becoming empty smears -------------------
+   A tall portrait used to set the height of its grid row, so a two-word reply
+   left a plate several hundred pixels tall with nothing in it but blurred
+   wallpaper. The portrait now overflows its row instead of stretching it. */
+
+body[data-msgstyle="banner"] .msg { position: relative; }
+
+body[data-msgstyle="banner"] .who {
+  align-self: start;
+  max-height: 100%;
+}
+body[data-msgstyle="banner"] .who .medallion:not(.blank) {
+  max-height: 26rem;
+  object-fit: cover;
+}
+
+body[data-msgstyle="banner"] .plate,
+body[data-msgstyle="portrait"] .plate {
+  min-height: 5.5rem;
+}
+
+/* Solid enough to read against a bright wallpaper even at low opacity. */
+body[data-msgstyle="banner"] .plate,
+body[data-msgstyle="portrait"] .plate,
+body[data-msgstyle="page"] #thread {
+  background-color: color-mix(in srgb,
+    var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%),
+    color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent));
+}
+
+/* ---- chat options sheet -------------------------------------------------- */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(8, 5, 4, 0.5);
+}
+.sheetbody {
+  position: absolute;
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + 0.4rem);
+  right: 0.6rem;
+  width: min(90vw, 17rem);
+  padding: 0.4rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 96%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+          backdrop-filter: blur(16px);
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: calc(var(--lumiverse-radius) * 1.2);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+}
+.sheethead {
+  padding: 0.4rem 0.6rem 0.5rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  color: var(--lumiverse-text-hint);
+}
+.sheetrow {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  background: none;
+  border: 0;
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-muted);
+  font: inherit;
+  font-size: 0.92rem;
+  text-align: left;
+  cursor: pointer;
+}
+.sheetrow svg { width: 17px; flex: none; color: var(--lumiverse-primary-muted); }
+.sheetrow:hover { background: var(--lumiverse-bg-hover); color: var(--lumiverse-text); }
+.sheetrow:hover svg { color: var(--lumiverse-primary); }
+.sheetsep { height: 1px; margin: 0.35rem 0.5rem; background: var(--lumiverse-border); }
+
+/* ---- picking messages ---------------------------------------------------- */
+
+.msgbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1.2rem + env(safe-area-inset-bottom));
+  z-index: 45;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: min(94vw, 30rem);
+  padding: 0.55rem 0.7rem 0.55rem 1.1rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 96%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  font-size: 0.86rem;
+}
+.msgbar .grow { flex: 1; }
+
+#thread.picking .msg { cursor: pointer; }
+#thread.picking .plate,
+#thread.picking .body { pointer-events: none; }
+#thread.picking .msg .tools { display: none; }
+#thread.picking .msg.picked .plate {
+  outline: 2px solid var(--lumiverse-primary);
+  outline-offset: 2px;
+}
+#thread.picking .msg.picked { background: color-mix(in srgb, var(--lumiverse-primary) 7%, transparent); }
+body[data-msgstyle="page"] #thread.picking .msg.picked {
+  outline: 2px solid var(--lumiverse-primary);
+  outline-offset: -2px;
+  border-radius: var(--lumiverse-radius-sm);
+}
+
+/* ---- branches ------------------------------------------------------------ */
+
+.branchmark {
+  display: inline-flex;
+  vertical-align: -0.15em;
+  margin-right: 0.35rem;
+  color: var(--lumiverse-primary-muted);
+}
+.branchmark svg { width: 13px; stroke-width: 1.8; }
+.bar h1.branched::after {
+  content: "";
+  display: inline-block;
+  width: 6px; height: 6px;
+  margin-left: 0.5rem;
+  vertical-align: 0.35em;
+  border-radius: 50%;
+  background: var(--lumiverse-primary-muted);
+}
+
+/* ---- dialogs follow the theme -------------------------------------------- */
+
+dialog {
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 95%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+          backdrop-filter: blur(18px) saturate(1.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+dialog::backdrop {
+  background: rgba(8, 5, 4, 0.62);
+  -webkit-backdrop-filter: blur(3px);
+          backdrop-filter: blur(3px);
+}
+
+
+/* Your own messages read a shade cooler than the character's, but they are the
+   same glass — an opaque gradient here used to defeat the blur and solidity
+   sliders entirely, because the extra .mine class outranked them. */
+body[data-msgstyle="banner"] .msg.mine .plate,
+body[data-msgstyle="portrait"] .msg.mine .plate {
+  background-color: color-mix(in srgb,
+    var(--lumiverse-bg) calc(var(--plate-opacity) * 100%),
+    color-mix(in srgb, var(--lumiverse-bg-deep) 60%, transparent));
+}
+
+/* Three ways to spend one piece of direction, named so none of them are
+   hidden behind knowing that the guide applies to whatever you do next. */
+.guiderow { flex-wrap: wrap; }
+.guiderow input { min-width: 8rem; }
+
+.guideacts {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+.gbtn {
+  padding: 0.22rem 0.6rem;
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+  border-radius: 999px;
+  color: var(--lumiverse-primary);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+.gbtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--lumiverse-primary) 14%, transparent);
+  border-color: var(--lumiverse-primary);
+}
+.gbtn:disabled { opacity: 0.3; cursor: default; }
+
+@media (max-width: 560px) {
+  .guiderow input { flex: 1 0 100%; }
+  .guideacts { margin-left: 0; }
+}
+
+/* ---- folding sections ---------------------------------------------------- */
+
+.fold {
+  margin: 0 0 1rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-bg) 40%, transparent);
+}
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.95rem;
+  color: var(--lumiverse-text-muted);
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before {
+  content: "\25B8 ";
+  color: var(--lumiverse-primary-muted);
+  transition: transform 0.15s ease;
+}
+.fold[open] > summary::before { content: "\25BE "; }
+.fold > summary:hover { color: var(--lumiverse-text); }
+.fold > summary span:first-of-type { flex: 1; }
+.fold .count {
+  min-width: 1.4rem;
+  padding: 0.05rem 0.4rem;
+  text-align: center;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--lumiverse-text-hint);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+}
+.foldbody { padding: 0 0.7rem 0.8rem; }
+.foldbody .wallgrid { margin-bottom: 0.6rem; }
+
+/* ---- scene picker -------------------------------------------------------- */
+
+#sceneDialog .wallgrid {
+  grid-template-columns: repeat(4, 1fr);
+  max-height: 34dvh;
+  overflow-y: auto;
+  padding: 0.15rem;
+}
+#sceneDialog .wallgrid button[data-none] {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(150deg, var(--lumiverse-bg-hover), var(--lumiverse-bg-deep));
+  color: var(--lumiverse-text-dim);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.74rem;
+}
+
+/* Icon-only guide actions, sized to sit on one line beside the field. */
+.gbtn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+}
+.gbtn svg { width: 15px; stroke-width: 1.8; }
+#guideSend svg { fill: currentColor; stroke: none; width: 16px; }
+
+/* ---- persona cards ------------------------------------------------------- */
+
+.personagrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.4rem;
+  max-height: 26dvh;
+  overflow-y: auto;
+  padding: 0.15rem;
+  margin-bottom: 1rem;
+}
+.pcard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.55rem;
+  background: color-mix(in srgb, var(--lumiverse-bg) 45%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pcard:hover { border-color: var(--lumiverse-border-hover); background: var(--lumiverse-bg-hover); }
+.pcard.on {
+  border-color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent);
+}
+.pcard .medallion { width: 34px; height: 34px; flex: none; pointer-events: none; }
+.pcard .pmeta { flex: 1; min-width: 0; pointer-events: none; }
+.pcard .pmeta .t {
+  display: block;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.9rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pcard .pmeta .s {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--lumiverse-text-hint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pflag {
+  position: absolute;
+  top: 0.25rem; right: 0.35rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--lumiverse-primary-muted);
+  pointer-events: none;
+}
+
+/* ---- lore ---------------------------------------------------------------- */
+
+.loreactive { margin-bottom: 0.9rem; }
+.activehead {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  color: var(--lumiverse-text-muted);
+  margin-bottom: 0.45rem;
+}
+.activehead.dim { color: var(--lumiverse-text-hint); }
+
+.lorechip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.2rem 0.6rem;
+  background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 26%, transparent);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--lumiverse-text-muted);
+}
+.lorechip em {
+  font-style: normal;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  color: var(--lumiverse-primary-muted);
+}
+
+/* ---- lorebook editor ----------------------------------------------------- */
+
+#bookDialog { width: min(96vw, 46rem); }
+
+.bookhead { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.8rem; }
+.booktitle {
+  flex: 1;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  background: none;
+  border: 1px solid transparent;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.2rem;
+  color: var(--lumiverse-primary);
+}
+.booktitle:hover { border-color: var(--lumiverse-border); }
+.booktitle:focus { border-color: var(--lumiverse-border-hover); background: var(--lumiverse-bg); }
+
+.scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+}
+.scopes .check { margin: 0; flex: 1 1 12rem; font-size: 0.82rem; }
+
+.entries {
+  max-height: 48dvh;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+}
+
+.entry {
+  margin-bottom: 0.4rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-bg) 45%, transparent);
+}
+.entry.off { opacity: 0.55; }
+.entry > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  list-style: none;
+  cursor: pointer;
+}
+.entry > summary::-webkit-details-marker { display: none; }
+.entry > summary > .pick {
+  display: block;
+  flex: none;
+  width: 18px; height: 18px;
+  margin: 0;
+  appearance: none; -webkit-appearance: none;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: 4px;
+  position: relative;
+  cursor: pointer;
+}
+.entry > summary > .pick:checked { background: var(--lumiverse-primary); border-color: var(--lumiverse-primary); }
+.entry > summary > .pick:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px; top: 1px;
+  width: 5px; height: 9px;
+  border: solid var(--lumiverse-bg-deep);
+  border-width: 0 2px 2px 0;
+  transform: rotate(43deg);
+}
+.etitle {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.92rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ekeys {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.74rem;
+  color: var(--lumiverse-text-hint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.entry > summary .ico { width: 26px; height: 26px; flex: none; }
+.entry > summary .ico svg { width: 14px; }
+.ebody { padding: 0.2rem 0.7rem 0.7rem; border-top: 1px solid var(--lumiverse-border); }
+.ebody label { margin-bottom: 0.6rem; font-size: 0.78rem; }
+.ebody .check { padding: 0.3rem 0.4rem; margin-bottom: 0.25rem; }
+
+/* ---- lorebook scope toggles ---------------------------------------------
+   Attaching a book is the thing you do constantly, so it happens in the row
+   itself rather than behind an editor. */
+
+/* Two hundred books is a normal SillyTavern library, so a row is one line:
+   name and count side by side rather than stacked, tighter padding, and the
+   scope pills and tools shrunk to match. The old row was three lines tall and
+   turned the list into a scroll nobody could get to the bottom of. */
+.lorerow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+.lorerow .meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.lorerow .meta .t {
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The count is a footnote to the name, not a line of its own. */
+.lorerow .meta .s {
+  display: inline;
+  flex: none;
+  font-size: 0.74rem;
+  color: var(--lumiverse-text-hint);
+  white-space: nowrap;
+}
+.lorerow .rowtools button { width: 24px; height: 24px; }
+.lorerow .rowtools button svg { width: 13px; }
+
+.scopes-inline { display: flex; gap: 0.2rem; flex: none; }
+
+.scopebtn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+  color: var(--lumiverse-text-hint);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.scopebtn svg {
+  width: 14px; height: 14px;
+  fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
+.scopebtn:hover { color: var(--lumiverse-text-muted); border-color: var(--lumiverse-border-hover); }
+.scopebtn.on {
+  color: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-primary) 14%, transparent);
+}
+
+/**
+ * On a narrow screen the row becomes two: the name gets the full width, and
+ * the controls line up underneath it. Seven controls and a name competing for
+ * 412px is what made this list feel cramped — nothing was actually too big,
+ * there was simply no room for all of it on one line.
+ */
+@media (max-width: 560px) {
+  .lorerow { flex-wrap: wrap; padding: 0.45rem 0; }
+  .lorerow .meta { width: 100%; order: 1; }
+  .scopes-inline { order: 2; margin-right: auto; padding-top: 0.3rem; }
+  .lorerow .rowtools { order: 3; padding-top: 0.3rem; }
+}
+
+/* ---- prompt inspector ---------------------------------------------------- */
+
+#inspectDialog { width: min(96vw, 46rem); }
+
+.istats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+}
+.istat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  background: color-mix(in srgb, var(--lumiverse-bg) 55%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  font-size: 0.82rem;
+  color: var(--lumiverse-text);
+  font-variant-numeric: tabular-nums;
+}
+.istat em {
+  font-style: normal;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: var(--lumiverse-text-hint);
+}
+
+.rawtext {
+  margin: 0;
+  max-height: 22rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--lumiverse-font-family);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--lumiverse-text-muted);
+}
+
+/* ---- preset prompt blocks ---------------------------------------------- */
+/* A list you scan, not a stack of textareas. Each block is one row; the text
+   folds open under it only when you ask for it. */
+
+.blockrow {
+  border: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .10));
+  border-radius: var(--radius, 10px);
+  margin-bottom: .3rem;
+  background: var(--lcs-glass-bg, rgba(255, 255, 255, .03));
+  transition: opacity .15s ease, border-color .15s ease;
+}
+.blockrow:hover { border-color: color-mix(in srgb, var(--lumiverse-primary) 35%, transparent); }
+.blockrow.off { opacity: .45; }
+
+.brow { display: flex; align-items: center; gap: .45rem; padding: .3rem .45rem; }
+
+.bmark { color: color-mix(in srgb, var(--lumiverse-primary) 70%, transparent); font-size: .8em; }
+
+.bdot { width: .62rem; height: .62rem; border-radius: 50%; flex: 0 0 auto; }
+.bdot.sys  { background: var(--lumiverse-danger, #e2607a); }
+.bdot.usr  { background: var(--lumiverse-primary, #d8a25f); }
+.bdot.asst { background: #6f9fd8; }
+
+.blockrow .b-name {
+  flex: 1 1 auto; min-width: 0; width: auto; margin: 0;
+  background: none; border: none; padding: .1rem .2rem;
+  font: inherit; color: inherit;
+}
+.blockrow .b-name:focus { outline: none; background: rgba(255, 255, 255, .06); border-radius: 4px; }
+
+.bchars { font-size: .72em; opacity: .5; white-space: nowrap; }
+
+.btools { display: flex; align-items: center; gap: .1rem; flex: 0 0 auto; }
+.bico {
+  background: none; border: none; padding: .22rem; line-height: 0;
+  color: inherit; opacity: .45; cursor: pointer; border-radius: 5px;
+}
+.bico svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.bico:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, .07); }
+.bico:disabled { opacity: .15; cursor: default; }
+.bico.danger { font-size: 1.1rem; opacity: .4; }
+.bico.danger:hover { opacity: 1; color: var(--lumiverse-danger); }
+
+/* A checkbox drawn as the pill switch the rest of the row expects. */
+.switch { position: relative; display: inline-flex; margin: 0 .1rem; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch span {
+  width: 1.9rem; height: 1.02rem; border-radius: 1rem; display: block;
+  background: rgba(255, 255, 255, .13); transition: background .15s ease;
+}
+.switch span::after {
+  content: ""; position: absolute; top: .16rem; left: .18rem;
+  width: .7rem; height: .7rem; border-radius: 50%;
+  background: rgba(255, 255, 255, .55); transition: transform .15s ease, background .15s ease;
+}
+.switch input:checked + span { background: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent); }
+.switch input:checked + span::after { transform: translateX(.85rem); background: #fff; }
+
+.bbody { display: none; padding: 0 .45rem .45rem; }
+.blockrow.open .bbody { display: block; }
+.blockrow textarea { width: 100%; resize: vertical; margin: 0; }
+
+
+
+/* The one button with no undo behind it. */
+.ghost.danger {
+  color: var(--lumiverse-danger);
+  border-color: color-mix(in srgb, var(--lumiverse-danger) 45%, transparent);
+}
+.ghost.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--lumiverse-danger) 14%, transparent);
+}
+
+/* ---- structured tags in a reply ---------------------------------------- */
+/* Models are asked for <true_thoughts> and <threads>; showing the tags is the
+   reader seeing the scaffolding instead of the scene. */
+
+.thought {
+  display: block;
+  margin: .7rem 0;
+  padding: .5rem .7rem .5rem .9rem;
+  border-left: 2px solid color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  border-radius: 0 var(--radius, 10px) var(--radius, 10px) 0;
+  background: color-mix(in srgb, var(--lumiverse-primary) 7%, transparent);
+  font-style: italic;
+  opacity: .88;
+}
+.thought .twho {
+  display: block;
+  font-style: normal;
+  font-size: .72em;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .6;
+  margin-bottom: .2rem;
+}
+
+.threads {
+  margin: .8rem 0 .2rem;
+  border: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .12));
+  border-radius: var(--radius, 10px);
+  padding: .35rem .6rem;
+  background: var(--lcs-glass-bg, rgba(255, 255, 255, .03));
+  font-size: .92em;
+}
+.threads > summary { cursor: pointer; opacity: .7; font-size: .85em; letter-spacing: .04em; }
+.threads ul { margin: .45rem 0 .3rem; padding-left: .2rem; list-style: none; }
+.threads li { margin: .3rem 0; display: flex; gap: .45rem; align-items: baseline; }
+
+.tchip {
+  flex: 0 0 auto;
+  font-size: .68em;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: .1rem .4rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, .09);
+  opacity: .8;
+}
+.tchip.current { background: color-mix(in srgb, var(--lumiverse-primary) 30%, transparent); }
+.tchip.unresolved { background: color-mix(in srgb, var(--lumiverse-danger) 24%, transparent); }
+
+/* A marker has no text of its own — only a place in the order and a switch. */
+.bdot.mark { background: none; border: 1px solid rgba(255, 255, 255, .4); }
+.blockrow.marker { background: none; border-style: dashed; }
+.b-fixed { flex: 1 1 auto; min-width: 0; padding: .1rem .2rem; opacity: .78; }
+
+/* ---- who is in the room ------------------------------------------------- */
+/* The face strip over a group chat. Tapping a face hands them the next turn. */
+
+.castbar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .35rem .7rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .08));
+}
+.castbar::-webkit-scrollbar { display: none; }
+
+.castface {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 2rem;
+  padding: .15rem .5rem .15rem .15rem;
+  color: inherit;
+  cursor: pointer;
+  opacity: .62;
+  transition: opacity .15s ease, border-color .15s ease, background .15s ease;
+}
+.castface .medallion, .castface .face { width: 1.6rem; height: 1.6rem; font-size: .7rem; }
+.castface .cn { font-size: .82em; white-space: nowrap; }
+.castface:hover { opacity: .9; }
+.castface.picked {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-primary) 12%, transparent);
+}
+.castface.muted { opacity: .28; cursor: default; }
+.castface.muted .cn { text-decoration: line-through; }
+
+.casthint { font-size: .74em; opacity: .45; white-space: nowrap; margin-left: auto; padding-left: .5rem; }
+
+#memberList .brow { gap: .55rem; }
+#memberList .medallion, #memberList .face { width: 1.7rem; height: 1.7rem; font-size: .75rem; }
+
+/* ---- searchable character picker ---------------------------------------- */
+/* Shared by the new-group dialog and the room dialog. A plain <select> does
+   not scale to a cast of hundreds; this does. */
+
+.pickresults {
+  max-height: 11rem;
+  overflow-y: auto;
+  border: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .12));
+  border-radius: var(--radius, 10px);
+  margin: -.3rem 0 .6rem;
+}
+.pickrow {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  width: 100%;
+  padding: .35rem .55rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .07));
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pickrow:last-child { border-bottom: none; }
+.pickrow:hover { background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent); }
+.pickrow .medallion { width: 1.5rem; height: 1.5rem; font-size: .68rem; flex: 0 0 auto; }
+
+/* the "+" at the end of the face strip */
+.castedit {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+  background: none;
+  color: inherit;
+  opacity: .55;
+  cursor: pointer;
+  margin-left: .15rem;
+}
+.castedit svg { width: .8rem; height: .8rem; fill: none; stroke: currentColor; stroke-width: 2.2; }
+.castedit:hover { opacity: 1; }
+
+
+/* ---- searchable, multi-selectable lists ---------------------------------
+   Presets and lorebooks both arrive by the dozen from a SillyTavern import.
+   Scrolling a list that long to find one, and removing them one confirm at a
+   time, was the slowest thing in the app. */
+
+.listempty { padding: 0.6rem 0; color: var(--lumiverse-text-hint); font-size: 0.85rem; }
+
+
+/* ---- the active preset, on the sampling page -----------------------------
+   Sampling and presets used to be two pages that disagreed with each other.
+   They are one page now: the sliders are the substance, and this card says
+   what the chosen preset is doing to them. */
+
+.presetcard {
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: var(--lumiverse-bg-hover);
+}
+.presetcard .pname {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.98rem;
+  color: var(--lumiverse-primary);
+  margin-bottom: 0.45rem;
+}
+.presetcard .pstats { display: flex; flex-wrap: wrap; gap: 0.3rem 0.45rem; }
+.presetcard .pstat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  color: var(--lumiverse-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.presetcard .pstat em {
+  font-style: normal;
+  color: var(--lumiverse-text-hint);
+  letter-spacing: 0.03em;
+}
+.presetcard .prow { display: flex; gap: 0.4rem; margin-top: 0.6rem; }
+.presetcard .prow .ghost { width: auto; margin: 0; padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.presetcard .hint { margin: 0; }
+
+
+/* ---- regex scripts -------------------------------------------------------
+   Same one-line row as the lorebook list: these arrive sixty at a time. */
+
+.regexrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+.regexrow .meta { min-width: 0; }
+.regexrow .meta .t {
+  font-size: 0.9rem;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.regexrow .meta .s { font-size: 0.74rem; color: var(--lumiverse-text-hint); }
+.regexrow .rowtools button { width: 24px; height: 24px; }
+.regexrow .rowtools button svg { width: 13px; }
+/* A switched-off script stays in the list, greyed, because deleting one you
+   might want back is worse than scrolling past it. */
+.regexrow.off .meta .t { color: var(--lumiverse-text-hint); text-decoration: line-through; }
+.regexrow.off .rowtools button[data-toggle] { color: var(--lumiverse-text-hint); }
+.regexrow .rowtools button[data-toggle] { color: var(--lumiverse-primary); }
+
+/* Markup a display script produced. Kept modest on purpose: a script decides
+   its own look, and the app should not fight it. */
+.msg .body details { margin: 0.4rem 0; }
+.msg .body summary { cursor: pointer; }
+.msg .body table { border-collapse: collapse; }
+.msg .body td, .msg .body th { padding: 0.15rem 0.45rem; border: 1px solid var(--lumiverse-border); }
+
+
+/* ---- dismissable notices, picked wallpapers -----------------------------*/
+
+/* An error is worth reading once, not for the rest of the session. It fades
+   on a timer or on a tap; the cursor says the tap is there. */
+.notice { cursor: pointer; transition: opacity .35s ease, transform .35s ease; }
+.notice:hover { border-left-color: var(--lumiverse-text-muted); }
+.notice.going { opacity: 0; transform: translateY(-4px); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .notice { transition: none; }
+}
+
+.wallcell.picked { outline: 2px solid var(--lumiverse-primary); outline-offset: 2px; border-radius: var(--lumiverse-radius-sm); }
+.wallcell.picked > button:first-child { opacity: 0.75; }
+
+
+/* Hearth's own confirm. Narrow, because it only ever asks one short question,
+   and the destructive button is on the right where the eye finishes. */
+#askDialog { max-width: 26rem; }
+#askDialog h2 { margin-bottom: 0.5rem; }
+#askDialog .hint { margin: 0 0 1rem; }
+#askDialog input[type="text"] { margin-bottom: 1rem; }
+.askrow { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.askrow .ghost, .askrow .solid { width: auto; margin: 0; padding: 0.45rem 1.1rem; }
+
+
+/* An archive in the folder picker: same row, with its size on the right and a
+   lit border once chosen, because picking one is a decision and walking into a
+   folder is not. */
+.fsrow.zip em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--lumiverse-text-hint);
+  font-variant-numeric: tabular-nums;
+}
+.fsrow.zip.on {
+  color: var(--lumiverse-primary);
+  box-shadow: inset 0 0 0 1px var(--lumiverse-primary);
+  border-radius: var(--lumiverse-radius-sm);
+}
+
+
+/* ---- a single, obvious action ------------------------------------------
+   Where a screen has exactly one thing to do, it is a shape you press, not a
+   sentence with a button after it. The label lives in the tooltip and the
+   aria-label; the icon carries it on screen. */
+
+.bigaction {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin: 0 auto 1.1rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 40%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%,
+      color-mix(in srgb, var(--lumiverse-primary) 16%, transparent), transparent 72%);
+  color: var(--lumiverse-primary);
+  cursor: pointer;
+  transition: border-color .18s, background .18s, transform .18s;
+}
+.bigaction svg {
+  width: 40px;
+  height: 40px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.bigaction:hover, .bigaction:focus-visible {
+  border-color: var(--lumiverse-primary);
+  background: radial-gradient(circle at 50% 40%,
+      color-mix(in srgb, var(--lumiverse-primary) 26%, transparent), transparent 72%);
+  transform: translateY(-2px);
+}
+#scroll.scrolling .bigaction { transition: none; transform: none; }
+
+
+/* ---- names ---------------------------------------------------------------
+   A name is not a heading, but it is not running text either: the reading face
+   with a touch more weight and a hair of tracking separates it from the prose
+   around it without reaching for the signage face. */
+
+.item .t,
+.platename {
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+
+/* ---- a portrait, full size ----------------------------------------------
+   Tapping a face in the thread opens it. The dialog is the frame: no chrome,
+   no close button, the picture as large as the screen allows and a click
+   anywhere to dismiss. */
+
+.faceview {
+  max-width: 100vw;
+  max-height: 100dvh;
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+  cursor: zoom-out;
+}
+.faceview::backdrop { background: rgba(8, 5, 4, 0.88); }
+.faceview img {
+  display: block;
+  /* The dialog is as wide as the viewport; without this the picture sits
+     against its left edge instead of in the middle of it. */
+  margin-inline: auto;
+  max-width: min(96vw, 46rem);
+  max-height: 88dvh;
+  width: auto;
+  height: auto;
+  border-radius: var(--lumiverse-radius);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7),
+              0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 28%, transparent);
+}
+.faceview span {
+  display: block;
+  margin-top: 0.7rem;
+  text-align: center;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  color: var(--lumiverse-text-muted);
+}
+
+/* The face is now something you press, so say so. */
+.who .medallion { cursor: zoom-in; }
+.who .medallion.blank { cursor: default; }
+
+
+/* ---- ornament -------------------------------------------------------------
+   Decoration only. Nothing here takes a pointer, changes a size, or knows
+   anything about the app; it is all removable in one block. */
+
+/**
+ * A vignette over the scene. Light falls off towards the corners, the way it
+ * does in a room lit by one fire, which settles the wallpaper down behind the
+ * text and stops the corners competing with it.
+ */
+.stage { position: relative; }
+.stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(120% 90% at 50% 42%, transparent 52%,
+      color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent) 100%);
+}
+/* Everything the eye actually uses sits above it. */
+.bar, #scroll, .composer { position: relative; z-index: 2; }
+
+/**
+ * Hairline scrollbars in the room's own colour. The default is a grey slab
+ * from another application, and it is on screen the entire time.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--lumiverse-primary) 34%, transparent) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+}
+
+/**
+ * A rule that runs out from a section heading to the edge of the panel, so the
+ * heading reads as cut into the page rather than printed on it. The border on
+ * .panel h3 does the same job for width; this adds the small terminal that
+ * makes it look struck rather than drawn.
+ */
+.panel h3 { position: relative; }
+.panel h3::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -3.5px;
+  width: 5px;
+  height: 5px;
+  transform: rotate(45deg);
+  background: var(--lumiverse-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 50%, transparent);
+}
+
+/** Corner brackets on a dialog, like the plate on a case. */
+dialog::before,
+dialog::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 38%, transparent);
+  pointer-events: none;
+}
+dialog::before { top: 8px; left: 8px; border-right: 0; border-bottom: 0; }
+dialog::after { bottom: 8px; right: 8px; border-left: 0; border-top: 0; }
+/* The picture viewer is its own frame and wants no brackets. */
+.faceview::before, .faceview::after { content: none; }
+
+
+/* ---- joinery --------------------------------------------------------------
+   Victorian rather than austere: mouldings, gilt edges and bracketed corners.
+   All of it on Hearth's own chrome — the bar, the panels, the composer, the
+   dialogs. Nothing is laid over the wallpaper, because a pattern or a wash
+   there would sit on top of a picture somebody chose and make it look wrong.
+   The vignette is the one exception and it only deepens the corners. */
+
+/**
+ * A moulding under the bar rather than a single hairline: a heavier gilt line
+ * with a fine one beneath it and a breath of shadow, which is how a picture
+ * rail meets a wall.
+ */
+.bar {
+  border-bottom: 0;
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--lumiverse-primary) 70%, transparent),
+    0 2px 0 0 color-mix(in srgb, var(--lumiverse-bg-deep) 80%, transparent),
+    0 4px 0 0 color-mix(in srgb, var(--lumiverse-primary) 30%, transparent),
+    0 6px 14px -4px rgba(0, 0, 0, 0.6);
+}
+
+/**
+ * Panelling. A hairline of light along the top edge and a shadow under it, so
+ * a panel reads as a face set into the wall rather than a rectangle painted
+ * on it. Two pixels of work, and it is what separates "dark theme" from
+ * "room".
+ */
+.panel, .drawer {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lumiverse-primary) 9%, transparent);
+}
+
+/**
+ * The composer as a writing box: gilt brackets at the corners, the way a
+ * blotter is cornered in leather. Drawn with one gradient per corner so there
+ * is no extra markup and nothing to keep in step with the JS.
+ */
+.inputbox {
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 20%, transparent);
+  transition: border-color .18s;
+}
+
+/**
+ * Filigree at the corners of the writing box.
+ *
+ * This was two twelve-pixel dashes on opposite corners, which did not read as
+ * ornament at all — it read as a rendering fault, which is the worst thing a
+ * decoration can do. If a box is going to be framed it has to be framed
+ * properly: all four corners, an actual drawing, and enough of it to be
+ * legible as a scroll.
+ */
+.filigree {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  color: var(--lumiverse-primary);
+  opacity: 0.58;
+  pointer-events: none;
+  transition: opacity .18s;
+}
+.filigree.tl { top: -1px; left: -1px; }
+.filigree.tr { top: -1px; right: -1px; transform: scaleX(-1); }
+.filigree.bl { bottom: -1px; left: -1px; transform: scaleY(-1); }
+.filigree.br { bottom: -1px; right: -1px; transform: scale(-1); }
+.inputbox:focus-within .filigree { opacity: 0.72; }
+.inputbox:focus-within {
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 42%, transparent);
+}
+
+/** A gilt inner edge on a dialog, inside the frame it already has. */
+dialog {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 14%, transparent),
+    0 26px 60px rgba(0, 0, 0, 0.6);
+}
+
+/**
+ * A heading's rule, brought up to a moulding: the fine line it already has,
+ * with a second, fainter one under it.
+ */
+.panel h3 {
+  border-bottom: 0;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--lumiverse-primary) 60%, transparent),
+    0 3px 0 color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
+}
+
+
+/**
+ * Set by fitBarTitle when a name cannot be made to fit beside them.
+ *
+ * The long flourish goes, but the ornament does not: a phone is the one place
+ * the bar is looked at most and the one place it was being stripped bare. A
+ * lozenge on each side is eight pixels instead of a hundred and fifty, keeps
+ * the diamond that terminates the full flourish, and still reads as a title
+ * rather than a label.
+ */
+.title.tight .flourish { display: none; }
+.title.tight::before,
+.title.tight::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  background: var(--lumiverse-primary);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  opacity: 0.85;
+}
+/* Cinzel is set with a good deal of tracking, which is most of what makes it
+   look carved. When a name is fighting for the last few pixels, half of that
+   space is worth more as letters than as air between them. */
+.title.tight #barTitle { letter-spacing: 0.02em; }
+
+/**
+ * The plate, matted. A framed picture has a line ruled just inside its edge;
+ * that one line is most of what separates a frame from a border, and repeated
+ * down a thread it is the ornament you actually end up looking at.
+ *
+ * An inset shadow rather than a second element, so it costs no markup and
+ * follows the corner radius on its own.
+ */
+body[data-msgstyle="banner"] .plate,
+body[data-msgstyle="portrait"] .plate {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 22%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, var(--lumiverse-bg-deep) 22%, transparent),
+    inset 0 0 0 6px color-mix(in srgb, var(--lumiverse-primary) 13%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 34px rgba(0, 0, 0, 0.42);
+}
+
+/* ---- context line ---------------------------------------------------------
+   Where the conversation stops being sent. Everything above it is still kept
+   and still readable — it is simply older than the model's window. Drawn as a
+   vine rather than a dashed rule, because it is a mark in a room, not a system
+   warning, and it should not read as an error. */
+
+.cutline {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.6rem 0 0.4rem;
+  color: color-mix(in srgb, var(--lumiverse-primary) 62%, transparent);
+}
+.cutline svg {
+  flex: 1;
+  min-width: 0;
+  height: 16px;
+}
+/* The two runs mirror each other so the buds point away from the label. */
+.cutline svg:first-child { transform: scaleX(-1); }
+.cutline span {
+  flex: none;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-muted);
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  /* The label is the first thing worth losing on a narrow screen; the rule
+     alone still says where the line is. */
+  .cutline span { font-size: 0.62rem; letter-spacing: 0.08em; }
+}
+
+/* ---- custom CSS box -------------------------------------------------------
+   Folded away by default: it is for the person who wants it and nobody else,
+   and an eight-row code field sitting open in Looks is a wall. */
+
+.cssbox { margin: 0.9rem 0 0.2rem; }
+.cssbox summary {
+  cursor: pointer;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  color: var(--lumiverse-text-muted);
+  padding: 0.3rem 0;
+}
+.cssbox summary:hover { color: var(--lumiverse-primary); }
+.cssbox textarea {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  resize: vertical;
+  background: var(--lumiverse-bg-deep);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  /* The one place in Hearth that wants a mono face: it is code. */
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  tab-size: 2;
+}
+.cssbox textarea:focus {
+  outline: none;
+  border-color: var(--lumiverse-border-hover);
+}
+
+/* ---- the record-keeping welcome -------------------------------------------
+   Asked once, at the start of a chat, so it is worth dressing: filigree at the
+   corners like the writing box, the heading in Cinzel, and a vine rule under
+   it. It should read as the room introducing itself, not as a permissions
+   prompt. */
+
+.welcome { width: min(94vw, 30rem); padding: 1.6rem 1.5rem 1.2rem; }
+/* The corner brackets the ordinary dialog carries would fight the filigree. */
+.welcome::before, .welcome::after { content: none; }
+
+.welcome h2 {
+  margin: 0;
+  text-align: center;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 1.4rem;
+  letter-spacing: 0.055em;
+  color: var(--lumiverse-primary);
+}
+.welcome .rule {
+  display: flex;
+  width: 78%;
+  margin: 0.35rem auto 0.9rem;
+  color: color-mix(in srgb, var(--lumiverse-primary) 62%, transparent);
+}
+.welcome .rule svg { flex: 1; min-width: 0; height: 14px; }
+.welcome .rule svg:first-child { transform: scaleX(-1); }
+.welcomeline {
+  margin: 0 0 1.1rem;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--lumiverse-text-muted);
+}
+
+.wopts { display: flex; flex-direction: column; gap: 0.5rem; }
+
+/* Each choice is a panel that lights along its near edge when chosen — the
+   same gesture the message plate makes, so it belongs to the same room. */
+.wopt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.1rem 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--lumiverse-radius);
+  cursor: pointer;
+  transition: border-color .18s, background .18s;
+}
+.wopt:hover { border-color: var(--lumiverse-border-hover); }
+.wopt:has(input:checked) {
+  border-left-color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-primary) 7%, transparent);
+}
+.wopt input[type="radio"] { accent-color: var(--lumiverse-primary); margin: 0; }
+.wtitle {
+  font-family: var(--lumiverse-font-display);
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  color: var(--lumiverse-text);
+}
+.wfield {
+  grid-column: 2;
+  width: 100%;
+  margin-top: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--lumiverse-bg-deep);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: calc(var(--lumiverse-radius) * 0.7);
+  font-size: 0.9rem;
+}
+.wfield:focus { outline: none; border-color: var(--lumiverse-primary-muted); }
+/* A field belonging to a choice nobody has made should not invite typing. */
+.wopt:not(:has(input:checked)) .wfield { opacity: 0.45; }
+
+.welcome .actions { justify-content: center; padding-top: 1rem; }
+.welcome .actions .solid { min-width: 9rem; }
+
+/* ---- the tree -------------------------------------------------------------
+   Where a story forked, drawn rather than listed. Same materials as the rest
+   of the room: gilt on the branches, Marcellus on the names. */
+
+.treeview { padding: 1.4rem 0 3rem; }
+.treehead { text-align: center; padding: 0 1.2rem 0.6rem; }
+.treehead h2 {
+  margin: 0;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 1.5rem;
+  letter-spacing: 0.05em;
+  color: var(--lumiverse-primary);
+}
+.treeline {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  color: var(--lumiverse-text-muted);
+}
+
+/* A wide tree scrolls sideways in its own box rather than pushing the page
+   about. */
+.treecanvas { overflow-x: auto; overflow-y: hidden; padding: 0.5rem 0 1rem; }
+/* Everything in here is an icon by default — 22px square, unfilled, stroked in
+   the current colour. A drawing is none of those things, so it has to say so. */
+.treecanvas svg {
+  display: block;
+  margin: 0 auto;
+  width: auto;
+  height: auto;
+  fill: initial;
+  stroke: none;
+  stroke-width: initial;
+}
+
+.bough {
+  fill: color-mix(in srgb, var(--lumiverse-primary) 34%, transparent);
+  stroke: color-mix(in srgb, var(--lumiverse-primary) 46%, transparent);
+  stroke-width: 0.6;
+}
+
+.bud { cursor: pointer; }
+.bud .hit { fill: transparent; }
+.bud .leaf {
+  fill: color-mix(in srgb, var(--lumiverse-primary) 52%, transparent);
+  stroke: none;
+  transition: fill .18s;
+}
+.bud .pip {
+  fill: var(--lumiverse-bg-deep);
+  stroke: color-mix(in srgb, var(--lumiverse-primary) 70%, transparent);
+  stroke-width: 1.4;
+}
+.bud .name {
+  stroke: none;
+  text-anchor: middle;
+  font-family: var(--lumiverse-font-display);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  fill: var(--lumiverse-text);
+}
+.bud .turns {
+  stroke: none;
+  text-anchor: middle;
+  font-family: var(--lumiverse-font-family);
+  font-size: 12px;
+  fill: var(--lumiverse-text-dim);
+}
+
+.bud:hover .leaf, .bud:focus-visible .leaf { fill: var(--lumiverse-primary); }
+.bud:hover .name, .bud:focus-visible .name { fill: var(--lumiverse-primary); }
+.bud:focus { outline: none; }
+.bud:focus-visible .pip { stroke: var(--lumiverse-text); }
+
+/* The one you are reading, in leaf. */
+.bud.here .leaf { fill: var(--lumiverse-primary); }
+.bud.here .pip { fill: var(--lumiverse-primary); stroke: var(--lumiverse-text); }
+.bud.here .name { fill: var(--lumiverse-primary); font-weight: 600; }
+
+@media (max-width: 700px) {
+  .bud .name { font-size: 17px; }
+  .bud .turns { font-size: 14px; }
+}
+
+/* ---- lighting the hearth ---------------------------------------------------
+   What sits over the app while it loads.
+
+   One scene, drawn twice into two halves that sit side by side — together they
+   read as a single hearth. When everything is ready the halves part like a
+   curtain and the app is behind them. Two copies rather than one element split
+   at the end, because a clip-path cannot describe two rectangles with a gap
+   between, and because the parting has to move actual pixels to look like
+   anything.
+
+   Both copies run the same animations and start in the same frame, so they
+   stay in step without being told to. Nothing here is random for that reason. */
+
+/* No background of its own: the halves carry it. When they draw back, a
+   container painting the same dark would still be sitting over the app, and
+   the curtain would open onto nothing. */
+#boot {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+}
+#boot .bh {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 50%;
+  overflow: hidden;
+  background: #16110e;
+  transition: transform .85s cubic-bezier(.6, 0, .3, 1);
+}
+/* A pixel of overlap. Both halves antialias their own copy of the shared
+   edge, and the two soft edges together read as a hairline down the middle of
+   the flame; one half covering the join removes it, and is invisible once they
+   draw back. */
+#boot .bh.l { left: 0; width: calc(50% + 1px); }
+#boot .bh.r { left: 50%; }
+/* The inner scene is full-width in both halves, offset so the right half
+   continues exactly where the left one stops.
+   Sized against the half rather than the viewport: `100vw` counts the
+   scrollbar and the halves do not, so the two scenes drifted apart by its
+   width and left a seam straight down the hearth. 200% of a half is exactly
+   the whole, whatever else is on screen. */
+#boot .bs { position: absolute; top: 0; height: 100%; width: 200%; }
+#boot .bh.l .bs { left: 0; }
+#boot .bh.r .bs { left: -100%; }
+/* The icon rule — 22px square, unfilled, stroked in the current colour — is
+   right for icons and ruinous for a picture: it outlined every stone and drew
+   a hard ring around the firelight. */
+#boot svg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* The flame is drawn past the top of its own viewBox on purpose. Without
+     this it is clipped at that edge — which, once the scene is fitted and
+     bottom-anchored, is some way below the top of the screen, so the fire
+     stopped just short of leaving it. */
+  overflow: visible;
+  fill: initial;
+  stroke: none;
+  stroke-width: initial;
+}
+
+/* The fire climbs out of the grate and takes the screen. */
+#boot .fire {
+  transform-origin: 54px 78px;
+  animation: bootRise 2.6s cubic-bezier(.32, .5, .2, 1) forwards;
+}
+@keyframes bootRise {
+  0%   { transform: scaleY(0.05) scaleX(0.55); opacity: .75; }
+  35%  { transform: scaleY(0.30) scaleX(0.80); opacity: 1; }
+  /* Tall enough to leave the screen rather than stop at the edge of it: the
+     tip has to clear the top of the fitted scene, not the top of the viewBox. */
+  100% { transform: scaleY(1.42) scaleX(1.08); opacity: 1; }
+}
+
+#boot .fl { animation: bootFlicker 1.15s ease-in-out infinite alternate; }
+#boot .fl.deep { fill: #c2661f; opacity: .82; }
+#boot .fl.mid  { fill: #d8a25f; animation-duration: .87s; }
+#boot .fl.hot  { fill: #f6c877; animation-duration: .64s; }
+@keyframes bootFlicker {
+  from { transform: scaleY(.94) scaleX(1.04) translateX(-1px); }
+  to   { transform: scaleY(1.06) scaleX(.95) translateX(1px); }
+}
+#boot .fl { transform-origin: 54px 78px; }
+
+/* Firelight on the wall. A CSS gradient rather than a giant animated SVG
+   ellipse: the SVG version had to be declared once per half, which meant two
+   elements sharing one gradient id — invalid, and resolved to whichever the
+   parser saw first. This also gives the compositor a single layer to fade
+   instead of a huge shape to rescale every frame. */
+#boot .glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(60% 42% at 50% 78%,
+      rgba(246, 200, 119, 0.30) 0%,
+      rgba(194, 102, 31, 0.11) 55%,
+      rgba(194, 102, 31, 0) 78%);
+  opacity: .25;
+  animation: bootGlowUp 2.6s ease-out forwards;
+  will-change: opacity;
+}
+@keyframes bootGlowUp { from { opacity: .2; } to { opacity: 1; } }
+
+#boot .embers { animation: bootEmber 1.9s ease-in-out infinite alternate; }
+@keyframes bootEmber { from { opacity: .55; } to { opacity: 1; } }
+
+/* Handed over from the activity's own copy, which has been burning while the
+   server woke up: no climb, straight to a fire at full height. */
+#boot.lit .fire {
+  animation: none;
+  transform: scaleY(1.42) scaleX(1.08);   /* the end of bootRise, exactly */
+}
+#boot.lit .glow { animation: none; opacity: 1; }
+
+/* Ready: the halves draw back. */
+#boot.parting .bh.l { transform: translateX(-100%); }
+#boot.parting .bh.r { transform: translateX(100%); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* No climbing, no flicker, no curtain — just a lit hearth that fades. */
+  #boot .fire, #boot .fl, #boot .glow, #boot .embers { animation: none; }
+  #boot .fire { transform: none; }
+  #boot .bh { transition: opacity .3s linear; }
+  #boot.parting .bh.l, #boot.parting .bh.r { transform: none; opacity: 0; }
+}
+
+/* ---- extensions -----------------------------------------------------------
+   A repository address goes in the box; what comes back is listed underneath
+   with its two halves named, because which half an extension has is the thing
+   you actually want to know about it. */
+
+.installrow { display: flex; gap: 0.5rem; margin: 0.2rem 0 0.7rem; }
+.installrow input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  background: var(--lumiverse-bg-deep);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.8rem;
+}
+.installrow input:focus { outline: none; border-color: var(--lumiverse-primary-muted); }
+.installrow .solid { flex: none; }
+
+.item.ext { align-items: center; }
+.item.ext .exton { flex: none; display: grid; place-items: center; padding-right: 0.2rem; }
+.item.ext .exton input { accent-color: var(--lumiverse-primary); }
+/* Switched off, but still listed: dimmed rather than hidden, so it is obvious
+   why an extension you installed is not doing anything. */
+.item.ext.off .meta { opacity: 0.5; }
+
+/* The one hint in the app that is a warning rather than an explanation. */
+.danger-hint {
+  border-left: 2px solid color-mix(in srgb, var(--lumiverse-danger, #a84a38) 70%, transparent);
+  padding-left: 0.6rem;
+}
+
+#extDialog .field { display: block; margin-bottom: 0.7rem; font-size: 0.85rem; color: var(--lumiverse-text-muted); }
+#extDialog .field input,
+#extDialog .field textarea {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--lumiverse-bg-deep);
+  color: var(--lumiverse-text);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  font-size: 0.85rem;
+}
+#extDialog .field textarea {
+  resize: vertical;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+#extDialog .field input:focus,
+#extDialog .field textarea:focus { outline: none; border-color: var(--lumiverse-primary-muted); }
+
+/* ---- dice -----------------------------------------------------------------
+   A resolved roll, sitting in the prose where it was thrown. The total is the
+   thing you read; the notation is small beside it and the full working is on
+   the tooltip, because "4, 5 + 3" is arithmetic you only want when you doubt
+   the answer. */
+
+.roll {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0 0.15rem;
+  padding: 0.05rem 0.4rem 0.1rem;
+  border-radius: calc(var(--lumiverse-radius) * 0.6);
+  background: color-mix(in srgb, var(--lumiverse-primary) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 34%, transparent);
+  cursor: help;
+  vertical-align: baseline;
+}
+.roll .die {
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.05em;
+  font-weight: 600;
+  color: var(--lumiverse-primary);
+  /* Numerals of even width, so a 6 and an 18 do not jump about while the die
+     is still settling. */
+  font-variant-numeric: tabular-nums;
+}
+.roll .rollwhat {
+  font-size: 0.72em;
+  letter-spacing: 0.04em;
+  color: var(--lumiverse-text-dim);
+}
+
+/* The throw: a quick tumble as it lands, once, when it first appears. Only the
+   die turns — the notation beside it staying still is what makes the die look
+   like it moved rather than the whole chip. */
+.roll .die {
+  display: inline-block;
+  animation: dieLand .55s cubic-bezier(.2, .8, .25, 1) both;
+}
+@keyframes dieLand {
+  0%   { transform: rotate(-160deg) scale(.4); opacity: 0; }
+  55%  { transform: rotate(12deg) scale(1.18); opacity: 1; }
+  75%  { transform: rotate(-5deg) scale(.97); }
+  100% { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roll .die { animation: none; }
+}
+
+/* ---- the doors ------------------------------------------------------------
+   Changing mode is a change of room, so it is shown as one: two leaves swing
+   shut over whatever you were doing, the sign above them changes, and they
+   open on the other mode. It costs about a second and a half, which is the
+   most a transition may cost before it becomes a toll. */
+
+#doors {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  pointer-events: none;
+}
+#doors .door {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 50.5%;
+  background:
+    /* Panelled, the way a heavy door is: two sunk rectangles picked out by a
+       gilt line, over grain that runs the height of the leaf. */
+    linear-gradient(90deg, transparent 12%, color-mix(in srgb, var(--lumiverse-primary) 22%, transparent) 12.4%,
+                    transparent 12.8%, transparent 87.2%,
+                    color-mix(in srgb, var(--lumiverse-primary) 22%, transparent) 87.6%, transparent 88%),
+    linear-gradient(180deg, transparent 8%, color-mix(in srgb, var(--lumiverse-primary) 18%, transparent) 8.3%,
+                    transparent 8.6%, transparent 45%,
+                    color-mix(in srgb, var(--lumiverse-primary) 18%, transparent) 45.3%, transparent 45.6%,
+                    transparent 55%, color-mix(in srgb, var(--lumiverse-primary) 18%, transparent) 55.3%,
+                    transparent 55.6%, transparent 91.4%,
+                    color-mix(in srgb, var(--lumiverse-primary) 18%, transparent) 91.7%, transparent 92%),
+    linear-gradient(96deg, #17110d, #221812 40%, #17110d);
+  transition: transform .62s cubic-bezier(.5, 0, .2, 1);
+}
+#doors .door.left  { left: 0;  transform: translateX(-101%); box-shadow: inset -18px 0 34px -14px rgba(0,0,0,.8); }
+#doors .door.right { right: 0; transform: translateX(101%);  box-shadow: inset 18px 0 34px -14px rgba(0,0,0,.8); }
+#doors.shut .door.left,
+#doors.shut .door.right { transform: none; }
+
+.doorsign {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+#doors.shut .doorsign { opacity: 1; }
+.doorsign span {
+  font-family: var(--lumiverse-font-heading);
+  font-size: clamp(1.1rem, 4.4vw, 2rem);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-align: center;
+  color: var(--lumiverse-primary);
+  text-shadow: 0 2px 18px color-mix(in srgb, var(--lumiverse-primary) 40%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #doors .door { transition: none; }
+  .doorsign { transition: none; }
+}
+
+/* The bar says which room you are in. */
+body[data-mode="tabletop"] .title .flourish { color: var(--lumiverse-primary); }
+
+/* ---- the character sheet --------------------------------------------------
+   A sheet, not a form. Abilities are rings: the score in the middle because
+   that is the number you own, the modifier on a medallion hanging off it
+   because that is the number you use. Every paper sheet has done it that way
+   for decades and it reads instantly, which is worth more than novelty.
+
+   The whole ring is a button — pressing Dexterity rolls Dexterity. */
+
+.classes { display: grid; gap: 0.45rem; margin: 0.5rem 0 0.7rem; }
+.classcard {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--lumiverse-radius);
+  cursor: pointer;
+  transition: border-color .18s, background .18s;
+}
+.classcard:hover {
+  border-left-color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-primary) 7%, transparent);
+}
+.classcard .t { font-family: var(--lumiverse-font-display); font-size: 1rem; color: var(--lumiverse-text); }
+.classcard .s { font-size: 0.82rem; color: var(--lumiverse-text-muted); }
+.classcard .kbits { font-size: 0.72rem; letter-spacing: 0.08em; color: var(--lumiverse-text-dim); }
+
+.charsheet { margin: 0.4rem 0 0.8rem; min-width: 0; }
+#sheetSection { min-width: 0; }
+/* The persona's own face, small, so the condensed sheet says whose it is at a
+   glance rather than only in words. */
+.csface {
+  flex: none;
+  width: 28px; height: 28px;
+  align-self: center;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 50%, transparent);
+}
+.cshead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
+  gap: 0.6rem; padding-bottom: 0.45rem; margin-bottom: 0.7rem;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lumiverse-primary) 55%, transparent),
+              0 3px 0 color-mix(in srgb, var(--lumiverse-primary) 18%, transparent);
+}
+.csclass { font-family: var(--lumiverse-font-display); font-size: 1rem; color: var(--lumiverse-primary); }
+.cshp { font-variant-numeric: tabular-nums; color: var(--lumiverse-text-muted); font-size: 0.9rem; }
+
+.csstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem 0.3rem; }
+
+/* ---- an ability ring ---- */
+
+.ring {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  padding: 0 0 0.55rem;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.ringname {
+  font-size: 0.55rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-dim);
+  transition: color .18s;
+}
+.ringdisc {
+  display: grid;
+  place-items: center;
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 34%,
+      color-mix(in srgb, var(--lumiverse-primary) 13%, transparent),
+      transparent 68%),
+    var(--lumiverse-bg-deep);
+  /* Gilt hairline, a dark reveal, then a finer line — the same matting as the
+     message plates and the portrait frames, so a sheet belongs to this room. */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 62%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-bg-deep) 80%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, var(--lumiverse-primary) 26%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.45);
+  transition: box-shadow .18s;
+}
+.ringscore {
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--lumiverse-text);
+  font-variant-numeric: tabular-nums;
+}
+/* The medallion, overlapping the ring's lower edge the way a seal sits on a
+   document rather than beside it. */
+.ringmod {
+  position: absolute;
+  bottom: 0;
+  min-width: 26px;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  background: var(--lumiverse-bg-deep);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--lumiverse-primary);
+  transition: background .18s, color .18s;
+}
+.ring:hover .ringdisc, .ring:focus-visible .ringdisc {
+  box-shadow:
+    inset 0 0 0 1px var(--lumiverse-primary),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-bg-deep) 80%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, var(--lumiverse-primary) 42%, transparent),
+    0 6px 20px color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
+}
+.ring:hover .ringname, .ring:focus-visible .ringname { color: var(--lumiverse-primary); }
+.ring:hover .ringmod, .ring:focus-visible .ringmod {
+  background: var(--lumiverse-primary);
+  color: var(--lumiverse-bg-deep);
+}
+.ring:focus { outline: none; }
+
+.hprow { display: flex; align-items: center; gap: 0.4rem; margin: 0.7rem 0 0.5rem; }
+.hprow .ico { width: 30px; height: 30px; font-size: 1rem; line-height: 1; }
+
+/* ---- the full sheet, pulled out ---- */
+
+.fullsheet {
+  width: min(96vw, 46rem);
+  max-height: 92dvh;
+  padding: 1.5rem 1.4rem 1rem;
+  overflow: hidden;
+}
+/* The dialog's corner brackets would fight the filigree. */
+.fullsheet::before, .fullsheet::after { content: none; }
+.fullsheet .filigree { opacity: 0.5; }
+.fsscroll { max-height: 74dvh; overflow-y: auto; padding: 0 0.4rem; }
+
+/* The portrait, framed the way the message portraits are: a brass hairline, a
+   dark reveal, then a finer line — matted rather than simply bordered. Taller
+   than it is wide, because character art almost always is. */
+.fsportrait { display: grid; place-items: center; margin: 0 0 0.7rem; }
+.fsface {
+  display: grid;
+  place-items: center;
+  width: 108px;
+  aspect-ratio: 3 / 4;
+  border-radius: calc(var(--lumiverse-radius) * 1.2);
+  background-size: cover;
+  background-position: center top;
+  background-color: var(--lumiverse-bg-deep);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 58%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-bg-deep) 75%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, var(--lumiverse-primary) 28%, transparent),
+    0 12px 30px rgba(0, 0, 0, 0.5);
+}
+.fsface.blank {
+  font-family: var(--lumiverse-font-display);
+  font-size: 2.4rem;
+  color: color-mix(in srgb, var(--lumiverse-primary) 70%, transparent);
+}
+
+.fsname {
+  margin: 0;
+  text-align: center;
+  font-family: var(--lumiverse-font-heading);
+  font-size: clamp(1.3rem, 4vw, 1.9rem);
+  letter-spacing: 0.06em;
+  color: var(--lumiverse-primary);
+}
+.fsbanner {
+  display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+  margin: 0.3rem 0 1.2rem;
+  padding: 0.3rem 0;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  color: var(--lumiverse-text-muted);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lumiverse-primary) 45%, transparent),
+              0 3px 0 color-mix(in srgb, var(--lumiverse-primary) 15%, transparent);
+}
+.fsdot { color: var(--lumiverse-primary); font-size: 0.7rem; }
+
+.fsrings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 0.5rem;
+  margin-bottom: 1.4rem;
+}
+@media (min-width: 620px) { .fsrings { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.ring.big .ringdisc { width: 74px; height: 74px; }
+.ring.big .ringscore { font-size: 1.9rem; }
+.ring.big .ringname { font-size: 0.62rem; }
+.ring.big .ringmod { font-size: 0.85rem; min-width: 32px; }
+
+.fspanel {
+  margin-bottom: 1rem;
+  padding: 0.8rem 0.9rem 0.9rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+}
+.fspanel h3 {
+  margin: 0 0 0.6rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-dim);
+}
+.fscols { display: grid; gap: 0 0.8rem; }
+@media (min-width: 620px) { .fscols { grid-template-columns: 1fr 1fr; } }
+
+.fshp { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+.fshpnum {
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.3rem;
+  color: var(--lumiverse-text);
+  font-variant-numeric: tabular-nums;
+}
+/* One pip per point. A bar would be tidier and would tell you less: the
+   question being asked is how many hits are left, not what fraction. */
+.pips { display: flex; flex-wrap: wrap; gap: 3px; }
+.pip {
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  background: var(--lumiverse-bg-deep);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+}
+.pip.lit {
+  background: var(--lumiverse-primary);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+}
+
+.fslist { margin: 0; padding-left: 1.05rem; font-size: 0.9rem; color: var(--lumiverse-text-muted); }
+.fslist li { margin: 0.18rem 0; }
+.fslist li::marker { color: var(--lumiverse-primary); }
+.fsfoot { text-align: center; margin: 0.4rem 0 0; }
+
+/* ---- what the narrator changed ---------------------------------------------
+   Two things a reply can do besides describe: move everyone somewhere, and
+   introduce somebody worth remembering. Both are written by the narrator
+   inside its own prose — nobody types them — so both have to read as part of
+   the message rather than as an interface bolted onto it. */
+
+/* A scene change: a rule across the message with the place set into it, the
+   way a chapter heading sits in a book. Centred and quiet, because it is a
+   stage direction and the prose either side of it is the story. */
+.scenemark {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 1.15rem 0 0.95rem;
+}
+.scenerule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right,
+    transparent, color-mix(in srgb, var(--lumiverse-primary) 55%, transparent));
+}
+/* Mirrored, so the pair fades away from the words rather than across them. */
+.scenerule:last-child {
+  background: linear-gradient(to left,
+    transparent, color-mix(in srgb, var(--lumiverse-primary) 55%, transparent));
+}
+.scenewhere {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 72%;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.74rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lumiverse-primary);
+  text-align: center;
+}
+.scenewhere::before, .scenewhere::after {
+  content: "\2756";
+  font-size: 0.62em;
+  opacity: 0.75;
+  /* The lozenges are ornament; they must not be read aloud as a word. */
+  speak: never;
+}
+
+/* Somebody the narrator decided exists. Set apart from the prose because the
+   whole point of the verb is that this one is being kept, and left inline
+   because it usually arrives mid-sentence. */
+.metnpc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.02em 0.5em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.88em;
+  letter-spacing: 0.02em;
+  color: var(--lumiverse-primary);
+  white-space: nowrap;
+}
+.metnpc::before {
+  content: "\2726";
+  font-size: 0.66em;
+  opacity: 0.8;
+}
+
+/* ---- the scene panel ---- */
+
+.wherenow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+  padding-bottom: 0.45rem;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lumiverse-primary) 45%, transparent),
+              0 3px 0 color-mix(in srgb, var(--lumiverse-primary) 15%, transparent);
+}
+.wheretext {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.9rem;
+  color: var(--lumiverse-primary);
+}
+.whereinput {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.9rem;
+}
+
+.metlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.metlist li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-left: 3px solid color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  border-radius: var(--lumiverse-radius);
+}
+/* min-width: 0 or a long description holds the row open and pushes the
+   forget button off the edge of a 300px panel. */
+.metrow { flex: 1; min-width: 0; display: grid; }
+.metname {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.92rem;
+  color: var(--lumiverse-text);
+}
+.metbrief {
+  font-size: 0.78rem;
+  color: var(--lumiverse-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.metlist .ico { width: 26px; height: 26px; flex: none; }
+
+/* ---- fights ---------------------------------------------------------------
+   A fight is the one part of a game where the numbers stop being flavour, so
+   these are the loudest things in the room while one is happening — and gone
+   entirely when it is not. */
+
+/* The order everyone acts in, drawn as the list it is. Nobody reads
+   initiative as a sentence; they scan it for their own name. */
+.initiative {
+  display: grid;
+  gap: 1px;
+  margin: 1rem 0;
+  padding: 0.7rem 0.85rem 0.75rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  border-radius: var(--lumiverse-radius);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 50%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
+}
+.inithead {
+  margin-bottom: 0.35rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-dim);
+}
+.initrow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.12rem 0;
+}
+/* A leader line, so a long name and its roll stay visibly the same row. */
+.initname {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.92rem;
+  color: var(--lumiverse-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.initroll {
+  flex: none;
+  min-width: 1.9rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--lumiverse-primary);
+}
+
+/* A hit, inline, where the narrator landed it. */
+.hpchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.02em 0.5em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 60%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hearth-hurt) 55%, transparent);
+  font-size: 0.86em;
+  white-space: nowrap;
+}
+.hpchip .hpwho { font-family: var(--lumiverse-font-display); color: var(--lumiverse-text); }
+.hpchip .hpdelta { font-variant-numeric: tabular-nums; color: var(--hearth-hurt); }
+.hpchip .hpleft {
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  color: var(--lumiverse-text-dim);
+}
+/* Healing is the same chip the other way up — one shape, two moods, so a
+   reader learns it once. */
+.hpchip.mend { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hearth-mend) 55%, transparent); }
+.hpchip.mend .hpdelta { color: var(--hearth-mend); }
+.hpchip.downed .hpleft {
+  color: var(--hearth-hurt);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.75em;
+}
+.scenewhere.over { color: var(--lumiverse-text-dim); }
+
+/* ---- the fight, in the panel ---- */
+
+.fightbox {
+  margin: 0 0 0.7rem;
+  padding: 0.55rem 0.6rem 0.6rem;
+  background: color-mix(in srgb, var(--hearth-hurt) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hearth-hurt) 35%, transparent);
+  border-radius: var(--lumiverse-radius);
+}
+.fighthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hearth-hurt);
+}
+.fighthead .ico { width: 22px; height: 22px; }
+.combat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.1rem 0.4rem;
+  padding: 0.22rem 0;
+}
+.cbname {
+  font-size: 0.86rem;
+  color: var(--lumiverse-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cbhp { font-size: 0.76rem; font-variant-numeric: tabular-nums; color: var(--lumiverse-text-muted); }
+/* One bar per combatant, spanning both columns under the name. A number tells
+   you the arithmetic; a bar tells you whether to run. */
+.cbbar {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 85%, transparent);
+  overflow: hidden;
+}
+.cbbar > span { display: block; height: 100%; background: var(--hearth-hurt); }
+.combat.you .cbname { font-family: var(--lumiverse-font-display); color: var(--lumiverse-primary); }
+.combat.you .cbbar > span { background: var(--lumiverse-primary); }
+.combat.out { opacity: 0.45; }
+.combat.out .cbname { text-decoration: line-through; }
+
+/* ---- the narrator has no face ----------------------------------------------
+   In a story, a message comes from somebody and their portrait is half of why
+   you are reading it. At a table the voice describing the room is not a person
+   sitting in it — giving the Gamekeeper a face makes them a character you are
+   talking to rather than the world talking back. So in tabletop mode the
+   narrator loses the portrait and the name banner and becomes what it actually
+   is: the text. You keep yours; you are still somebody. */
+
+body[data-mode="tabletop"] .msg:not(.mine) .who,
+body[data-mode="tabletop"] .msg:not(.mine) .platename { display: none; }
+
+/* The portrait column has to go with it or the prose stays indented past a
+   gap where a face used to be. */
+body[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) {
+  grid-template-columns: minmax(0, 1fr);
+}
+body[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .body,
+body[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .tools,
+body[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate {
+  grid-column: 1;
+}
+
+/* ---- the die, thrown -------------------------------------------------------
+   Tabletop only. Rolling in a story chat is a small utility and gets a small
+   utility's treatment; rolling at a table is the moment the evening turns, and
+   deserves to be looked at. The die is gold because everything here is, and
+   solid rather than outlined because an outline reads as an icon and this is
+   meant to read as an object. */
+
+.diestage {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 45%,
+    rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.86) 70%);
+  animation: dieIn 0.22s ease-out;
+  cursor: pointer;
+}
+.diestage.going { animation: dieOut 0.34s ease-in forwards; }
+@keyframes dieIn  { from { opacity: 0; } }
+@keyframes dieOut { to { opacity: 0; } }
+
+.dieinner { display: grid; justify-items: center; gap: 0.2rem; }
+
+.diebody {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(46vw, 210px);
+  aspect-ratio: 1;
+  filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.6));
+}
+.d20 { width: 100%; height: 100%; }
+.dieshell { stroke: #f4dcae; stroke-width: 2; stroke-linejoin: round; }
+/* The ruled facets are what make a flat hexagon read as a solid. Thin and
+   dark: they are the shadows between faces, not a drawing of edges. */
+.diefacets path {
+  fill: none;
+  stroke: rgba(52, 34, 12, 0.72);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.diefaceplate { stroke: #f4dcae; stroke-width: 1.6; stroke-linejoin: round; }
+
+.dienum {
+  position: absolute;
+  /* The readable face is the lower triangle, not the middle of the solid. */
+  top: 56%;
+  font-family: var(--lumiverse-font-heading);
+  font-size: clamp(1.7rem, 7vw, 2.6rem);
+  line-height: 1;
+  color: #f4dcae;
+  text-shadow: 0 0 18px rgba(200, 153, 79, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The throw: a tumble that decelerates onto the face, then one settle-bounce.
+   Two animations rather than one so the number can be swapped at the moment
+   the tumble ends without the transform restarting. */
+.diestage.rolling .diebody { animation: dieTumble 0.95s cubic-bezier(.18,.85,.3,1); }
+.diestage.landed .diebody { animation: dieSettle 0.5s cubic-bezier(.2,1.5,.4,1); }
+@keyframes dieTumble {
+  0%   { transform: scale(0.35) rotate(-220deg); }
+  60%  { transform: scale(1.12) rotate(140deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+@keyframes dieSettle {
+  0%   { transform: scale(1.16); }
+  100% { transform: scale(1); }
+}
+.diestage.landed .dieshell { animation: dieFlash 0.55s ease-out; }
+@keyframes dieFlash {
+  0%   { filter: brightness(1.9); }
+  100% { filter: brightness(1); }
+}
+
+.dielabel {
+  margin-top: 0.7rem;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.82rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lumiverse-primary);
+  opacity: 0;
+}
+/* The working, underneath: what the die said, what the sheet added, the sum.
+   Shown because a roll you cannot check is a roll somebody could have made
+   up — the same reason the notation is never hidden anywhere else. */
+.diebreak {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+  font-size: 0.92rem;
+  color: var(--lumiverse-text-muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+}
+.diestage.landed .dielabel, .diestage.landed .diebreak {
+  animation: dieTell 0.45s ease-out 0.05s forwards;
+}
+@keyframes dieTell { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+.diebreak b { color: var(--lumiverse-text); font-weight: 400; }
+.diebreak .dietot {
+  font-family: var(--lumiverse-font-heading);
+  font-size: 1.05rem;
+  color: var(--lumiverse-primary);
+}
+.diebreak .diesep { color: var(--lumiverse-text-hint); }
+
+/* Somebody who has asked not to be spun at gets the number and the working,
+   which is the whole of the information. */
+@media (prefers-reduced-motion: reduce) {
+  .diestage, .diestage.going,
+  .diestage.rolling .diebody, .diestage.landed .diebody,
+  .diestage.landed .dieshell { animation: none; }
+  .dielabel, .diebreak { opacity: 1; }
+  .diestage.going { opacity: 0; }
+}
+
+/* ---- no pencil at the table -------------------------------------------------
+   A turn that can be rewritten after you have seen how it went is not a turn
+   you can lose, and losing is the only thing that made any of it worth
+   anything. The server refuses these either way (see editsLocked), but a
+   button that exists and then fails is worse than one that is not there: the
+   point is not to catch anybody, it is to not leave the pencil out at two in
+   the morning after a wolf has eaten their rogue. Turn it back on in
+   Behaviour if you would rather have it. */
+
+body.nopencil .msg .tools [data-edit],
+body.nopencil .msg .tools [data-del],
+body.nopencil .sheetrow[data-act="select"] { display: none; }
+
+/* ---- the initiative tracker -------------------------------------------------
+   A fight is the one time a chat window needs a heads-up display. It pulls up
+   from the bottom when one starts, shows everybody rolling, sorts itself as
+   the dice land, and then follows the turn until it is over.
+
+   In the flow above the composer rather than fixed over it: an overlay at the
+   bottom of a phone is an overlay on top of the keyboard. */
+
+.inittrack {
+  flex: none;
+  margin: 0 auto;
+  width: min(100%, 46rem);
+  padding: 0 0.75rem;
+  /* The pull-up. Overshoots and settles, which is the difference between a
+     panel appearing and a thing being slapped down on the table. */
+  animation: trackUp 0.62s cubic-bezier(.16, 1.2, .3, 1);
+  transform-origin: 50% 100%;
+}
+@keyframes trackUp {
+  0%   { transform: translateY(115%); opacity: 0; }
+  55%  { transform: translateY(-5%);  opacity: 1; }
+  78%  { transform: translateY(2%); }
+  100% { transform: translateY(0); }
+}
+.inittrack.going { animation: trackDown 0.4s ease-in forwards; }
+@keyframes trackDown { to { transform: translateY(115%); opacity: 0; } }
+
+.initgrip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.7rem;
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--hearth-hurt) 16%, var(--lumiverse-bg-elevated)),
+    var(--lumiverse-bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--hearth-hurt) 40%, transparent);
+  border-bottom: 0;
+  border-radius: var(--lumiverse-radius) var(--lumiverse-radius) 0 0;
+  color: var(--lumiverse-text);
+  cursor: pointer;
+}
+.initgriptitle {
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--hearth-hurt);
+}
+/* Who is up, said in words on the handle — so a folded tracker still answers
+   the only question anybody folds it with. */
+.initgripnow {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 0.82rem;
+  color: var(--lumiverse-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.initgrip svg {
+  flex: none;
+  width: 18px; height: 18px;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  color: var(--lumiverse-text-dim);
+  transition: transform .22s;
+}
+.inittrack.folded .initgrip svg { transform: rotate(180deg); }
+.inittrack.folded .initgrip { border-bottom: 1px solid color-mix(in srgb, var(--hearth-hurt) 40%, transparent); }
+
+.initrows {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.55rem 0.6rem 0.65rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hearth-hurt) 40%, transparent);
+  border-top: 0;
+  border-radius: 0 0 var(--lumiverse-radius) var(--lumiverse-radius);
+  /* Side by side, and scrolling rather than wrapping: a turn order is a line
+     you read along, and a ten-goblin fight that reflows into three rows every
+     time somebody dies is a tracker you stop trusting to stay still. */
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+}
+.inittrack.folded .initrows { display: none; }
+
+/* ---- one card per combatant ---- */
+
+.initwho {
+  position: relative;
+  flex: none;
+  width: 6.4rem;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  justify-items: center;
+  gap: 0.22rem;
+  padding: 0.85rem 0.4rem 0.5rem;
+  scroll-snap-align: start;
+  background:
+    linear-gradient(to bottom,
+      color-mix(in srgb, var(--lumiverse-bg-elevated) 92%, transparent),
+      color-mix(in srgb, var(--lumiverse-bg-deep) 88%, transparent));
+  border: 0;
+  border-radius: var(--lumiverse-radius);
+  /* The same matting as the message plates and the ability rings: gilt
+     hairline, a dark reveal, a finer line. A card here has to look like it
+     came out of the same box as the character sheet. */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 34%, transparent),
+    inset 0 0 0 3px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary) 14%, transparent),
+    0 3px 10px rgba(0, 0, 0, 0.4);
+  text-align: center;
+  color: inherit;
+  cursor: pointer;
+  /* FLIP: the sort is animated by transform, and this is what carries it. */
+  transition: transform .55s cubic-bezier(.2, .9, .25, 1), box-shadow .2s;
+}
+.initwho:hover {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 60%, transparent),
+    inset 0 0 0 3px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary) 26%, transparent),
+    0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+/* The roll, on a disc straddling the top edge — the way a seal sits on a
+   document rather than beside it, same as the sheet's ability medallions. */
+.initroll2 {
+  position: absolute;
+  top: -0.62rem;
+  display: grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 50%;
+  background: var(--lumiverse-bg-deep);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--lumiverse-primary);
+  font-variant-numeric: tabular-nums;
+}
+.initwho.rolling .initroll2 {
+  color: var(--lumiverse-text-dim);
+  animation: rollShake 0.14s linear infinite;
+}
+@keyframes rollShake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  25%  { transform: translate(-1.5px, 1px) rotate(-7deg); }
+  75%  { transform: translate(1.5px, -1px) rotate(7deg); }
+}
+.initwho.justlanded .initroll2 { animation: rollLand 0.45s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes rollLand {
+  0%   { transform: scale(1.7); filter: brightness(2.2); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+.initname2 {
+  align-self: end;
+  width: 100%;
+  font-size: 0.76rem;
+  line-height: 1.15;
+  color: var(--lumiverse-text);
+  /* Two lines, then clipped: "Bandit Captain" must not make one card taller
+     than the rest and leave the row uneven. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.inithp {
+  font-size: 0.68rem;
+  color: var(--lumiverse-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.initbar {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--lumiverse-bg) 85%, transparent);
+  overflow: hidden;
+}
+.initbar > span {
+  display: block; height: 100%;
+  background: var(--hearth-hurt);
+  transition: width .5s ease-out;
+}
+.initwho.you .initname2 { font-family: var(--lumiverse-font-display); color: var(--lumiverse-primary); }
+.initwho.you .initbar > span { background: var(--lumiverse-primary); }
+.initwho.out { opacity: 0.38; }
+.initwho.out .initname2 { text-decoration: line-through; }
+
+/* Whose go it is: the card lifts and takes a gold frame. A ring rather than a
+   fill, so what is written on it reads exactly the same and only the edge
+   changes — and a slow pulse, because a marker that sits perfectly still is
+   one you stop seeing after ten minutes of a fight. */
+.initwho.up {
+  transform: translateY(-3px);
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--lumiverse-primary) 15%, var(--lumiverse-bg-elevated)),
+    color-mix(in srgb, var(--lumiverse-bg-deep) 88%, transparent));
+  animation: upPulse 2.4s ease-in-out infinite;
+}
+@keyframes upPulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 75%, transparent),
+      inset 0 0 0 3px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+      inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary) 30%, transparent),
+      0 5px 14px rgba(0, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px var(--lumiverse-primary),
+      inset 0 0 0 3px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+      inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent),
+      0 5px 22px color-mix(in srgb, var(--lumiverse-primary) 26%, transparent);
+  }
+}
+.initwho.up .initroll2 {
+  box-shadow: inset 0 0 0 1px var(--lumiverse-primary),
+              0 0 12px color-mix(in srgb, var(--lumiverse-primary) 40%, transparent);
+}
+/* A hairline under the active card, so the eye finds it even folded down to a
+   glance. Drawn rather than a border so it cannot change the card's size. */
+.initwho.up::after {
+  content: "";
+  position: absolute;
+  left: 22%; right: 22%; bottom: -0.28rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--lumiverse-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inittrack, .inittrack.going,
+  .initwho, .initwho.up,
+  .initwho.rolling .initroll2, .initwho.justlanded .initroll2 { animation: none; transition: none; }
+  .inittrack.going { opacity: 0; }
+}
+
+/* Whose go it is, marked in the prose. Quieter than a hit or a name, because
+   the tracker at the bottom of the screen is where this is actually read. */
+.turnmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.86em;
+  color: var(--lumiverse-text-dim);
+  letter-spacing: 0.04em;
+}
+.turnmark::before { content: "\25B8"; color: var(--lumiverse-primary); }
+
+/* ---- the storybook ----------------------------------------------------------
+   What the game is going to be about, asked once at the top of a new one. It
+   is the only dialog in Hearth that is a *page* rather than a form: three
+   plates to choose between, or a place to write your own. Wide, unhurried, and
+   worth looking at, because it is the first thing a new game shows you. */
+
+.storybook { width: min(96vw, 44rem); max-height: 92dvh; overflow-y: auto; }
+.storybook h2 { text-align: center; }
+/* A rule under the heading with an ornament on it — the same joinery the
+   message dividers use, so this reads as part of the same book. */
+.storybook h2::after {
+  content: "";
+  display: block;
+  width: 60%;
+  height: 1px;
+  margin: 0.55rem auto 0;
+  background: linear-gradient(to right, transparent,
+    color-mix(in srgb, var(--lumiverse-primary) 60%, transparent), transparent);
+}
+
+.campcards { display: grid; gap: 0.6rem; margin: 1rem 0; }
+@media (min-width: 640px) { .campcards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.campcard {
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+  padding: 0.9rem 0.85rem 1rem;
+  text-align: left;
+  background: linear-gradient(to bottom,
+    color-mix(in srgb, var(--lumiverse-bg-elevated) 92%, transparent),
+    color-mix(in srgb, var(--lumiverse-bg-deep) 85%, transparent));
+  border: 0;
+  border-radius: var(--lumiverse-radius);
+  /* The same matting as everything else that is meant to look like an object:
+     gilt hairline, dark reveal, finer line. */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 32%, transparent),
+    inset 0 0 0 3px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary) 13%, transparent),
+    0 3px 12px rgba(0, 0, 0, 0.4);
+  color: inherit;
+  cursor: pointer;
+  transition: box-shadow .2s, transform .2s;
+}
+.campcard:hover, .campcard:focus-visible {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 62%, transparent),
+    inset 0 0 0 3px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary) 26%, transparent),
+    0 8px 22px rgba(0, 0, 0, 0.5);
+}
+.camptitle {
+  font-family: var(--lumiverse-font-heading);
+  font-size: 1rem;
+  line-height: 1.2;
+  letter-spacing: 0.03em;
+  color: var(--lumiverse-primary);
+}
+.camptags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.camptag {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-dim);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 26%, transparent);
+}
+.camphook {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--lumiverse-text-muted);
+  /* Enough to decide on, not the whole premise: these are three choices to
+     weigh side by side, and a wall of text in each is not weighable. */
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- the page where you write one ---- */
+
+#campBuild fieldset {
+  margin: 0.8rem 0;
+  padding: 0.7rem 0.8rem 0.85rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+}
+#campBuild legend {
+  padding: 0 0.4rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-dim);
+}
+#camp_books { max-height: 12rem; overflow-y: auto; }
+
+.segmented { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.segmented button {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.5rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-muted);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color .18s, color .18s, background .18s;
+}
+.segmented button.on {
+  background: color-mix(in srgb, var(--lumiverse-primary) 14%, transparent);
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+  color: var(--lumiverse-primary);
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.45rem; }
+.chips:empty { margin-bottom: 0; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 40%, transparent);
+  font-size: 0.82rem;
+  color: var(--lumiverse-text);
+}
+.chip button {
+  padding: 0 0.2rem;
+  background: none;
+  border: 0;
+  color: var(--lumiverse-text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.chip button:hover { color: var(--hearth-hurt); }
+
+/* Rows that only make sense at the table. */
+body:not([data-mode="tabletop"]) .tableonly { display: none; }
+
+/* Dialog action rows. `<menu>` is the right element for a row of choices and
+   arrives with a browser's own list padding and no layout at all, which is
+   what left the storybook's Begin button sitting under everything looking
+   like it had been forgotten. */
+dialog menu {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 1.2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+dialog menu button { width: auto; margin: 0; }
+/* The three plates are the choice; the two below them are the alternatives to
+   choosing, so they sit centred under the row rather than off to one side. */
+#campPick menu { justify-content: center; }
+/* And on the page you write, the primary action goes where a primary action
+   goes, with the way back at the far end. */
+#campBuild menu { justify-content: flex-start; }
+#campBuild menu .grow { flex: 1; }
+
+/* A button that carries an icon as well as a word. */
+#campRoll { display: inline-flex; align-items: center; gap: 0.4rem; }
+#campRoll svg {
+  width: 17px; height: 17px;
+  fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+#campRoll:hover svg { color: var(--lumiverse-primary); }
+
+/* The "write it out for me" row. Under the situation box rather than in the
+   action row at the bottom, because it acts on that field and belongs beside
+   what it reads. */
+.writerow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: -0.2rem 0 0.9rem;
+}
+.writerow button { width: auto; margin: 0; display: inline-flex; align-items: center; gap: 0.4rem; }
+.writerow button svg {
+  width: 16px; height: 16px;
+  fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.writerow button:disabled { opacity: 0.5; cursor: default; }
+.writerow .hint { flex: 1; min-width: 12rem; margin: 0; }
+
+/* ---- the shelf --------------------------------------------------------------
+   Lorebooks, standing up. Not only for the pleasure of it: a book is something
+   you go looking for by half-remembering it, and a column of identical text
+   rows is the worst possible shape for that. Colour, width and height all come
+   from the name, so the same book looks the same every time and your eye
+   learns where it is. */
+
+.shelf {
+  --row: 188px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 5px;
+  padding: 0 0.35rem;
+  /* The boards. One every row, drawn as a repeating background rather than as
+     elements, because a flex row that wraps has nowhere to hang a shelf. Every
+     spine is exactly one row tall, which is what keeps these lined up. */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--row) - 7px),
+    color-mix(in srgb, var(--lumiverse-primary) 40%, transparent) calc(var(--row) - 7px),
+    color-mix(in srgb, var(--lumiverse-primary) 40%, transparent) calc(var(--row) - 5px),
+    color-mix(in srgb, #120c08 88%, transparent) calc(var(--row) - 5px),
+    color-mix(in srgb, #120c08 88%, transparent) var(--row)
+  );
+}
+.shelf .hint { padding: 0.6rem 0 1rem; }
+
+.spine {
+  /* Full row height, with the book itself sitting on the board. */
+  height: var(--row);
+  width: var(--w);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  padding: 0.4rem 0 0.35rem;
+  align-self: flex-end;
+  /* Light down one edge and shadow down the other: that curve is what makes a
+     flat rectangle read as a rounded spine. Gentle, or every book on the shelf
+     goes the same muddy colour. */
+  background:
+    linear-gradient(to right,
+      rgba(0, 0, 0, 0.32) 0, rgba(255, 255, 255, 0.07) 26%,
+      rgba(255, 255, 255, 0.04) 62%, rgba(0, 0, 0, 0.38) 100%),
+    var(--leather);
+  border: 0;
+  border-radius: 2px 3px 3px 2px;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 22%, transparent),
+    0 2px 6px rgba(0, 0, 0, 0.5);
+  color: var(--lumiverse-text);
+  cursor: pointer;
+  transition: transform .18s, box-shadow .18s;
+}
+/* Only as tall as this book is, once the row height has done its job. */
+.spine { height: var(--h); margin-top: calc(var(--row) - var(--h) - 7px); }
+
+.spine:hover, .spine:focus-visible {
+  /* Pulled half out, the way you check a spine you are not sure about. */
+  transform: translateY(-6px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent),
+    0 8px 14px rgba(0, 0, 0, 0.6);
+}
+
+/* Gilt bands top and bottom, which is most of what makes a rectangle a book. */
+.band {
+  width: 68%;
+  height: 1px;
+  flex: none;
+  background: color-mix(in srgb, var(--lumiverse-primary) 62%, transparent);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--lumiverse-primary) 26%, transparent);
+}
+
+.spinetitle {
+  flex: 1;
+  min-height: 0;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  /* Reading bottom-to-top, which is how a spine is set nearly everywhere that
+     is not the United States, and which puts the title the right way up when
+     the book is lying down. */
+  transform: rotate(180deg);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--lumiverse-primary) 70%, white);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.spinecount {
+  flex: none;
+  font-size: 0.6rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+}
+
+/* In play in this chat, by any of the three routes. A ribbon, because it is
+   the one thing worth seeing from across the room. */
+.spine.inplay::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: 5px;
+  width: 5px;
+  height: 15px;
+  border-radius: 0 0 2px 2px;
+  background: var(--lumiverse-primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--lumiverse-primary) 50%, transparent);
+}
+.spine { position: relative; }
+.shelf .ico.on, .listbar .ico.on { color: var(--lumiverse-primary); }

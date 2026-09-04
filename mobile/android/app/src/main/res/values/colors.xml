@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="icon_background">#16110e</color>
+
+    <!-- Stone, lit from the fire below: the faces nearer the opening are
+         warmer and lighter than the outer ones. -->
+    <color name="icon_stone">#7d7062</color>
+    <color name="icon_stone_dark">#544a40</color>
+    <color name="icon_stone_light">#9a8c7c</color>
+    <color name="icon_mortar">#3b332c</color>
+    <color name="icon_hollow">#120d0a</color>
+
+    <!-- The fire itself, in the same ember colour as the desktop app's accent. -->
+    <color name="icon_flame">#d8a25f</color>
+    <color name="icon_flame_hot">#f6c877</color>
+    <color name="icon_flame_deep">#c2661f</color>
+    <color name="icon_log">#4a352a</color>
+</resources>

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#16110e"/>
+
+  <!-- firelight spilling from the opening -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="76%" r="52%">
+      <stop offset="0%"   stop-color="#e79a3a" stop-opacity=".85"/>
+      <stop offset="55%"  stop-color="#b45c1c" stop-opacity=".32"/>
+      <stop offset="100%" stop-color="#b45c1c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#glow)"/>
+
+  <!-- mantel -->
+  <rect x="9" y="15" width="46" height="5" rx="1.5" fill="#8a6b38"/>
+
+  <!-- stone surround -->
+  <g fill="none" stroke="#8a6b38" stroke-width="3.4" stroke-linejoin="round">
+    <path d="M13 21v29M51 21v29"/>
+  </g>
+  <path d="M13 50h38" stroke="#8a6b38" stroke-width="3.4" stroke-linecap="round"/>
+
+  <!-- coursed stone joints -->
+  <g stroke="#5e4a2a" stroke-width="1.3" opacity=".85">
+    <path d="M13 30h5M51 30h-5M13 39h5M51 39h-5"/>
+  </g>
+
+  <!-- hearth opening -->
+  <path d="M21 50V33a11 11 0 0 1 22 0v17z" fill="#0e0a08"/>
+
+  <!-- flame -->
+  <path d="M32 46c-3.6 0-6.4-2.5-6.4-5.9 0-3.9 3.4-5.6 4.6-9.6.6 1.4 1 2.6 1 4 1.6-1 2.3-2.7 2.3-4.6 3 2.7 4.9 6.1 4.9 10.2 0 3.4-2.8 5.9-6.4 5.9z"
+        fill="#c8994f"/>
+  <path d="M32 46c-1.9 0-3.4-1.5-3.4-3.5 0-2.3 2.3-3.1 3-6.2 1.6 1.8 3.8 3.8 3.8 6.2 0 2-1.5 3.5-3.4 3.5z"
+        fill="#e9c072"/>
+
+  <!-- logs -->
+  <g stroke="#5e4a2a" stroke-width="2.6" stroke-linecap="round">
+    <path d="M24 49.5l7-3M40 49.5l-7-3"/>
+  </g>
+</svg>

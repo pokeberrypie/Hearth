@@ -1,0 +1,24 @@
+# Your library. Chats, characters, personas, uploaded pictures, API keys —
+# everything Hearth keeps for you lives here, and none of it belongs in a
+# repository. Kept out from the first commit of this history rather than
+# removed later, because "removed later" is still in the history.
+data/
+
+# Dependencies, restored with `bun install` and, in mobile/, `npm install`.
+node_modules/
+
+# Local machine settings: SDK paths, and whatever this checkout was allowed
+# to run.
+.claude/
+mobile/android/local.properties
+
+# Build output.
+dist/
+src/embedded.generated.ts
+
+# Both of these are produced by `npm run bundle` in mobile/ and the copy step
+# after it, so tracking them meant every rebuild showed up as a change to
+# review — and the copy under android/assets is a staged duplicate of the one
+# in dist/, so it was the same bundle twice.
+mobile/dist/
+mobile/android/app/src/main/assets/nodejs-project/

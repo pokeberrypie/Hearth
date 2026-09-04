@@ -1,0 +1,54 @@
+<!--
+  The desktop icon: the same stone hearth as the Android launcher icon, on a
+  rounded dark ground so it reads as an app tile rather than a sticker.
+
+  Kept deliberately simple, because the smallest size Windows will ask for is
+  16px, where mortar lines and stone tones all average into one grey. What
+  carries it at that size is the silhouette: a broad dark arch, a heavy lintel
+  across the top, and a bright flame in the middle of the opening.
+
+  Source of truth for installer/hearth.ico — see scripts/build-desktop.mjs.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <defs>
+    <radialGradient id="ground" cx="50%" cy="62%" r="62%">
+      <stop offset="0%" stop-color="#3c2415"/>
+      <stop offset="55%" stop-color="#241711"/>
+      <stop offset="100%" stop-color="#16110e"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="108" height="108" rx="22" fill="url(#ground)"/>
+
+  <!-- Firelight thrown onto the wall behind, before anything solid. -->
+  <ellipse cx="54" cy="66" rx="24" ry="16" fill="#c2661f" opacity="0.22"/>
+
+  <!-- The hollow, so the opening is a hole and not lit stone. -->
+  <path fill="#120d0a" d="M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
+
+  <!-- The surround: one mass of stone with the arch cut out of it. -->
+  <path fill="#7d7062" fill-rule="evenodd"
+        d="M27,42 L81,42 L81,79 L27,79 Z M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
+  <path fill="#3b332c" d="M27,53 L41,53 L41,55 L27,55 Z M27,66 L41,66 L41,68 L27,68 Z
+                          M67,48 L81,48 L81,50 L67,50 Z M67,61 L81,61 L81,63 L67,63 Z
+                          M67,73 L81,73 L81,75 L67,75 Z"/>
+  <path fill="#9a8c7c" d="M41,60 L41,79 L38.5,79 L38.5,60 Z M67,60 L67,79 L69.5,79 L69.5,60 Z"/>
+
+  <!-- Mantel: a heavy lintel, tapered so a rounded tile meets a slope. -->
+  <path fill="#9a8c7c" d="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z"/>
+  <path fill="#544a40" d="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z"/>
+
+  <!-- The slab the fire sits on. -->
+  <path fill="#7d7062" d="M29,79 L79,79 L76,85 L32,85 Z"/>
+  <path fill="#544a40" d="M29,79 L79,79 L78,81 L30,81 Z"/>
+
+  <!-- Embers, then two logs laid across them. -->
+  <path fill="#c2661f" d="M43,76 L65,76 L65,79 L43,79 Z"/>
+  <path fill="#4a352a" d="M45,74 L61,69 L63,73 L47,78 Z M47,69 L63,74 L61,78 L45,73 Z"/>
+
+  <!-- The fire: the brightest thing in the icon at any size. -->
+  <path fill="#d8a25f" d="M54,50 C48,58 45,63 45,68 C45,74 49,78 54,78 C59,78 63,74 63,68
+                          C63,63 60,58 57,55 C57,60 55,62 53,62 C54,58 54,54 54,50 Z"/>
+  <path fill="#f6c877" d="M54,60 C51,64 50,66 50,69 C50,74 52,76 54,76 C56,76 58,74 58,69
+                          C58,66 57,64 54,60 Z"/>
+</svg>

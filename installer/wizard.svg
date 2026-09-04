@@ -1,0 +1,70 @@
+<!--
+  The tall panel down the left of the installer's first and last pages.
+
+  Same scene as the app's own loading screen: a stone hearth in a dark room
+  with the fire well up. Drawn at the wizard panel's proportions (164x314)
+  rather than scaled from something square, so the fire has the height to
+  climb and the hearth still sits on the floor.
+
+  No text here — the wordmark is drawn onto the canvas afterwards, where the
+  app's own Cinzel is available. An SVG loaded as an image cannot reach a
+  font the page has loaded.
+
+  Source for installer/wizard.png — see scripts/build-wizard-art.ts.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 164 314" width="164" height="314">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#100c0a"/>
+      <stop offset="62%" stop-color="#16110e"/>
+      <stop offset="100%" stop-color="#1d1511"/>
+    </linearGradient>
+    <radialGradient id="firelight" cx="50%" cy="78%" r="58%">
+      <stop offset="0%" stop-color="#f6c877" stop-opacity=".30"/>
+      <stop offset="52%" stop-color="#c2661f" stop-opacity=".12"/>
+      <stop offset="100%" stop-color="#c2661f" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="164" height="314" fill="url(#wall)"/>
+  <rect width="164" height="314" fill="url(#firelight)"/>
+
+  <!-- A gilt rule near the top, for the wordmark to sit under. -->
+  <g stroke="#8a6b38" fill="none" stroke-linecap="round">
+    <path d="M34 74h96" stroke-width="1"/>
+    <path d="M52 78h60" stroke-width="0.6" opacity=".55"/>
+  </g>
+  <path d="M82 70l4.5 4.5L82 79l-4.5-4.5z" fill="#c9a25e"/>
+
+  <g transform="translate(82 250)">
+    <!-- The hearth, drawn about its own centre so it can be placed by hand. -->
+    <g transform="translate(-54 -85) scale(1.02)">
+      <path fill="#120d0a" d="M41,80 L41,60 A13,13 0 0 1 67,60 L67,80 Z"/>
+      <path fill="#6b6055" fill-rule="evenodd"
+            d="M27,42 L81,42 L81,79 L27,79 Z M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
+      <path fill="#342d27" d="M27,53 L41,53 L41,55 L27,55 Z M27,66 L41,66 L41,68 L27,68 Z
+                              M67,48 L81,48 L81,50 L67,50 Z M67,61 L81,61 L81,63 L67,63 Z
+                              M67,73 L81,73 L81,75 L67,75 Z"/>
+      <path fill="#8a7d6e" d="M41,60 L41,79 L38.5,79 L38.5,60 Z M67,60 L67,79 L69.5,79 L69.5,60 Z"/>
+      <path fill="#8a7d6e" d="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z"/>
+      <path fill="#4a4139" d="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z"/>
+      <path fill="#6b6055" d="M29,79 L79,79 L76,85 L32,85 Z"/>
+      <path fill="#4a4139" d="M29,79 L79,79 L78,81 L30,81 Z"/>
+      <path fill="#c2661f" d="M43,76 L65,76 L65,79 L43,79 Z"/>
+      <path fill="#3d2b22" d="M45,74 L61,69 L63,73 L47,78 Z M47,69 L63,74 L61,78 L45,73 Z"/>
+    </g>
+
+    <!-- The fire, rising well clear of the mantel. -->
+    <g transform="translate(0 -6)">
+      <path fill="#c2661f" opacity=".82"
+            d="M0,0 C-19,-32 -25,-58 -18,-94 C-13,-118 -5,-144 0,-186
+               C5,-142 14,-116 19,-92 C26,-56 18,-30 0,0 Z"/>
+      <path fill="#d8a25f"
+            d="M0,0 C-11,-26 -14,-45 -9,-71 C-6,-88 -2,-106 0,-132
+               C3,-104 8,-86 11,-69 C16,-43 11,-24 0,0 Z"/>
+      <path fill="#f6c877"
+            d="M0,0 C-6,-18 -7,-31 -4,-48 C-2,-59 -1,-70 0,-88
+               C2,-71 4,-59 6,-47 C9,-30 6,-18 0,0 Z"/>
+    </g>
+  </g>
+</svg>

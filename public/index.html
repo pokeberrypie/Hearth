@@ -1,0 +1,1305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#16110e">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Hearth</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/style.css">
+<!-- Whatever the owner of this copy has written in Looks. Last in the cascade
+     on purpose: it is meant to win. -->
+<style id="customCss"></style>
+</head>
+<body>
+<!-- The hearth being lit, over the gap where the app is loading.
+     Two halves of one scene: together they show a single hearth, and they part
+     like a curtain once everything is ready. Decorative only — aria-hidden,
+     and taken out of the DOM the moment it has finished. -->
+<!-- The doors. Shut over the room, the sign changes behind them, and they
+     open again on the other mode. Only ever on screen for a moment; see
+     switchMode() in app.js. -->
+<div id="doors" aria-hidden="true" hidden>
+  <div class="door left"></div>
+  <div class="door right"></div>
+  <div class="doorsign"><span id="doorText">HEARTH</span></div>
+</div>
+
+<!-- The die, thrown. Tabletop only: the button there decides what the moment
+     calls for and shows you it landing, rather than asking you to type "1d20+3"
+     — nobody at a table says that out loud. See showDie() in app.js. -->
+<div id="dieStage" class="diestage" hidden>
+  <div class="dieinner">
+    <div class="diebody">
+      <svg class="d20" viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <linearGradient id="dieGold" x1="0" y1="0" x2="0.4" y2="1">
+            <stop offset="0%" stop-color="#f0d193"/>
+            <stop offset="42%" stop-color="#c8994f"/>
+            <stop offset="100%" stop-color="#6d4f24"/>
+          </linearGradient>
+          <linearGradient id="dieFace" x1="0.2" y1="0" x2="0.8" y2="1">
+            <stop offset="0%" stop-color="#3a2b18"/>
+            <stop offset="100%" stop-color="#14100b"/>
+          </linearGradient>
+        </defs>
+        <!-- The solid: a hexagonal silhouette with the icosahedron's facets
+             ruled across it, which is what a d20 reads as at any size. -->
+        <polygon class="dieshell" points="100,8 179,53 179,147 100,192 21,147 21,53"
+                 fill="url(#dieGold)"/>
+        <g class="diefacets">
+          <path d="M100 8 L100 56 M179 147 L141 128 M21 147 L59 128
+                   M179 53 L100 56 M179 53 L141 128
+                   M21 53 L100 56 M21 53 L59 128
+                   M100 192 L141 128 M100 192 L59 128"/>
+        </g>
+        <!-- The face you read the number off, sunk into the metal. -->
+        <polygon class="diefaceplate" points="100,56 141,128 59,128" fill="url(#dieFace)"/>
+      </svg>
+      <span class="dienum">—</span>
+    </div>
+    <div class="dielabel"></div>
+    <div class="diebreak"></div>
+  </div>
+</div>
+
+<div id="boot" aria-hidden="true">
+  <div class="bh l"><div class="bs">
+      <div class="glow"></div>
+      <svg viewBox="0 -128 108 216" preserveAspectRatio="xMidYMax meet" focusable="false">
+        <!-- The hollow, so the opening reads as a hole and not as lit stone. -->
+        <path fill="#120d0a" d="M41,80 L41,60 A13,13 0 0 1 67,60 L67,80 Z"/>
+
+        <!-- The surround: one mass of stone with the arch cut out of it. -->
+        <path fill="#6b6055" fill-rule="evenodd"
+              d="M27,42 L81,42 L81,79 L27,79 Z M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
+        <path fill="#342d27" d="M27,53 L41,53 L41,55 L27,55 Z M27,66 L41,66 L41,68 L27,68 Z
+                                M67,48 L81,48 L81,50 L67,50 Z M67,61 L81,61 L81,63 L67,63 Z
+                                M67,73 L81,73 L81,75 L67,75 Z"/>
+        <!-- The inner faces catch the fire. -->
+        <path fill="#8a7d6e" d="M41,60 L41,79 L38.5,79 L38.5,60 Z M67,60 L67,79 L69.5,79 L69.5,60 Z"/>
+
+        <!-- Mantel, tapered so it does not end in a corner. -->
+        <path fill="#8a7d6e" d="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z"/>
+        <path fill="#4a4139" d="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z"/>
+
+        <!-- The slab it stands on. -->
+        <path fill="#6b6055" d="M29,79 L79,79 L76,85 L32,85 Z"/>
+        <path fill="#4a4139" d="M29,79 L79,79 L78,81 L30,81 Z"/>
+
+        <!-- Embers in the grate, and the kindling laid across them. -->
+        <path class="embers" fill="#c2661f" d="M43,76 L65,76 L65,79 L43,79 Z"/>
+        <path fill="#3d2b22" d="M45,74 L61,69 L63,73 L47,78 Z M47,69 L63,74 L61,78 L45,73 Z"/>
+
+        <!-- The fire, drawn over the stone: it starts inside the opening and
+             climbs out of it until it has the whole screen. -->
+        <g class="fire">
+          <path class="fl deep" d="M54,79 C34,46 28,18 36,-20 C41,-46 50,-74 54,-118
+                                   C59,-72 68,-44 73,-18 C80,18 72,48 54,79 Z"/>
+          <path class="fl mid"  d="M54,79 C42,52 39,32 44,4 C47,-14 52,-34 54,-62
+                                   C57,-32 62,-12 65,6 C70,34 65,54 54,79 Z"/>
+          <path class="fl hot"  d="M54,79 C48,60 47,46 50,28 C52,16 53,4 54,-16
+                                   C56,2 58,15 60,27 C63,45 60,60 54,79 Z"/>
+        </g>
+      </svg>
+  </div></div>
+  <div class="bh r"><div class="bs">
+      <div class="glow"></div>
+      <svg viewBox="0 -128 108 216" preserveAspectRatio="xMidYMax meet" focusable="false">
+        <!-- The hollow, so the opening reads as a hole and not as lit stone. -->
+        <path fill="#120d0a" d="M41,80 L41,60 A13,13 0 0 1 67,60 L67,80 Z"/>
+
+        <!-- The surround: one mass of stone with the arch cut out of it. -->
+        <path fill="#6b6055" fill-rule="evenodd"
+              d="M27,42 L81,42 L81,79 L27,79 Z M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
+        <path fill="#342d27" d="M27,53 L41,53 L41,55 L27,55 Z M27,66 L41,66 L41,68 L27,68 Z
+                                M67,48 L81,48 L81,50 L67,50 Z M67,61 L81,61 L81,63 L67,63 Z
+                                M67,73 L81,73 L81,75 L67,75 Z"/>
+        <!-- The inner faces catch the fire. -->
+        <path fill="#8a7d6e" d="M41,60 L41,79 L38.5,79 L38.5,60 Z M67,60 L67,79 L69.5,79 L69.5,60 Z"/>
+
+        <!-- Mantel, tapered so it does not end in a corner. -->
+        <path fill="#8a7d6e" d="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z"/>
+        <path fill="#4a4139" d="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z"/>
+
+        <!-- The slab it stands on. -->
+        <path fill="#6b6055" d="M29,79 L79,79 L76,85 L32,85 Z"/>
+        <path fill="#4a4139" d="M29,79 L79,79 L78,81 L30,81 Z"/>
+
+        <!-- Embers in the grate, and the kindling laid across them. -->
+        <path class="embers" fill="#c2661f" d="M43,76 L65,76 L65,79 L43,79 Z"/>
+        <path fill="#3d2b22" d="M45,74 L61,69 L63,73 L47,78 Z M47,69 L63,74 L61,78 L45,73 Z"/>
+
+        <!-- The fire, drawn over the stone: it starts inside the opening and
+             climbs out of it until it has the whole screen. -->
+        <g class="fire">
+          <path class="fl deep" d="M54,79 C34,46 28,18 36,-20 C41,-46 50,-74 54,-118
+                                   C59,-72 68,-44 73,-18 C80,18 72,48 54,79 Z"/>
+          <path class="fl mid"  d="M54,79 C42,52 39,32 44,4 C47,-14 52,-34 54,-62
+                                   C57,-32 62,-12 65,6 C70,34 65,54 54,79 Z"/>
+          <path class="fl hot"  d="M54,79 C48,60 47,46 50,28 C52,16 53,4 54,-16
+                                   C56,2 58,15 60,27 C63,45 60,60 54,79 Z"/>
+        </g>
+      </svg>
+  </div></div>
+</div>
+<script>
+  /* Before anything paints. The activity hands over with #lit once its own
+     copy has been burning through the server's wake-up, and this has to be on
+     the element in the first frame — deciding it at the end of loading meant
+     the fire climbed a second time while the app was still starting, which is
+     the one thing the hand-over exists to prevent. */
+  if (location.hash === "#lit") document.getElementById("boot").classList.add("lit");
+</script>
+
+
+<div class="wallpaper" id="wallpaper" aria-hidden="true"></div>
+<div class="overlay" id="overlay" aria-hidden="true"></div>
+<div class="hearthglow" id="glow" aria-hidden="true"></div>
+
+<div class="app">
+
+  <section class="stage">
+    <header class="bar">
+      <!-- Both sides reserve the same width whatever they hold, so the title
+           sits on the middle of the bar and not on the middle of what is left
+           over. Adding a button to one side used to shift the name. -->
+      <div class="barside">
+        <button class="icon" id="homeBtn" aria-label="Back to characters"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></svg></button>
+        <!-- On the phone there is no browser chrome to reload from, and a thread
+             that has got into a strange state is the one moment you want it. -->
+        <button class="icon" id="reloadBtn" title="Reload Hearth" aria-label="Reload Hearth"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v5h-5"/></svg></button>
+      </div>
+      <div class="title">
+        <svg class="flourish" viewBox="0 0 150 44" aria-hidden="true" focusable="false">
+        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 22H58" stroke-width="1.6"/>
+          <path d="M12 16H54" stroke-width="0.9" opacity=".55"/>
+          <path d="M12 28H54" stroke-width="0.9" opacity=".55"/>
+          <path d="M64 22l9-9M64 22l9 9" stroke-width="1.4"/>
+          <path d="M74 22l6.5-6.5M74 22l6.5 6.5" stroke-width="1.1" opacity=".7"/>
+          <path d="M84 22l4.5-4.5M84 22l4.5 4.5" stroke-width="1" opacity=".45"/>
+          <path d="M96 22c7 0 12-4.6 12-10.2 0-3.4-2.3-5.8-5.4-5.8-3.2 0-5.6 2.6-5.6 6.4 0 6.4 5.4 11.4 12.6 11.4"
+                stroke-width="1.5"/>
+          <path d="M124 22l7-7 7 7-7 7z" stroke-width="1.3"/>
+          <path d="M141 22h6" stroke-width="1.1" opacity=".6"/>
+        </g>
+      </svg>
+        <h1 id="barTitle">Hearth</h1>
+        <svg class="flourish" viewBox="0 0 150 44" aria-hidden="true" focusable="false">
+        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 22H58" stroke-width="1.6"/>
+          <path d="M12 16H54" stroke-width="0.9" opacity=".55"/>
+          <path d="M12 28H54" stroke-width="0.9" opacity=".55"/>
+          <path d="M64 22l9-9M64 22l9 9" stroke-width="1.4"/>
+          <path d="M74 22l6.5-6.5M74 22l6.5 6.5" stroke-width="1.1" opacity=".7"/>
+          <path d="M84 22l4.5-4.5M84 22l4.5 4.5" stroke-width="1" opacity=".45"/>
+          <path d="M96 22c7 0 12-4.6 12-10.2 0-3.4-2.3-5.8-5.4-5.8-3.2 0-5.6 2.6-5.6 6.4 0 6.4 5.4 11.4 12.6 11.4"
+                stroke-width="1.5"/>
+          <path d="M124 22l7-7 7 7-7 7z" stroke-width="1.3"/>
+          <path d="M141 22h6" stroke-width="1.1" opacity=".6"/>
+        </g>
+      </svg>
+      </div>
+      <div class="barside right">
+        <button class="icon" id="chatMenuBtn" aria-label="Chat options" hidden>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+        </button>
+        <button class="icon" id="menuBtn" aria-label="Open menu">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="castbar" id="castBar" hidden></div>
+
+    <div id="scroll">
+      <div id="thread"></div>
+      <div id="splash" class="splash">
+        <div class="splashhead">
+          <h2>Who are you sitting with?</h2>
+        </div>
+        <div id="recentGrid" class="portraits"></div>
+        <div id="empty" class="empty" hidden>
+          <!-- The action comes first and is the size of a decision: on an empty
+               shelf there is exactly one thing to do, so it should look like a
+               door rather than a sentence with a button after it. -->
+          <button class="bigaction" id="emptyAction" title="Bring in a character" aria-label="Bring in a character">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.6"/><path d="M2.5 20c0-3.7 3-6 6.5-6s6.5 2.3 6.5 6"/><path d="M18.5 7.5v7M15 11h7"/></svg>
+          </button>
+          <p>Nothing is burning here yet.</p>
+        </div>
+
+        <div class="splashsplit" id="recentChatsWrap" hidden>
+          <div class="splashhead">
+            <h2>Pick up where you left off</h2>
+            <div class="listbar">
+              <button class="ico" id="chatSelect" title="Select several" aria-label="Select several chats">
+                <svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg>
+              </button>
+              <button class="ico" id="chatAll" title="Select all, and start picking" aria-label="Select all chats">
+                <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg>
+              </button>
+              <span class="selcount" id="chatCount" hidden></span>
+              <button class="ico danger" id="chatDelete" title="Delete selected" aria-label="Delete selected chats" hidden>
+                <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>
+              </button>
+            </div>
+          </div>
+          <div id="chatList" class="list"></div>
+        </div>
+      </div>
+
+      <!-- Where a story forked. Its own page rather than a list, because the
+           shape is the information. -->
+      <div id="treeView" class="treeview" hidden>
+        <div class="treehead">
+          <h2 id="treeTitle">The tree</h2>
+          <p class="treeline" id="treeLine"></p>
+        </div>
+        <div class="treecanvas" id="treeCanvas"></div>
+      </div>
+    </div>
+
+    <!-- The initiative tracker. Pulls up from the bottom when a fight starts,
+         watches everyone roll, then sorts itself and follows the turn. Sits
+         above the composer in the flow rather than over it, so it can never
+         end up covering the thing you type into. See renderTrack() in app.js. -->
+    <div class="inittrack" id="initTrack" hidden>
+      <button type="button" class="initgrip" id="initGrip" aria-expanded="true">
+        <span class="initgriptitle">Initiative</span>
+        <span class="initgripnow" id="initGripNow"></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+      </button>
+      <div class="initrows" id="initRows"></div>
+    </div>
+
+    <form class="composer" id="composer" hidden>
+      <div class="inputbox">
+        <!-- Filigree at the four corners of the writing box. One drawing,
+             mirrored into place by CSS, so the four stay identical. Purely
+             decorative: aria-hidden, and it never takes a pointer event. -->
+        <svg class="filigree tl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+        <svg class="filigree tr" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+        <svg class="filigree bl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+        <svg class="filigree br" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+        <div class="quickrow">
+          <button type="button" class="ico" id="continueBtn" title="Continue" aria-label="Continue">
+            <svg viewBox="0 0 24 24"><path d="M4 6l7 6-7 6zM13 6l7 6-7 6z"/></svg>
+          </button>
+          <button type="button" class="ico" id="imperBtn" title="Write my turn" aria-label="Write my turn">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg>
+          </button>
+          <button type="button" class="ico" id="regenBtn" title="Try another reply" aria-label="Try another reply">
+            <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/></svg>
+          </button>
+          <button type="button" class="ico" id="diceBtn" title="Roll dice" aria-label="Roll dice">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1.3" fill="currentColor" stroke="none"/></svg>
+          </button>
+          <button type="button" class="ico" id="guideBtn" title="Guide this reply" aria-label="Guide this reply">
+            <svg viewBox="0 0 24 24"><path d="M5 19L16 8"/><path d="M15 4.5l1.2 2.3 2.3 1.2-2.3 1.2L15 11.5l-1.2-2.3L11.5 8l2.3-1.2z"/><path d="M19.5 13l.7 1.4 1.4.7-1.4.7-.7 1.4-.7-1.4-1.4-.7 1.4-.7z"/></svg>
+          </button>
+          <button type="button" class="ico danger" id="stopBtn" title="Stop" aria-label="Stop" hidden>
+            <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+          </button>
+        </div>
+        <div class="guiderow" id="guideRow" hidden>
+          <input id="guide" type="text" placeholder="Steer what happens next — e.g. she refuses, and the room goes quiet" autocomplete="off">
+          <div class="guideacts">
+            <button type="button" class="gbtn" id="guideSend" title="Send my message with this direction" aria-label="Send with this direction">
+              <svg viewBox="0 0 24 24"><path d="M11 5l2.2 5.8L19 13l-5.8 2.2L11 21l-2.2-5.8L3 13l5.8-2.2z"/></svg>
+            </button>
+            <button type="button" class="gbtn" id="guideCont" title="Continue the last reply with this direction" aria-label="Continue with this direction">
+              <svg viewBox="0 0 24 24"><path d="M4 6l7 6-7 6zM13 6l7 6-7 6z"/></svg>
+            </button>
+            <button type="button" class="gbtn" id="guideSwipe" title="Re-roll the last reply with this direction" aria-label="Swipe with this direction">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/></svg>
+            </button>
+            <button type="button" class="gbtn" id="guideImper" title="Write my next turn along these lines" aria-label="Write my turn with this direction">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg>
+            </button>
+          </div>
+          <button type="button" class="ico" id="guideClear" title="Close" aria-label="Close guidance">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <textarea id="input" rows="1" placeholder="Write, or send empty to stay silent…" autocomplete="off"></textarea>
+        <!-- Send rides the middle of the right edge, not the corner. The
+             filigree's weight is all at the corner diagonal; along the edges it
+             is a pair of hairlines, which a button inset from the edge clears. -->
+        <button class="send" id="sendBtn" aria-label="Send">
+          <!-- A real arrow, drawn as a filled silhouette rather than in line
+               work: at twenty-six pixels a stroked shaft and little fletching
+               marks blur into a smudge, where a barbed head, a shaft with some
+               body to it and two swept vanes still read as an arrow across a
+               room. Authored pointing right and rotated onto the diagonal,
+               which is the only way these coordinates stay legible. -->
+          <svg viewBox="0 0 32 32">
+            <g transform="rotate(-45 16 16)">
+              <!-- Drawn long. A short arrow reads as a chevron; the length is
+                   most of what says "arrow" before any of the detail does. -->
+              <path d="M31 16l-8.4-5.2 2.4 5.2-2.4 5.2z" fill="currentColor"/>
+              <path d="M5.5 16h18.2" fill="none" stroke="currentColor" stroke-width="1.5"
+                    stroke-linecap="round"/>
+
+              <!-- Fletching: two vanes swept back off the shaft, each with a
+                   quill down its middle and barbs combed off it, so it reads as
+                   a feather rather than a triangle stuck to a stick. -->
+              <g fill="currentColor">
+                <path d="M13.4 15.3C10.8 12.4 7.8 10 4.2 8.4c.5 3.4 2.4 6.2 5.4 7.6z"/>
+                <path d="M13.4 16.7C10.8 19.6 7.8 22 4.2 23.6c.5-3.4 2.4-6.2 5.4-7.6z"/>
+              </g>
+              <g fill="none" stroke="var(--lumiverse-bg-deep)" stroke-width="0.55"
+                 stroke-linecap="round" opacity=".55">
+                <path d="M5.4 9.6l7.2 5.4M6.8 12.2l5.6 2.6M9.4 14.2l3 .8"/>
+                <path d="M5.4 22.4l7.2-5.4M6.8 19.8l5.6-2.6M9.4 17.8l3-.8"/>
+              </g>
+
+              <!-- The nock, where it would sit on the string. -->
+              <path d="M5.6 14.2L3.4 16l2.2 1.8" fill="none" stroke="currentColor"
+                    stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <div class="rail">
+    <button class="railbtn" id="tuckBtn" aria-label="Hide the panel">
+      <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+    </button>
+  </div>
+
+  <aside class="panelbar" id="drawer">
+    <nav class="tabs">
+      <button data-tab="cast" class="on" title="Cast" aria-label="Cast"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.1"/><path d="M3 19c0-3.1 2.7-4.8 6-4.8s6 1.7 6 4.8"/><path d="M16.2 5.4a3.1 3.1 0 0 1 0 5.5"/><path d="M17.4 14.6c2.2.6 3.6 2.1 3.6 4.4"/></svg><span class="tablabel">Cast</span></button>
+      <button data-tab="you" title="You" aria-label="You"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg><span class="tablabel">You</span></button>
+      <button data-tab="lore" title="Lore" aria-label="Lore"><svg viewBox="0 0 24 24"><path d="M4 5.5A2 2 0 0 1 6 4h5v16H6a2 2 0 0 0-2 1.5z"/><path d="M20 5.5A2 2 0 0 0 18 4h-5v16h5a2 2 0 0 1 2 1.5z"/><path d="M11 7.5h-4M11 11h-4"/></svg><span class="tablabel">Lore</span></button>
+      <button data-tab="look" title="Look" aria-label="Look"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.9-.8 1.9-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.8" cy="11.2" r="1.1"/><circle cx="11" cy="7.4" r="1.1"/><circle cx="15.4" cy="9.2" r="1.1"/></svg><span class="tablabel">Look</span></button>
+      <button data-tab="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 14.4a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.5 1z"/></svg><span class="tablabel">Settings</span></button>
+    </nav>
+
+    <section data-panel="cast" class="panel">
+      <!-- Only in tabletop mode, and only once the game has met somebody. The
+           narrator writes these itself, mid-sentence; nobody types them. -->
+      <div id="worldSection" hidden>
+        <h3>The scene</h3>
+        <div id="worldBody"></div>
+      </div>
+
+      <div class="searchrow">
+        <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <input type="search" id="castSearch" placeholder="Search your cast" autocomplete="off" aria-label="Search characters">
+      </div>
+      <div class="listbar">
+        <button class="ico" id="newGroupBtn" title="New group chat" aria-label="Start a new group chat"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg></button>
+        <button class="ico" id="castSelect" title="Select several" aria-label="Select several characters"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+        <button class="ico" id="castAll" title="Select all, and start picking" aria-label="Select all characters"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+        <span class="grow"></span>
+        <span class="selcount" id="castCount" hidden></span>
+        <button class="ico" id="castGroup" title="Start a group chat" aria-label="Start a group chat with the selected characters" hidden><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg></button>
+        <button class="ico danger" id="castDelete" title="Delete selected" aria-label="Delete selected characters" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+      </div>
+      <div id="castList" class="list"></div>
+      <label class="filebtn">Import character cards
+        <input type="file" id="cardFile" accept=".png,.json" multiple hidden>
+      </label>
+      <p class="hint" id="importHint">PNG cards or .json, several at once.</p>
+      <button class="ghost wide" id="newCharBtn">Write one by hand</button>
+      <!-- Tabletop only: the table starts empty and fills up one invitation
+           at a time, rather than opening onto everybody you have ever made. -->
+      <button class="ghost wide" id="bringOverBtn" hidden>Bring someone to the table</button>
+    </section>
+
+    <section data-panel="you" class="panel" hidden>
+      <!-- Only in tabletop mode. A sheet belongs to whoever you are playing,
+           so it lives with the personas rather than in a room of its own. -->
+      <div id="sheetSection" hidden>
+        <h3>Your character sheet</h3>
+        <div id="sheetBody"></div>
+      </div>
+
+      <h3>Personas</h3>
+      <div class="listbar">
+        <button class="ico" id="personaSelect" title="Select several" aria-label="Select several personas"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+        <button class="ico" id="personaAll" title="Select all, and start picking" aria-label="Select all personas"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+        <span class="grow"></span>
+        <span class="selcount" id="personaCount" hidden></span>
+        <button class="ico danger" id="personaDelete" title="Delete selected" aria-label="Delete selected personas" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+      </div>
+      <div id="personaList" class="list"></div>
+      <p class="hint">The active persona is who the character is talking to. It fills {{user}} in cards and prompts.</p>
+      <button class="ghost wide" id="newPersonaBtn">New persona</button>
+      <!-- Tabletop only. Who you are at the table is not necessarily who you
+           are in your stories, so the table starts with nobody. -->
+      <button class="ghost wide tableonly" id="bringMeBtn">Bring one of your personas over</button>
+      <label class="filebtn">Import from SillyTavern
+        <input type="file" id="personaImport" accept=".json" hidden>
+      </label>
+      <p class="hint" id="personaImportHint">Point this at your SillyTavern <code>settings.json</code> and it will pull in every persona and description.</p>
+      <label class="filebtn">Import persona files
+        <input type="file" id="personaFiles" accept=".json" multiple hidden>
+      </label>
+    </section>
+
+    <section data-panel="lore" class="panel" hidden>
+      <div id="loreActive" class="loreactive"></div>
+      <div class="searchrow">
+        <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <input type="search" id="loreSearch" placeholder="Search lorebooks" autocomplete="off" aria-label="Search lorebooks">
+      </div>
+      <div class="listbar">
+        <button class="ico" id="loreImportBtn" title="Import a lorebook" aria-label="Import a lorebook"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+        <button class="ico" id="loreSelect" title="Select several" aria-label="Select several lorebooks"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+        <button class="ico" id="loreAll" title="Select all, and start picking" aria-label="Select all lorebooks"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+        <span class="grow"></span>
+        <span class="selcount" id="loreCount" hidden></span>
+        <button class="ico" id="loreView" title="Show them as a list" aria-label="Show them as a list"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <button class="ico danger" id="loreDelete" title="Delete selected" aria-label="Delete selected lorebooks" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+      </div>
+      <!-- The same books twice: standing on a shelf, which is how you find one
+           you half remember, and as a list, which is where the wiring is. -->
+      <div id="loreShelf" class="shelf"></div>
+      <div id="loreList" class="list"></div>
+      <button class="ghost wide" id="newBookBtn">New lorebook</button>
+      <!-- Tabletop only. A world you built for a story is not automatically
+           the world the game is set in. -->
+      <button class="ghost wide tableonly" id="bringBookBtn">Bring a book to the table</button>
+        <input type="file" id="loreImport" accept=".json" multiple hidden>
+
+      <details class="fold">
+        <summary><span>How lore fires</span></summary>
+        <div class="foldbody">
+          <label>Messages scanned <span class="v" id="v_scan"></span>
+            <input type="range" id="lore_scan_depth" min="1" max="30" step="1">
+          </label>
+          <label>Text budget <span class="v" id="v_budget"></span>
+            <input type="range" id="lore_budget" min="500" max="30000" step="500">
+          </label>
+          <label>Notes taken every <span class="v" id="v_autolore"></span>
+            <input type="range" id="auto_lore_every" min="0" max="100" step="1">
+          </label>
+          <label id="autoLoreScopeRow">Each note covers
+            <select id="auto_lore_scope">
+              <option value="since">Everything since the last note</option>
+              <option value="window">Only the most recent messages</option>
+            </select>
+          </label>
+        </div>
+      </details>
+    </section>
+
+    <section data-panel="look" class="panel" hidden>
+      <details class="fold" id="wallFold">
+        <summary><span>Wallpaper</span><span class="count" id="wallCount"></span></summary>
+        <div class="foldbody">
+          <div class="searchrow">
+            <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+            <input type="search" id="wallSearch" placeholder="Filter wallpapers" autocomplete="off" aria-label="Filter wallpapers">
+          </div>
+          <div class="listbar">
+            <button class="ico" id="wallSelect" title="Select several" aria-label="Select several wallpapers"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+            <button class="ico" id="wallAll" title="Select all, and start picking" aria-label="Select all wallpapers"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+            <span class="grow"></span>
+            <span class="selcount" id="wallSelCount" hidden></span>
+            <button class="ico danger" id="wallDelete" title="Delete selected" aria-label="Delete selected wallpapers" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+          </div>
+          <div id="wallGrid" class="wallgrid"></div>
+          <label class="filebtn">Upload an image
+            <input type="file" id="wallFile" accept="image/*" hidden>
+          </label>
+          <button class="ghost wide" id="wallClear">Use no wallpaper</button>
+        </div>
+      </details>
+
+      <h3>Messages</h3>
+      <div class="styles">
+        <button type="button" data-style="banner">Banner</button>
+        <button type="button" data-style="portrait">Portrait</button>
+        <button type="button" data-style="page">Page</button>
+      </div>
+      <label id="bannerRow">Portrait width <span class="v" id="v_banner"></span>
+        <input type="range" id="banner_width" min="90" max="280" step="5">
+      </label>
+      <label id="avatarRow">Face size <span class="v" id="v_avatar"></span>
+        <input type="range" id="avatar_size" min="36" max="88" step="2">
+      </label>
+
+      <label class="check"><input type="checkbox" id="bleed"> Fade portraits into the page</label>
+      <label id="fadeRow">Fade begins at <span class="v" id="v_fade"></span>
+        <input type="range" id="fade_start" min="10" max="100" step="5">
+      </label>
+      <label class="check"><input type="checkbox" id="show_stats"> Show tokens and timing on messages</label>
+      <label class="check"><input type="checkbox" id="show_cutoff"> Mark where the conversation stops being sent</label>
+      <label class="check"><input type="checkbox" id="sound"> A quill scratching as a reply is written</label>
+
+      <details class="cssbox">
+        <summary>Custom CSS</summary>
+        <textarea id="custom_css" rows="8" spellcheck="false" autocomplete="off"
+                  placeholder="/* Anything here is added to the stylesheet, last, so it wins.
+   .plate { border-radius: 0 } */"></textarea>
+      </details>
+
+      <label id="tuckRow">Portrait tuck <span class="v" id="v_tuck"></span>
+        <input type="range" id="tuck" min="0" max="0.34" step="0.01">
+      </label>
+      <label>Message blur <span class="v" id="v_blur"></span>
+        <input type="range" id="plate_blur" min="0" max="30" step="1">
+      </label>
+      <label>Message solidity <span class="v" id="v_solid"></span>
+        <input type="range" id="plate_opacity" min="0.2" max="1" step="0.02">
+      </label>
+
+      <h3>Depth</h3>
+      <label>Overlay darkness <span class="v" id="v_overlay"></span>
+        <input type="range" id="overlay_opacity" min="0" max="1" step="0.02">
+      </label>
+      <label>Hearth glow <span class="v" id="v_glow"></span>
+        <input type="range" id="glow_opacity" min="0" max="0.6" step="0.01">
+      </label>
+      <label>Text size <span class="v" id="v_font"></span>
+        <input type="range" id="font_scale" min="0.8" max="1.4" step="0.02">
+      </label>
+      <label>Reading width <span class="v" id="v_measure"></span>
+        <input type="range" id="measure" min="16" max="72" step="1">
+      </label>
+      <label>Corner softness <span class="v" id="v_radius"></span>
+        <input type="range" id="radius" min="0" max="22" step="1">
+      </label>
+
+      <h3>Colours</h3>
+      <div id="swatches"></div>
+      <button class="ghost wide" id="themeReset">Reset to the default theme</button>
+      <button class="ghost wide" id="themeCopy">Copy this theme as CSS</button>
+      <p class="hint" id="themeHint"></p>
+    </section>
+
+    <section data-panel="settings" class="panel" hidden>
+      <div data-view="menu">
+        <button class="navcard" id="modeCard">
+          <span class="t" id="modeCardTitle">Tabletop mode</span>
+          <span class="s" id="modeCardSub">Sheets, classes and a narrator who rolls</span>
+        </button>
+        <button class="navcard" data-go="connection">
+          <span class="t">Connection</span><span class="s">Provider, API keys, model</span>
+        </button>
+        <button class="navcard" data-go="sampling">
+          <span class="t">Sampling</span><span class="s">Length, temperature, thinking, presets</span>
+        </button>
+        <button class="navcard" data-go="regex">
+          <span class="t">Regex</span><span class="s">Rewrite what is shown and what is sent</span>
+        </button>
+        <button class="navcard" data-go="extensions">
+          <span class="t">Extensions</span><span class="s">Other people's code, in the page and around the prompt</span>
+        </button>
+        <button class="navcard" data-go="data">
+          <span class="t">Import and data</span><span class="s">SillyTavern backups and settings</span>
+        </button>
+
+        <h3>Behaviour</h3>
+        <label class="check"><input type="checkbox" id="dice_enabled"> Let every character roll dice</label>
+        <p class="hint" id="diceHint"></p>
+        <!-- Tabletop only. A story chat's swipes are drafts; a game's are a
+             way of not having rolled. -->
+        <label id="tableSwipeRow" hidden>Swipes at the table
+          <select id="tabletop_swipes">
+            <option value="0">None — what happened, happened</option>
+            <option value="3">Three</option>
+            <option value="5">Five</option>
+            <option value="10">Ten</option>
+          </select>
+        </label>
+        <p class="hint" id="tableSwipeHint" hidden>Kept low on purpose: rerolling until it goes
+          your way is the same as not rolling. A few are allowed so a bad reply from your
+          provider is fixable.</p>
+        <label class="check" id="tablePresetRow" hidden><input type="checkbox" id="tabletop_preset">
+          Use the table's own preset</label>
+        <p class="hint" id="tablePresetHint" hidden>A roleplay preset is an opinion about writing
+          a beautiful scene, which is the wrong opinion for a game. The table brings its own —
+          short turns, real consequences, and nothing spoken on your behalf. Your sampling and
+          context settings are left alone. Turn this off to use whichever of your presets is
+          active instead.</p>
+        <label class="check" id="tableEditRow" hidden><input type="checkbox" id="tabletop_edits">
+          Let turns be rewritten or removed</label>
+        <p class="hint" id="tableEditHint" hidden>Off at the table, so what happened happened.
+          Deleting is covered too — a line you can remove is a line you can rewrite in two
+          steps. Turn it on if you would rather keep the pencil.</p>
+        <label class="check"><input type="checkbox" id="confirm_deletes"> Ask before deleting anything</label>
+        <p class="hint">Nothing here can be undone; keep a copy of your data folder either way.</p>
+      </div>
+
+      <div data-view="connection" hidden>
+        <button class="backlink" data-back>Settings</button>
+        <label>Provider<select id="provider"></select></label>
+        <label>API key<input id="api_key" type="password" autocomplete="off"></label>
+        <p class="hint" id="keyHint"></p>
+        <label>Model
+          <button type="button" class="picker" id="modelBtn">
+            <span id="modelLabel">Choose a model</span>
+            <span class="pickerprice" id="modelPrice"></span>
+          </button>
+        </label>
+        <button class="ghost wide" id="testBtn">Test connection</button>
+        <p class="hint" id="testHint"></p>
+        <button class="ghost wide" id="saveSettings">Save settings</button>
+        <p class="hint" id="saveHint"></p>
+      </div>
+
+      <div data-view="sampling" hidden>
+        <button class="backlink" data-back>Settings</button>
+        <p class="hint" id="samplingSource"></p>
+
+        <label>Reply length <span class="v" id="v_max_tokens"></span>
+          <input type="range" id="max_tokens" min="128" max="32000" step="1">
+        </label>
+        <label>Conversation sent <span class="v" id="v_context_tokens"></span>
+          <input type="range" id="context_tokens" min="1000" max="200000" step="500">
+        </label>
+        <p class="hint">Counted in tokens, not messages.</p>
+
+        <div class="row">
+          <label>Temperature<input id="temperature" type="number" step="0.05" min="0" max="2"></label>
+          <label>Top P<input id="top_p" type="number" step="0.01" min="0" max="1"></label>
+        </div>
+        <div class="row">
+          <label>Min P<input id="min_p" type="number" step="0.01" min="0" max="1"></label>
+          <label>Repetition<input id="repetition_penalty" type="number" step="0.01" min="0.5" max="2"></label>
+        </div>
+        <div class="row">
+          <label>Frequency<input id="frequency_penalty" type="number" step="0.05" min="-2" max="2"></label>
+          <label>Presence<input id="presence_penalty" type="number" step="0.05" min="-2" max="2"></label>
+        </div>
+
+        <label class="check"><input type="checkbox" id="stream"> Stream the reply as it is written</label>
+
+        <label>Thinking
+          <select id="reasoning_effort">
+            <option value="">Let the model decide</option>
+            <option value="off">No thinking</option>
+            <option value="minimal">Minimal</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <p class="hint">Reasoning models only. Anthropic bills thinking on top of the reply.</p>
+
+        <button class="ghost wide" id="saveSampling">Save settings</button>
+        <p class="hint" id="samplingHint"></p>
+
+        <h3>Preset</h3>
+        <label>Active preset
+          <select id="presetPick"></select>
+        </label>
+        <div id="presetCard" class="presetcard"></div>
+
+        <details class="fold">
+          <summary><span>Manage presets</span></summary>
+          <div class="foldbody">
+            <div class="searchrow">
+              <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+              <input type="search" id="presetSearch" placeholder="Search presets" autocomplete="off" aria-label="Search presets">
+            </div>
+            <div class="listbar">
+              <button class="ico" id="presetImportBtn" title="Import presets" aria-label="Import SillyTavern presets"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+              <button class="ico" id="presetSelect" title="Select several" aria-label="Select several presets"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+              <button class="ico" id="presetAll" title="Select all, and start picking" aria-label="Select all presets"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+              <span class="grow"></span>
+              <span class="selcount" id="presetCount" hidden></span>
+              <button class="ico danger" id="presetDelete" title="Delete selected" aria-label="Delete selected presets" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+            </div>
+            <p class="hint" id="presetTableNote" hidden>The table is running its own preset, so
+              whichever of these is active is not being used right now. Behaviour has the
+              switch.</p>
+            <div id="presetList" class="list"></div>
+            <button class="ghost wide" id="savePresetBtn">Save these values as a new preset</button>
+              <input type="file" id="presetImport" accept=".json" multiple hidden>
+          </div>
+        </details>
+      </div>
+
+      <div data-view="regex" hidden>
+        <button class="backlink" data-back>Settings</button>
+        <p class="hint">Find-and-replace over message text. <em>shown</em> changes what you read, <em>sent</em> changes what the model gets.</p>
+        <div class="searchrow">
+          <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+          <input type="search" id="regexSearch" placeholder="Search scripts" autocomplete="off" aria-label="Search regex scripts">
+        </div>
+        <div class="listbar">
+          <button class="ico" id="regexImportBtn" title="Import regex scripts" aria-label="Import regex scripts"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+          <button class="ico" id="regexSelect" title="Select several" aria-label="Select several scripts"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+          <button class="ico" id="regexAll" title="Select all, and start picking" aria-label="Select all scripts"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+          <span class="grow"></span>
+          <span class="selcount" id="regexCount" hidden></span>
+          <button class="ico danger" id="regexDelete" title="Delete selected" aria-label="Delete selected scripts" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+        </div>
+        <div id="regexList" class="list"></div>
+          <input type="file" id="regexImport" accept=".json" multiple hidden>
+        <p class="hint" id="regexHint">A regex export, or a preset — its scripts come across either way.</p>
+      </div>
+
+      <div data-view="extensions" hidden>
+        <button class="backlink" data-back>Settings</button>
+        <p class="hint">Two halves, both optional. The <em>page</em> half draws and reacts;
+          the <em>server</em> half rewrites the prompt going out and the reply coming back.</p>
+        <div class="installrow">
+          <input type="text" id="extUrl" placeholder="github.com/owner/repo" autocomplete="off"
+                 spellcheck="false" aria-label="Repository address">
+          <button class="solid" id="extInstall">Install</button>
+        </div>
+        <div class="listbar">
+          <button class="ico" id="extAdd" title="Write a new extension" aria-label="Write a new extension"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button class="ico" id="extImportBtn" title="Import an extension" aria-label="Import an extension"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+          <span class="grow"></span>
+        </div>
+        <div id="extList" class="list"></div>
+        <input type="file" id="extImport" accept=".json" multiple hidden>
+        <p class="hint danger-hint">An extension runs with Hearth's own powers — there is no sandbox.
+          Install one the way you would run any other program: because you trust where it came from.</p>
+      </div>
+
+      <div data-view="data" hidden>
+        <button class="backlink" data-back>Settings</button>
+
+        <h3>Bring in your SillyTavern library</h3>
+        <button class="ghost wide" id="browseBtn">Find my SillyTavern folder</button>
+        <p class="hint">Read straight off the disk. Characters, personas, lorebooks, presets, chats and backgrounds.</p>
+
+        <div class="progress" id="backupProgress" hidden>
+          <div class="track"><div class="fill" id="backupFill"></div></div>
+          <div class="progmeta">
+            <span id="backupStage">Working…</span>
+            <span id="backupPct">0%</span>
+          </div>
+        </div>
+        <p class="hint" id="backupHint"></p>
+
+        <label class="filebtn">Or pick files by hand
+          <input type="file" id="looseImport" accept=".zip,.json,.png,.jpg,.jpeg,.webp,.jsonl" multiple hidden>
+        </label>
+        <p class="hint">A zip, a folder, or loose files &mdash; include your User Avatars pictures for persona faces.</p>
+
+        <h3>Your own backup</h3>
+        <button class="ghost wide" id="exportBtn">Download everything as a zip</button>
+        <p class="hint">The database, your settings and every picture.</p>
+
+        <h3>Recently deleted</h3>
+        <div id="binList" class="list"></div>
+        <button class="linkish danger" id="binPurge" hidden>Empty the bin permanently</button>
+
+        <h3>Start over</h3>
+        <button class="ghost wide danger" id="wipeBtn">Delete all my data</button>
+        <p class="hint">Everything, bin included. Your API keys and appearance settings stay.</p>
+        <p class="hint" id="wipeHint"></p>
+
+      </div>
+    </section>
+
+  </aside>
+
+</div>
+
+<!-- Hearth's own confirm/prompt. The browser's are unusable here: a page that
+     asks a few times in a row gets its dialogs suppressed (and every later
+     confirm silently answers "no"), and an Android WebView cancels them
+     outright unless the host app implements onJsConfirm. Either way every
+     delete quietly did nothing. -->
+<!-- A message's portrait, full size. There is nowhere else in the app that
+     shows a character's art at any scale, and it is usually the best thing
+     about a card. -->
+<dialog id="faceDialog" class="faceview">
+  <img id="faceImage" alt="">
+  <span id="faceName"></span>
+</dialog>
+
+<!-- Asked once per chat: where this tale keeps its own notes. Ornamented like
+     the rest of the room rather than styled as a system prompt, because it is
+     the first thing a new chat says to you. -->
+<!-- The sheet, full size. Pulled out from the condensed one in the sidebar;
+     ornamented the way the rest of the room is, because a character sheet is
+     the one screen in a game people actually enjoy looking at. -->
+<dialog id="sheetDialog" class="fullsheet">
+  <svg class="filigree tl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+  <svg class="filigree tr" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+  <svg class="filigree bl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+  <svg class="filigree br" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+  <div class="fsscroll" id="fsBody"></div>
+  <div class="actions">
+    <button class="ghost" id="fsClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="extDialog">
+  <h2 id="extTitle">Extension</h2>
+  <form method="dialog">
+    <label class="field">Name
+      <input id="extName" type="text" autocomplete="off" maxlength="80">
+    </label>
+    <label class="field">What it does
+      <input id="extDesc" type="text" autocomplete="off" maxlength="200">
+    </label>
+    <label class="field">In the page
+      <textarea id="extClient" rows="7" spellcheck="false" autocomplete="off"
+        placeholder="hearth.on('message:render', (el, msg) =&gt; { ... })"></textarea>
+    </label>
+    <label class="field">In the server
+      <textarea id="extServer" rows="7" spellcheck="false" autocomplete="off"
+        placeholder="hearth.on('reply:after', text =&gt; text.replace(/  +/g, ' '))"></textarea>
+    </label>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="save" class="solid">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="loreWelcome" class="welcome">
+  <svg class="filigree tl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+  <svg class="filigree tr" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+  <svg class="filigree bl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+  <svg class="filigree br" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+
+  <h2>A Record of This Tale</h2>
+  <!-- Two halves, mirrored: the vine is drawn growing one way, so a single
+       copy of it under a centred heading leans. -->
+  <div class="rule" aria-hidden="true">
+    <svg viewBox="0 0 240 16" focusable="false" preserveAspectRatio="none"><use href="#cutline-rule"/></svg>
+    <svg viewBox="0 0 240 16" focusable="false" preserveAspectRatio="none"><use href="#cutline-rule"/></svg>
+  </div>
+  <p class="welcomeline">Now and again Hearth can set down what has changed — what was sworn, what was
+    lost, where you now stand — and keep it somewhere the story will find it again.</p>
+
+  <div class="wopts">
+    <label class="wopt">
+      <input type="radio" name="loreChoice" value="new" checked>
+      <span class="wtitle">Begin a new chronicle</span>
+      <input type="text" id="loreNewName" class="wfield" autocomplete="off" maxlength="120">
+    </label>
+
+    <label class="wopt" id="loreExistingOpt" hidden>
+      <input type="radio" name="loreChoice" value="existing">
+      <span class="wtitle">Add to one you already keep</span>
+      <select id="loreExistingSel" class="wfield"></select>
+    </label>
+
+    <label class="wopt">
+      <input type="radio" name="loreChoice" value="none">
+      <span class="wtitle">Keep no record of this one</span>
+    </label>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="solid" id="loreWelcomeGo">Very well</button>
+  </div>
+</dialog>
+
+<dialog id="askDialog">
+  <h2 id="askTitle">Are you sure?</h2>
+  <p id="askText" class="hint"></p>
+  <label id="askInputRow" hidden><input id="askInput" type="text" autocomplete="off"></label>
+  <div class="askrow">
+    <button type="button" class="ghost" id="askNo">Cancel</button>
+    <button type="button" class="solid" id="askYes">Delete</button>
+  </div>
+</dialog>
+
+<!-- What the game is going to be about. Asked once, at the top of a new game,
+     straight after the memory book — a table where somebody has done the
+     reading starts playing instead of deciding. See src/campaigns.ts. -->
+<dialog id="campaignDialog" class="storybook">
+  <div id="campPick">
+    <h2>What are we playing?</h2>
+    <p class="hint">Three that are already written, or build your own. You can change any
+      of it later from the chat menu.</p>
+    <div id="campCards" class="campcards"></div>
+    <menu>
+      <button type="button" class="ghost" id="campOwn">Build your own</button>
+      <button type="button" class="linkish" id="campNone">Nothing set — just begin</button>
+    </menu>
+  </div>
+
+  <div id="campBuild" hidden>
+    <h2 id="campBuildTitle">Build your own</h2>
+
+    <label>What is it called
+      <input id="camp_title" maxlength="80" placeholder="A Debt in Greywater">
+    </label>
+
+    <label>The situation
+      <textarea id="camp_premise" rows="4" maxlength="1200"
+        placeholder="Where everyone is, what the trouble is, and what nobody is saying."></textarea>
+    </label>
+    <!-- A few words are enough. This sends them to whichever model your chats
+         already use and fills the page in from what comes back. -->
+    <div class="writerow">
+      <button type="button" class="ghost" id="campWrite">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 6.5l3 3"/></svg>
+        Write it out for me
+      </button>
+      <span class="hint" id="campWriteHint">Put a few words above — "haunted lighthouse, nobody
+        believes me" — and this fills in the rest.</span>
+    </div>
+
+    <label>How it should feel
+      <textarea id="camp_theme" rows="3" maxlength="800"
+        placeholder="Warm and small-scale. Funny until it isn't. Cold and mounting."></textarea>
+    </label>
+
+    <fieldset class="camplen">
+      <legend>How long</legend>
+      <div class="segmented" id="camp_length"></div>
+      <p class="hint" id="camp_lengthhint"></p>
+    </fieldset>
+
+    <label>Where it starts
+      <textarea id="camp_opening" rows="3" maxlength="800"
+        placeholder="What the narrator should put in front of you first. Leave it blank and it will choose."></textarea>
+    </label>
+
+    <fieldset>
+      <legend>Things that may be out there</legend>
+      <p class="hint">Permission, not a schedule — the narrator reaches for these if and when
+        they fit. Type one and press Enter.</p>
+      <div class="chips" id="camp_bestiary"></div>
+      <input id="camp_beast" placeholder="Wolves, ordinary and hungry" maxlength="120">
+    </fieldset>
+
+    <fieldset>
+      <legend>Books this game draws on</legend>
+      <p class="hint" id="camp_bookhint">Anything ticked is bound to this chat, the same as
+        linking it by hand.</p>
+      <div class="list" id="camp_books"></div>
+    </fieldset>
+
+    <label>Anything else
+      <textarea id="camp_notes" rows="2" maxlength="800"
+        placeholder="No romance. Lots of weather. Let me be terrible at this."></textarea>
+    </label>
+
+    <menu>
+      <button type="button" class="ghost" id="campBack">Back</button>
+      <span class="grow"></span>
+      <!-- For anyone who wants a game rather than a writing exercise: fills
+           every field with something playable, and can be pressed again. -->
+      <button type="button" class="ghost" id="campRoll" title="Dream one up"
+              aria-label="Dream one up">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="15" cy="9" r="1.3"/><circle cx="9" cy="15" r="1.3"/></svg>
+        Dream one up
+      </button>
+      <button type="button" class="solid" id="campBegin">Begin</button>
+    </menu>
+  </div>
+</dialog>
+
+<!-- Who is not at the table yet. Bringing somebody over is additive: they stay
+     in your library, with every chat you already have with them intact. -->
+<dialog id="bringDialog">
+  <h2>Bring someone to the table</h2>
+  <p class="hint">They stay in your library too — this only adds them here. Every chat you
+    already have with them goes on exactly as it was.</p>
+  <div class="searchrow">
+    <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+    <input type="search" id="bringSearch" placeholder="Search your cast" autocomplete="off" aria-label="Search characters">
+  </div>
+  <div id="bringList" class="list"></div>
+  <menu>
+    <button type="button" class="ghost" id="bringDone">Done</button>
+  </menu>
+</dialog>
+
+<dialog id="charDialog">
+  <form method="dialog" id="charForm">
+    <h2 id="charDialogTitle">New character</h2>
+    <div class="facepick">
+      <button type="button" class="facebtn" id="c_facebtn" aria-label="Choose a picture">
+        <span class="facepreview" id="c_facepreview"></span>
+        <span class="faceoverlay">Change</span>
+      </button>
+      <div class="faceside">
+        <p class="hint" id="c_facehint">Tap the picture to choose a new one.</p>
+        <button type="button" class="linkish danger" id="c_faceclear">Remove picture</button>
+      </div>
+      <input type="file" id="c_facefile" accept="image/*" hidden>
+    </div>
+    <label>Name<input id="c_name" required></label>
+    <label>Description<textarea id="c_description" rows="5"></textarea></label>
+    <label>Personality<textarea id="c_personality" rows="3"></textarea></label>
+    <label>Scene<textarea id="c_scenario" rows="3"></textarea></label>
+    <label>Opening message<textarea id="c_first" rows="4"></textarea></label>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="save" class="solid">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden>
+  <span id="toastText"></span>
+  <button class="linkish" id="toastUndo">Undo</button>
+</div>
+
+<div class="sheet" id="chatSheet" hidden>
+  <div class="sheetbody">
+    <div class="sheethead" id="chatSheetTitle">Chat</div>
+    <button class="sheetrow" data-act="inspect"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/><path d="M8.5 11h5M11 8.5v5"/></svg> What is being sent</button>
+    <!-- Tabletop only; hidden by CSS elsewhere. -->
+    <button class="sheetrow tableonly" data-act="campaign"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M8 8h7M8 12h5"/></svg> The campaign</button>
+    <button class="sheetrow" data-act="note"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 10h8M8 14h5"/></svg> Author's note</button>
+    <button class="sheetrow" data-act="scene"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l5-4 4 3 3-2.5 6 4.5"/><circle cx="9" cy="9.5" r="1.3"/></svg> Scene: wallpaper and persona</button>
+    <button class="sheetrow" data-act="rename"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 6.5l3 3"/></svg> Rename this chat</button>
+    <button class="sheetrow" data-act="tree"><svg viewBox="0 0 24 24"><path d="M12 21V11"/><path d="M12 14l-4-3.5M12 12.5l4-3.5"/><path d="M12 11c-3 0-5-2-5-4.5S9 2.5 12 2.5s5 1.5 5 4S15 11 12 11z"/></svg> Where this story forked</button>
+    <button class="sheetrow" data-act="cast"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg> Who is in this scene</button>
+    <button class="sheetrow" data-act="files"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 9h8M8 13h8M8 17h4"/></svg> Manage chat files</button>
+    <div class="sheetsep"></div>
+    <button class="sheetrow" data-act="new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Start a new chat</button>
+    <button class="sheetrow" data-act="close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg> Close this chat</button>
+    <div class="sheetsep"></div>
+    <button class="sheetrow" data-act="timeskip"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/><path d="M19.5 6.5l2.2-2.2M21.7 4.3v3.4h-3.4"/></svg> Skip ahead in time</button>
+    <button class="sheetrow" data-act="twist"><svg viewBox="0 0 24 24"><path d="M4 18c4.5 0 4.5-12 9-12 2.6 0 3.8 3.2 4.4 6"/><path d="M20.5 9l-3-2.6M20.5 9l-3.4 2.2"/></svg> Throw in a twist</button>
+    <button class="sheetrow" data-act="select"><svg viewBox="0 0 24 24"><path d="M4 7h9M4 12h9M4 17h9"/><path d="M16.5 7.5l2 2 4-4.5"/></svg> Delete messages</button>
+    <button class="sheetrow" data-act="regen"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/></svg> Regenerate</button>
+    <button class="sheetrow" data-act="imper"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg> Impersonate</button>
+    <button class="sheetrow" data-act="cont"><svg viewBox="0 0 24 24"><path d="M4 6l7 6-7 6zM13 6l7 6-7 6z"/></svg> Continue</button>
+  </div>
+</div>
+
+<div class="msgbar" id="msgBar" hidden>
+  <span id="msgBarCount">0 selected</span>
+  <span class="grow"></span>
+  <button class="linkish" id="msgBarAll">Select all</button>
+  <button class="linkish danger" id="msgBarDelete">Delete</button>
+  <button class="linkish" id="msgBarDone">Done</button>
+</div>
+
+<dialog id="inspectDialog">
+  <div class="bookhead">
+    <h2 style="flex:1;margin:0">What is being sent</h2>
+    <button class="ico" id="i_close" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="istats" id="i_stats"></div>
+  <div id="i_lore" class="loreactive"></div>
+  <div id="i_sections" class="entries"></div>
+  <p class="hint">Counts are characters; the token figure is an estimate of roughly four characters each.</p>
+</dialog>
+
+<dialog id="bookDialog">
+  <div class="bookhead">
+    <input id="b_name" class="booktitle" aria-label="Lorebook name">
+    <button class="ico" id="b_close" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+
+
+  <div class="searchrow">
+    <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+    <input type="search" id="b_search" placeholder="Filter entries" autocomplete="off" aria-label="Filter entries">
+  </div>
+
+  <div id="b_entries" class="entries"></div>
+
+  <div class="actions">
+    <button class="ghost" id="b_add">Add an entry</button>
+    <button class="solid" id="b_save">Save</button>
+  </div>
+</dialog>
+
+<dialog id="sceneDialog">
+  <h2>Scene</h2>
+  <p class="hint">Applies to this chat only. Leave either on <em>Default</em> to follow your global setting.</p>
+
+  <h3>Persona for this chat</h3>
+  <div id="scenePersonas" class="personagrid"></div>
+  <label class="check"><input type="checkbox" id="s_persona_default"> Also make this the default persona for this character</label>
+
+  <h3>Wallpaper</h3>
+  <div id="sceneWalls" class="wallgrid"></div>
+
+  <div class="actions">
+    <button class="ghost" id="sceneCancel">Cancel</button>
+    <button class="solid" id="sceneSave">Save</button>
+  </div>
+</dialog>
+
+<dialog id="filesDialog">
+  <h2 id="filesTitle">Chat files</h2>
+  <p class="hint">Every chat with this character. Press one to switch to it; the one you have open is marked.</p>
+  <div id="filesList" class="list"></div>
+  <div class="actions">
+    <label class="filebtn" style="width:auto;margin:0">Import a chat
+      <input type="file" id="chatImport" accept=".json,.jsonl" hidden>
+    </label>
+    <button class="ghost" id="filesClose">Close</button>
+  </div>
+  <p class="hint" id="filesHint"></p>
+</dialog>
+
+<dialog id="newGroupDialog">
+  <form method="dialog" id="newGroupForm">
+    <h2>New group chat</h2>
+    <label>Title<input id="ng_title" type="text" placeholder="Left to the room's own name if you leave this blank"></label>
+    <label>Scenario<textarea id="ng_scenario" rows="4" placeholder="The shared premise everyone in the scene is standing in. Replaces each character's own scene text while it's set."></textarea></label>
+    <label>Add someone
+      <input id="ng_search" type="text" placeholder="Search characters…" autocomplete="off">
+    </label>
+    <div id="ng_results" class="pickresults" hidden></div>
+    <div id="ng_members"></div>
+    <p class="hint" id="ng_hint">Add at least two characters.</p>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="create" class="solid" id="ng_create" disabled>Create</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="castDialog">
+  <form method="dialog" id="castForm">
+    <h2>Who is in this scene</h2>
+    <p class="hint">Tap a face above the chat to hand them the next turn.</p>
+    <div id="memberList"></div>
+    <label>Add someone
+      <input id="room_search" type="text" placeholder="Search characters…" autocomplete="off">
+    </label>
+    <div id="room_results" class="pickresults" hidden></div>
+    <label>Scenario<textarea id="roomScenario" rows="4" placeholder="The shared premise everyone in the scene is standing in. Replaces each character's own scene text while it's set."></textarea></label>
+    <label class="check"><input type="checkbox" id="autoReply"> Let the quietest character reply on their own when I send a message</label>
+    <div class="actions"><button value="close" class="solid">Done</button></div>
+  </form>
+</dialog>
+
+<dialog id="blocksDialog">
+  <form method="dialog" id="blocksForm">
+    <h2 id="blocksTitle">Prompt blocks</h2>
+    <p class="hint">System blocks join the opening brief in order; user and assistant blocks follow the history.</p>
+    <div id="blockList"></div>
+    <button type="button" class="ghost wide" id="addBlockBtn">Add a block</button>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="save" class="solid">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="noteDialog">
+  <form method="dialog" id="noteForm">
+    <h2>Author's note</h2>
+    <p class="hint">Standing direction for this chat. It rides along with every message and never appears in the transcript.</p>
+    <label>Note<textarea id="n_text" rows="6" placeholder="Keep the pace slow. Akira is hiding something about the letter."></textarea></label>
+    <label>Depth<input id="n_depth" type="number" min="0" max="20" step="1"></label>
+    <p class="hint">0 keeps it in the opening brief; higher slips it that many turns from the end.</p>
+    <h3>Default note</h3>
+    <p class="hint">Applied to every chat, before the note above. Use it for things you always want, like pacing or formatting.</p>
+    <label class="check"><input type="checkbox" id="use_default_note"> Use the default note in this and every chat</label>
+    <label>Default<textarea id="default_author_note" rows="4" placeholder="Write in past tense. Never speak for {{user}}."></textarea></label>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="save" class="solid">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="fsDialog">
+  <h2>Find your SillyTavern folder</h2>
+  <p class="hint">Navigate to the folder that holds <code>data/</code>, or straight to a user folder such as <code>data/default-user</code>.</p>
+
+  <div class="places" id="fsPlaces"></div>
+  <div class="crumbs" id="fsCrumbs"></div>
+  <div class="fslist" id="fsList"></div>
+  <input id="fsPath" type="text" spellcheck="false" autocomplete="off" aria-label="Folder path">
+  <p class="hint" id="fsHint"></p>
+
+  <div class="actions">
+    <button class="ghost" id="fsCancel">Cancel</button>
+    <button class="solid" id="fsUse" disabled>Import from here</button>
+  </div>
+</dialog>
+
+<dialog id="modelDialog">
+  <h2>Choose a model</h2>
+  <input id="modelSearch" type="search" placeholder="Filter by name" autocomplete="off">
+  <p class="hint" id="modelHint">Sorted cheapest first. Prices are US dollars per million tokens.</p>
+  <div id="modelList" class="modellist"></div>
+  <div class="actions">
+    <button class="ghost" id="modelCustom">Type one instead</button>
+    <button class="ghost" id="modelClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="personaDialog">
+  <form method="dialog" id="personaForm">
+    <h2 id="personaDialogTitle">New persona</h2>
+    <div class="facepick">
+      <button type="button" class="facebtn" id="p_facebtn" aria-label="Choose a picture">
+        <span class="facepreview" id="p_facepreview"></span>
+        <span class="faceoverlay">Change</span>
+      </button>
+      <div class="faceside">
+        <p class="hint" id="p_facehint">Tap the picture to choose a new one.</p>
+        <button type="button" class="linkish danger" id="p_faceclear">Remove picture</button>
+      </div>
+      <input type="file" id="p_facefile" accept="image/*" hidden>
+    </div>
+    <label>Name<input id="p_name" required></label>
+    <label>How characters see you<textarea id="p_description" rows="5"></textarea></label>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="save" class="solid">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/app.js"></script>
+
+<!-- A Victorian corner spandrel: the rule turning the corner, a volute
+     scrolling in at the elbow, and acanthus leaves breaking off it. Drawn for
+     the top-left; the other three are the same drawing mirrored. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- The context line's rule: a vine running out from the label, with leaves
+       breaking off it and a bud at the far end. Stretched to whatever width is
+       left over, so the leaves lean with it. -->
+  <symbol id="cutline-rule" viewBox="0 0 240 16">
+    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 8h232" stroke-width="1"/>
+      <path d="M188 8c0-3.4 2.8-6 6.4-6-.6 3.6-3 6-6.4 6z" fill="currentColor" stroke="none" opacity=".75"/>
+      <path d="M164 8c0 3.4 2.8 6 6.4 6-.6-3.6-3-6-6.4-6z" fill="currentColor" stroke="none" opacity=".75"/>
+      <path d="M212 8c0-3.4 2.8-6 6.4-6-.6 3.6-3 6-6.4 6z" fill="currentColor" stroke="none" opacity=".45"/>
+      <circle cx="234" cy="8" r="2.2" fill="currentColor" stroke="none"/>
+    </g>
+  </symbol>
+  <symbol id="filigree-corner" viewBox="0 0 56 56">
+    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <!-- The frame the vine grows along. -->
+      <path d="M56 3H20C10.6 3 3 10.6 3 20v36" stroke-width="1.3"/>
+      <path d="M56 8.5H21.5C14 8.5 8.5 14 8.5 21.5V56" stroke-width="0.7" opacity=".38"/>
+
+      <!-- Main vine: a long S off the corner, turning into a scroll at each
+           end. Everything else hangs off this one line. -->
+      <path d="M49 13C38 13.5 32.5 19 29 26c-3.5 7-9 12.5-17 13.5" stroke-width="1.15"/>
+      <path d="M12 39.5c-3.6.5-6.5 3.2-6.5 6.6 0 3 2.4 5.4 5.4 5.4 2.6 0 4.6-2 4.6-4.5 0-2.1-1.7-3.8-3.8-3.8" stroke-width="1.1"/>
+      <path d="M49 13c.5-3.6 3.2-6.5 6.6-6.5" stroke-width="1.1"/>
+
+      <!-- A second, finer vine curling back the other way. -->
+      <path d="M40 9.5c-5 2.5-8 6.5-9 11.5" stroke-width="0.75" opacity=".7"/>
+      <path d="M9.5 32c2.5-5 6.5-8 11.5-9" stroke-width="0.75" opacity=".7"/>
+
+      <!-- Tendrils: the thin curls that make a vine look grown. -->
+      <path d="M31 21.5c3.4-1 5.6-3.4 5.6-6.4 0-1.8-1.3-3-2.9-3-1.4 0-2.5 1.1-2.5 2.6 0 1.3 1 2.3 2.3 2.3" stroke-width="0.7" opacity=".75"/>
+      <path d="M21.5 31c-1 3.4-3.4 5.6-6.4 5.6-1.8 0-3-1.3-3-2.9 0-1.4 1.1-2.5 2.6-2.5 1.3 0 2.3 1 2.3 2.3" stroke-width="0.7" opacity=".75"/>
+
+      <!-- Leaves along the sweep. -->
+      <path d="M44 11.5c-1.5 4-4.5 6.5-8.5 7 1.5-4 4.5-6.5 8.5-7z" fill="currentColor" stroke="none" opacity=".62"/>
+      <path d="M11.5 44c4-1.5 6.5-4.5 7-8.5-4 1.5-6.5 4.5-7 8.5z" fill="currentColor" stroke="none" opacity=".62"/>
+      <path d="M33.5 24c-1.2 3.2-3.6 5.2-6.8 5.6 1.2-3.2 3.6-5.2 6.8-5.6z" fill="currentColor" stroke="none" opacity=".5"/>
+      <path d="M24 33.5c3.2-1.2 5.2-3.6 5.6-6.8-3.2 1.2-5.2 3.6-5.6 6.8z" fill="currentColor" stroke="none" opacity=".5"/>
+
+      <!-- Buds at the ends of the two fine vines. -->
+      <circle cx="52.5" cy="4.5" r="1.5" fill="currentColor" stroke="none" opacity=".7"/>
+      <circle cx="4.5" cy="52.5" r="1.5" fill="currentColor" stroke="none" opacity=".7"/>
+    </g>
+  </symbol>
+</svg>
+</body>
+</html>

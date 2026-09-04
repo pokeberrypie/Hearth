@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hearth</title>
+<!--
+  The hearth, lit while the server wakes up.
+
+  This page is loaded out of the APK the instant the activity starts, which is
+  several seconds before Node has finished unpacking and listening — the gap
+  that used to be a blank screen. It is deliberately standalone: no stylesheet,
+  no script, no fonts, nothing that could itself need loading.
+
+  It mirrors the scene in public/index.html and the animation in
+  public/style.css. Kept in step by hand, which is the price of it being able
+  to draw before anything else exists. It never parts: when the app is ready
+  the activity loads it with #lit, and the app's own copy takes over already at
+  full height and draws back from there.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #16110e; overflow: hidden; }
+  .scene { position: fixed; inset: 0; }
+  .glow {
+    position: absolute; inset: 0;
+    background: radial-gradient(60% 42% at 50% 78%,
+        rgba(246, 200, 119, 0.30) 0%,
+        rgba(194, 102, 31, 0.11) 55%,
+        rgba(194, 102, 31, 0) 78%);
+    opacity: .2;
+    animation: glowUp 2.6s ease-out forwards;
+  }
+  @keyframes glowUp { from { opacity: .2; } to { opacity: 1; } }
+
+  /* The flame leaves the top of its own viewBox; without this it is clipped
+     at that edge instead of at the edge of the screen. */
+  svg { position: relative; width: 100%; height: 100%; display: block; overflow: visible; }
+
+  /* The fire climbs out of the grate, then stays up and burns. */
+  .fire {
+    transform-origin: 54px 78px;
+    animation: rise 2.6s cubic-bezier(.32, .5, .2, 1) forwards;
+  }
+  @keyframes rise {
+    0%   { transform: scaleY(0.05) scaleX(0.55); opacity: .75; }
+    35%  { transform: scaleY(0.30) scaleX(0.80); opacity: 1; }
+    100% { transform: scaleY(1.42) scaleX(1.08); opacity: 1; }
+  }
+  .fl { transform-origin: 54px 78px; animation: flicker 1.15s ease-in-out infinite alternate; }
+  .fl.deep { fill: #c2661f; opacity: .82; }
+  .fl.mid  { fill: #d8a25f; animation-duration: .87s; }
+  .fl.hot  { fill: #f6c877; animation-duration: .64s; }
+  @keyframes flicker {
+    from { transform: scaleY(.94) scaleX(1.04) translateX(-1px); }
+    to   { transform: scaleY(1.06) scaleX(.95) translateX(1px); }
+  }
+  .embers { animation: ember 1.9s ease-in-out infinite alternate; }
+  @keyframes ember { from { opacity: .55; } to { opacity: 1; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fire, .fl, .glow, .embers { animation: none; }
+    .fire { transform: none; }
+    .glow { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="scene">
+  <div class="glow"></div>
+  <svg viewBox="0 -128 108 216" preserveAspectRatio="xMidYMax meet" focusable="false" aria-hidden="true">
+    <path fill="#120d0a" d="M41,80 L41,60 A13,13 0 0 1 67,60 L67,80 Z"/>
+    <path fill="#6b6055" fill-rule="evenodd"
+          d="M27,42 L81,42 L81,79 L27,79 Z M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
+    <path fill="#342d27" d="M27,53 L41,53 L41,55 L27,55 Z M27,66 L41,66 L41,68 L27,68 Z
+                            M67,48 L81,48 L81,50 L67,50 Z M67,61 L81,61 L81,63 L67,63 Z
+                            M67,73 L81,73 L81,75 L67,75 Z"/>
+    <path fill="#8a7d6e" d="M41,60 L41,79 L38.5,79 L38.5,60 Z M67,60 L67,79 L69.5,79 L69.5,60 Z"/>
+    <path fill="#8a7d6e" d="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z"/>
+    <path fill="#4a4139" d="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z"/>
+    <path fill="#6b6055" d="M29,79 L79,79 L76,85 L32,85 Z"/>
+    <path fill="#4a4139" d="M29,79 L79,79 L78,81 L30,81 Z"/>
+    <path class="embers" fill="#c2661f" d="M43,76 L65,76 L65,79 L43,79 Z"/>
+    <path fill="#3d2b22" d="M45,74 L61,69 L63,73 L47,78 Z M47,69 L63,74 L61,78 L45,73 Z"/>
+    <g class="fire">
+      <path class="fl deep" d="M54,79 C34,46 28,18 36,-20 C41,-46 50,-74 54,-118
+                               C59,-72 68,-44 73,-18 C80,18 72,48 54,79 Z"/>
+      <path class="fl mid"  d="M54,79 C42,52 39,32 44,4 C47,-14 52,-34 54,-62
+                               C57,-32 62,-12 65,6 C70,34 65,54 54,79 Z"/>
+      <path class="fl hot"  d="M54,79 C48,60 47,46 50,28 C52,16 53,4 54,-16
+                               C56,2 58,15 60,27 C63,45 60,60 54,79 Z"/>
+    </g>
+  </svg>
+</div>
+</body>
+</html>

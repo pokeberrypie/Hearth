@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A stone hearth: a mantel over a block surround with an arched opening, a fire
+  burning in it, and a slab underneath.
+
+  Everything is inside a circle of radius ~36 about the centre, which is the
+  adaptive-icon safe zone — a launcher may mask this to a circle, a squircle or
+  a rounded square, and only the mantel ends and the floor slab come near that
+  edge, so both are tapered rather than square.
+
+  Two things it is drawn around. The first is that a hearth is wider than it is
+  tall, and an opening that is taller than it is wide reads as a doorway. The
+  second is that this is looked at mostly at 48px, where mortar lines and stone
+  tones all average into one grey — so the shape has to carry it: a broad dark
+  arch, a bright flame in the middle of it, a heavy lintel across the top.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+
+    <!-- Firelight thrown onto the wall behind, before anything solid. -->
+    <path
+        android:fillColor="@color/icon_flame_deep"
+        android:fillAlpha="0.22"
+        android:pathData="M54,66 m-24,0 a24,16 0 1 0 48,0 a24,16 0 1 0 -48,0" />
+
+    <!-- The surround: one mass of stone with the arch cut out of it. -->
+    <path
+        android:fillColor="@color/icon_stone"
+        android:fillType="evenOdd"
+        android:pathData="M27,42 L81,42 L81,79 L27,79 Z
+                          M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z" />
+
+    <!-- Courses. The two sides are offset from each other so the blocks read as
+         laid rather than as a grid, and the arch gets its own voussoirs. -->
+    <path
+        android:fillColor="@color/icon_mortar"
+        android:pathData="M27,53 L41,53 L41,55 L27,55 Z
+                          M27,66 L41,66 L41,68 L27,68 Z
+                          M67,48 L81,48 L81,50 L67,50 Z
+                          M67,61 L81,61 L81,63 L67,63 Z
+                          M67,73 L81,73 L81,75 L67,75 Z" />
+    <!-- No joints struck across the arch: at 48px four short radial marks
+         stop reading as masonry and start reading as scratches. The arch is
+         legible from its own curve. -->
+    <!-- The inner faces of the surround catch the fire. -->
+    <path
+        android:fillColor="@color/icon_stone_light"
+        android:pathData="M41,60 L41,79 L38.5,79 L38.5,60 Z
+                          M67,60 L67,79 L69.5,79 L69.5,60 Z" />
+
+    <!-- Mantel: a heavy lintel, tapered at the ends so a circular mask meets a
+         slope instead of a corner. -->
+    <path
+        android:fillColor="@color/icon_stone_light"
+        android:pathData="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z" />
+    <path
+        android:fillColor="@color/icon_stone_dark"
+        android:pathData="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z" />
+
+    <!-- The slab the fire sits on, tapered the same way. -->
+    <path
+        android:fillColor="@color/icon_stone"
+        android:pathData="M29,79 L79,79 L76,85 L32,85 Z" />
+    <path
+        android:fillColor="@color/icon_stone_dark"
+        android:pathData="M29,79 L79,79 L78,81 L30,81 Z" />
+
+    <!-- Embers in the grate, then two logs across them. -->
+    <path
+        android:fillColor="@color/icon_flame_deep"
+        android:pathData="M43,76 L65,76 L65,79 L43,79 Z" />
+    <path
+        android:fillColor="@color/icon_log"
+        android:pathData="M45,74 L61,69 L63,73 L47,78 Z
+                          M47,69 L63,74 L61,78 L45,73 Z" />
+
+    <!-- The fire. Wide enough at the base to sit on the logs, and tall enough
+         to be the brightest thing in the icon at any size. -->
+    <path
+        android:fillColor="@color/icon_flame"
+        android:pathData="M54,50 C48,58 45,63 45,68 C45,74 49,78 54,78 C59,78 63,74 63,68
+                          C63,63 60,58 57,55 C57,60 55,62 53,62 C54,58 54,54 54,50 Z" />
+    <path
+        android:fillColor="@color/icon_flame_hot"
+        android:pathData="M54,60 C51,64 50,66 50,69 C50,74 52,76 54,76 C56,76 58,74 58,69
+                          C58,66 57,64 54,60 Z" />
+</vector>

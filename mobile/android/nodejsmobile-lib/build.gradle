@@ -1,0 +1,54 @@
+// The native Node runtime, as a local Android library module. Adapted from
+// nodejs-mobile-react-native's own android/build.gradle — the parts tied to
+// React Native (autolinking helpers, ReactAndroid version sniffing) are
+// gone; everything about the native build (CMake, the prebuilt libnode.so
+// per ABI) is unchanged from upstream.
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.janeasystems.rn_nodejs_mobile'
+    compileSdk 34
+    ndkVersion "26.1.10909125"
+
+    defaultConfig {
+        minSdk 24
+        targetSdk 34
+
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared", "-DANDROID_PLATFORM=android-24"
+            }
+        }
+        // arm64-v8a only. 32-bit ARM support was added on an unconfirmed
+        // guess about crash cause and dropped once the actual device was
+        // known to be 64-bit-only — it only doubled the APK's size and, on
+        // a 100MB+ file, transfer/install reliability turned out to matter
+        // more than defensive ABI coverage no real device here needed.
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+
+    // The prebuilt libnode.so per ABI lives under libnode/bin/<abi>/ — package
+    // it into the AAR as a jniLibs source set rather than copying it by hand.
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['libnode/bin']
+        }
+    }
+
+    packagingOptions {
+        // Only one native-lib.cpp/libnode pair should ever end up in the APK;
+        // this module is included exactly once, but keep the merge lenient.
+        pickFirst '**/*.so'
+    }
+}
+
+dependencies {}
