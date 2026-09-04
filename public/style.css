@@ -5376,17 +5376,58 @@ dialog menu button { width: auto; margin: 0; }
 
 /* Picking several books off the shelf. The checkbox lives on the spine rather
    than in a wrapper around it, because a wrapper would be another flex child
-   and the shelf's boards depend on every child being exactly one row tall. */
+   and the shelf's boards depend on every child being exactly one row tall.
+
+   Drawn as a wax seal rather than left as a checkbox: the browser's own is a
+   grey square from another application entirely, which is what it looked
+   like sitting on a leather spine. */
 .spine .pick {
-  position: absolute;
-  top: 5px;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
   display: none;
-  accent-color: var(--lumiverse-primary);
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  margin: 0;
+  padding: 0;
+  width: 19px;
+  height: 19px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(circle at 50% 32%,
+      color-mix(in srgb, var(--lumiverse-primary) 16%, transparent), transparent 70%),
+    #17100a;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent),
+    0 2px 5px rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  transition: background .14s, box-shadow .14s;
 }
 .shelf.selecting .spine .pick { display: block; }
+.spine .pick:hover {
+  box-shadow:
+    inset 0 0 0 1px var(--lumiverse-primary),
+    0 2px 8px color-mix(in srgb, var(--lumiverse-primary) 35%, transparent);
+}
+.spine .pick:checked {
+  background: radial-gradient(circle at 50% 30%, #f0d193, var(--lumiverse-primary) 72%);
+  box-shadow:
+    inset 0 0 0 1px #f4dcae,
+    0 0 10px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+}
+/* The stamp in the wax. */
+.spine .pick:checked::after {
+  content: "";
+  position: absolute;
+  left: 6px; top: 3px;
+  width: 4px; height: 9px;
+  border: solid #17100a;
+  border-width: 0 2px 2px 0;
+  transform: rotate(43deg);
+}
+
 /* Nothing is pulled out while you are choosing which ones to burn. */
 .shelf.selecting .spine { transform: none; }
 .shelf.selecting .spine:has(.pick:checked) {
@@ -5395,5 +5436,7 @@ dialog menu button { width: auto; margin: 0; }
     0 0 0 2px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent),
     0 6px 12px rgba(0, 0, 0, 0.6);
 }
-.shelf.selecting .spine .spinetitle { opacity: 0.55; }
+.shelf.selecting .spine .spinetitle { opacity: 0.5; }
 .shelf.selecting .spine:has(.pick:checked) .spinetitle { opacity: 1; }
+/* Room above the books for the seals to sit in. */
+.shelf.selecting { padding-top: 9px; }
