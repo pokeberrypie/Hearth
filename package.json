@@ -2,6 +2,7 @@
   "name": "hearth",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "bun run src/serve.ts",

@@ -254,3 +254,10 @@ program's internals and will not run here.
 Colour tokens use Lumiverse's variable names (`--lumiverse-primary`,
 `--lumiverse-prose-dialogue`, and so on), so a Lumiverse theme can be pasted
 into `:root` in `style.css` without translation.
+
+---
+
+## Licence
+
+MIT. Do what you like with it — use it, change it, ship it, sell it — as long
+as the copyright notice comes along. See [LICENSE](LICENSE).
