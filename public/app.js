@@ -3184,14 +3184,15 @@ function shelfBook(b) {
   // across the room, so it gets a ribbon rather than a word.
   const inPlay = linked(b, "global", null) ||
     (chatMeta && (linked(b, "character", chatMeta.character_id) || linked(b, "chat", chatMeta.id)));
-  return `<button class="spine${inPlay ? " inplay" : ""}" data-book="${b.id}"
+  return `<div role="button" tabindex="0" class="spine${inPlay ? " inplay" : ""}" data-book="${b.id}"
       style="--w:${w}px;--h:${h}px;--leather:${leather}"
       title="${esc(b.name)} — ${on} of ${b.entries.length} entries in use">
       <span class="band"></span>
       <span class="spinetitle">${esc(b.name)}</span>
       <span class="band"></span>
       <span class="spinecount">${b.entries.length}</span>
-    </button>`;
+      <input type="checkbox" class="pick" data-id="${b.id}" aria-label="Select ${esc(b.name)}">
+    </div>`;
 }
 
 /** Which book is pulled off the shelf, if any. */
@@ -3210,7 +3211,14 @@ function renderShelf(shown) {
 
   for (const s of shelf.querySelectorAll("[data-book]")) {
     s.classList.toggle("pulled", s.dataset.book === pulledBook);
+    // Enter and space on a div that behaves like a button.
+    s.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); s.click(); }
+    };
     s.onclick = () => {
+      // While picking, the whole shelf is a set of checkboxes; the capture
+      // handler in makeSelectable has already dealt with the click.
+      if (loreSelection?.isOn()) return;
       // Pulling one out shows what it is and what it is wired to. Pressing it
       // again puts it back — the shelf is the browsing view, and a detail card
       // that will not go away is a panel, not a book.
@@ -3219,6 +3227,7 @@ function renderShelf(shown) {
     };
   }
   renderPulled();
+  loreSelection?.repaint();
 }
 
 /**
@@ -3254,6 +3263,7 @@ function renderPulled() {
   box.onclick = (e) => loreRowClick(e, b);
 }
 
+let loreSelection = null;
 let loreAsList = false;
 try { loreAsList = localStorage.getItem("hearth.loreList") === "1"; } catch {}
 
@@ -4434,7 +4444,12 @@ $("#saveSampling").onclick = async () => {
 function makeSelectable(listId, prefix, endpoint, refresh, noun) {
   let on = false;
   let anchor = -1;
-  const list = () => $("#" + listId);
+  /*
+   * A resolver rather than an id, because the lorebooks are drawn twice — as
+   * a shelf and as a list — and bulk delete bound to the list alone was a set
+   * of buttons that quietly did nothing whenever the shelf was showing.
+   */
+  const list = () => (typeof listId === "function" ? listId() : $("#" + listId));
   const boxes = () => [...list().querySelectorAll(".pick")];
   const chosen = () => boxes().filter((c) => c.checked).map((c) => c.dataset.id);
 
@@ -4454,10 +4469,29 @@ function makeSelectable(listId, prefix, endpoint, refresh, noun) {
   function setMode(next) {
     on = next;
     anchor = -1;
-    list().classList.toggle("selecting", on);
+    paint();
     $("#" + prefix + "Select").classList.toggle("on", on);
     if (!on) boxes().forEach((c) => (c.checked = false));
     sync();
+  }
+
+  /**
+   * Puts the picking class on whichever container is currently on screen.
+   *
+   * Called again after a redraw and after a view switch, because the shelf and
+   * the list are two elements and only one of them is showing — marking the
+   * one that was showing when picking started is how the checkboxes ended up
+   * on the wrong view.
+   */
+  function paint() {
+    /*
+     * Clear it off both of the lorebooks' two views before marking the one
+     * that is showing. Written as `$("#" + listId)` at first, which builds a
+     * selector out of a function when listId is one, and querySelector throws
+     * on that — taking the whole of select-all down with it, silently.
+     */
+    for (const el of [$("#loreShelf"), $("#loreList")]) el?.classList.remove("selecting");
+    list()?.classList.toggle("selecting", on);
   }
 
   $("#" + prefix + "Select").onclick = () => setMode(!on);
@@ -4478,11 +4512,19 @@ function makeSelectable(listId, prefix, endpoint, refresh, noun) {
     sync();
   };
 
-  // Capture, so a row's own click handler never fires while picking.
-  list().addEventListener("click", (e) => {
+  /*
+   * Capture, so a row's own click handler never fires while picking — and on
+   * the document rather than on the container, since which container this is
+   * can change under it. The `on` guard is first, so this costs nothing at all
+   * the rest of the time.
+   */
+  document.addEventListener("click", (e) => {
     if (!on) return;
-    const wrap = e.target.closest(".rowwrap");
-    if (!wrap || !list().contains(wrap)) return;
+    const here = list();
+    if (!here) return;
+    // A spine is its own wrapper; a list row has one around it.
+    const wrap = e.target.closest(".rowwrap, .spine");
+    if (!wrap || !here.contains(wrap)) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -4516,6 +4558,8 @@ function makeSelectable(listId, prefix, endpoint, refresh, noun) {
   };
 
   setMode(false);
+  // So a redraw or a change of view can put the picking state back.
+  return { repaint: () => { paint(); sync(); }, off: () => setMode(false), isOn: () => on };
 }
 
 /**
@@ -4625,7 +4669,10 @@ makeSelectable("chatList", "chat", "/chats/delete",
 // A SillyTavern import brings in dozens of each of these at once, so both get
 // the same treatment the cast already had: a filter, and a way to remove more
 // than one without a confirm apiece.
-makeSelectable("loreList", "lore", "/lorebooks/delete", refreshLore, "lorebook");
+loreSelection = makeSelectable(
+  () => (loreAsList ? $("#loreList") : $("#loreShelf")),
+  "lore", "/lorebooks/delete", refreshLore, "lorebook",
+);
 
 /**
  * Import lives with the other list controls now, not as a button underneath a

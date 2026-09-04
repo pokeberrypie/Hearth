@@ -5373,3 +5373,27 @@ dialog menu button { width: auto; margin: 0; }
 .pulledacts { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .pulledacts button { width: auto; margin: 0; flex: 1 1 auto; font-size: 0.82rem; padding: 0.4rem 0.5rem; }
 .pulledacts .danger { color: var(--lumiverse-danger); }
+
+/* Picking several books off the shelf. The checkbox lives on the spine rather
+   than in a wrapper around it, because a wrapper would be another flex child
+   and the shelf's boards depend on every child being exactly one row tall. */
+.spine .pick {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  display: none;
+  accent-color: var(--lumiverse-primary);
+}
+.shelf.selecting .spine .pick { display: block; }
+/* Nothing is pulled out while you are choosing which ones to burn. */
+.shelf.selecting .spine { transform: none; }
+.shelf.selecting .spine:has(.pick:checked) {
+  box-shadow:
+    inset 0 0 0 1px var(--lumiverse-primary),
+    0 0 0 2px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent),
+    0 6px 12px rgba(0, 0, 0, 0.6);
+}
+.shelf.selecting .spine .spinetitle { opacity: 0.55; }
+.shelf.selecting .spine:has(.pick:checked) .spinetitle { opacity: 1; }
