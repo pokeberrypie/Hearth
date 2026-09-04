@@ -3194,20 +3194,64 @@ function shelfBook(b) {
     </button>`;
 }
 
+/** Which book is pulled off the shelf, if any. */
+let pulledBook = null;
+
 function renderShelf(shown) {
   const shelf = $("#loreShelf");
   if (!shelf) return;
   shelf.hidden = loreAsList;
+  $("#loreDetail").hidden = loreAsList || !pulledBook;
   if (loreAsList) return;
+
   shelf.innerHTML = shown.length
     ? shown.map(shelfBook).join("")
     : `<p class="hint">${books.length ? "Nothing on the shelf matches that." : "The shelf is empty."}</p>`;
+
   for (const s of shelf.querySelectorAll("[data-book]")) {
+    s.classList.toggle("pulled", s.dataset.book === pulledBook);
     s.onclick = () => {
-      const book = books.find((b) => b.id === s.dataset.book);
-      if (book) openBook(book);
+      // Pulling one out shows what it is and what it is wired to. Pressing it
+      // again puts it back — the shelf is the browsing view, and a detail card
+      // that will not go away is a panel, not a book.
+      pulledBook = pulledBook === s.dataset.book ? null : s.dataset.book;
+      renderLoreList();
     };
   }
+  renderPulled();
+}
+
+/**
+ * The book you took down, opened flat.
+ *
+ * Everything a lorebook row has ever had — what it is linked to, and the three
+ * things you can do with it — lives here. The shelf on its own was a picture:
+ * it looked lovely and hid every control behind a view toggle, which is a
+ * straight downgrade dressed up as a feature.
+ */
+function renderPulled() {
+  const box = $("#loreDetail");
+  if (!box) return;
+  const b = books.find((x) => x.id === pulledBook);
+  if (!b) { box.hidden = true; return; }
+
+  const on = b.entries.filter((e) => e.enabled).length;
+  box.hidden = false;
+  box.innerHTML =
+    `<div class="pulledhead">` +
+    `<span class="pulledname">${esc(b.name)}</span>` +
+    `<span class="pulledcount">${on} of ${b.entries.length} in use</span>` +
+    `</div>` +
+    `<div class="pulledwire">` +
+    `<span class="pulledlabel">Used in</span>` +
+    `<span class="scopes-inline">${scopeButtons(b)}</span>` +
+    `</div>` +
+    `<div class="pulledacts">` +
+    `<button class="ghost" data-edit>Open and edit</button>` +
+    `<button class="ghost" data-export>Export</button>` +
+    `<button class="ghost danger" data-del>Delete</button>` +
+    `</div>`;
+  box.onclick = (e) => loreRowClick(e, b);
 }
 
 let loreAsList = false;
@@ -3223,6 +3267,56 @@ function setLoreView(asList) {
     b.classList.toggle("on", asList);
   }
   renderLoreList();
+}
+
+/*
+ * What a book is wired to, and what you can do with it.
+ *
+ * Shared by the shelf's detail card and the list row rather than written
+ * twice, because they are the same three questions asked in two places and
+ * two copies would answer them differently by Christmas.
+ */
+const SCOPE_ICON = {
+  global: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.4 2.3 3.6 5.2 3.6 8.5S14.4 18.2 12 20.5c-2.4-2.3-3.6-5.2-3.6-8.5S9.6 5.8 12 3.5z"/></svg>`,
+  character: `<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c0-3.7 3.1-6 7-6s7 2.3 7 6"/></svg>`,
+  chat: `<svg viewBox="0 0 24 24"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4 3.5v-3.5H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></svg>`,
+};
+
+function scopeButtons(b) {
+  const one = (kind, target, title) =>
+    `<button class="scopebtn${linked(b, kind, target) ? " on" : ""}" ` +
+    `data-scope="${kind}" data-target="${target ?? ""}" title="${title}" ` +
+    `aria-label="${title}">${SCOPE_ICON[kind]}</button>`;
+  return one("global", null, "Use in every chat") +
+    (chatMeta ? one("character", chatMeta.character_id, `Use with ${chatMeta.character_name}`) : "") +
+    (chatMeta ? one("chat", chatMeta.id, "Use in this chat only") : "");
+}
+
+async function loreRowClick(e, b) {
+  const sc = e.target.closest("[data-scope]");
+  if (sc) {
+    // Attach or detach right here — no need to open anything.
+    const on = !sc.classList.contains("on");
+    sc.classList.toggle("on", on);
+    await api(`/lorebooks/${b.id}/link`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: sc.dataset.scope, target_id: sc.dataset.target || null, on }),
+    });
+    await refreshLore();
+    return;
+  }
+  if (e.target.closest("[data-export]")) {
+    window.location.href = `/api/lorebooks/${b.id}/export`;
+    return;
+  }
+  if (e.target.closest("[data-del]")) {
+    if (!(await ask(`Delete the lorebook "${b.name}"?`))) return;
+    await api("/lorebooks/" + b.id, { method: "DELETE" });
+    if (pulledBook === b.id) pulledBook = null;
+    return refreshLore();
+  }
+  if (e.target.closest("[data-edit]")) openBook(b);
 }
 
 function renderLoreList() {
@@ -3244,58 +3338,18 @@ function renderLoreList() {
 
   shown.forEach((b) => {
     const on = b.entries.filter((e) => e.enabled).length;
-    // Icons rather than "All / Char / Chat": three words is most of a phone's
-    // row width, and what they mean is easier to draw than to abbreviate.
-    const SCOPE_ICON = {
-      global: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.4 2.3 3.6 5.2 3.6 8.5S14.4 18.2 12 20.5c-2.4-2.3-3.6-5.2-3.6-8.5S9.6 5.8 12 3.5z"/></svg>`,
-      character: `<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c0-3.7 3.1-6 7-6s7 2.3 7 6"/></svg>`,
-      chat: `<svg viewBox="0 0 24 24"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4 3.5v-3.5H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></svg>`,
-    };
-    const scope = (kind, target, label, title) =>
-      `<button class="scopebtn${linked(b, kind, target) ? " on" : ""}" ` +
-      `data-scope="${kind}" data-target="${target ?? ""}" title="${title}" ` +
-      `aria-label="${title}">${SCOPE_ICON[kind]}</button>`;
-
     const row = document.createElement("div");
     row.className = "item lorerow";
     row.innerHTML =
       `<span class="meta"><span class="t">${esc(b.name)}</span>` +
       `<span class="s" title="${on} of ${b.entries.length} entries enabled">${on}/${b.entries.length}</span></span>` +
-      `<span class="scopes-inline">` +
-      scope("global", null, "All", "Use in every chat") +
-      (chatMeta ? scope("character", chatMeta.character_id, "Char", `Use with ${chatMeta.character_name}`) : "") +
-      (chatMeta ? scope("chat", chatMeta.id, "Chat", "Use in this chat only") : "") +
-      `</span>` +
+      `<span class="scopes-inline">${scopeButtons(b)}</span>` +
       `<span class="rowtools">` +
       `<button data-edit title="Edit">${ICON.edit}</button>` +
       `<button data-export title="Export">${ICON.down}</button>` +
       `<button data-del title="Delete">${ICON.del}</button></span>`;
 
-    row.onclick = async (e) => {
-      const sc = e.target.closest("[data-scope]");
-      if (sc) {
-        // Attach or detach right here — no need to open anything.
-        const on = !sc.classList.contains("on");
-        sc.classList.toggle("on", on);
-        await api(`/lorebooks/${b.id}/link`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ scope: sc.dataset.scope, target_id: sc.dataset.target || null, on }),
-        });
-        await refreshLore();
-        return;
-      }
-      if (e.target.closest("[data-export]")) {
-        window.location.href = `/api/lorebooks/${b.id}/export`;
-        return;
-      }
-      if (e.target.closest("[data-del]")) {
-        if (!(await ask(`Delete the lorebook "${b.name}"?`))) return;
-        await api("/lorebooks/" + b.id, { method: "DELETE" });
-        return refreshLore();
-      }
-      if (e.target.closest("[data-edit]")) return openBook(b);
-    };
+    row.onclick = (e) => loreRowClick(e, b);
     list.appendChild(rowShell(b.id, row));
   });
 
