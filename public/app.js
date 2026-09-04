@@ -1891,7 +1891,7 @@ function fullSheet(sheet, name) {
       <div class="hprow">
         <button class="ico" data-hp="-1" aria-label="Take a point">–</button>
         <button class="ico" data-hp="1" aria-label="Heal a point">+</button>
-        <span class="hint">A character at nothing is down, not gone.</span>
+        <span class="hint">At zero you are down, not gone.</span>
       </div>
     </section>
 

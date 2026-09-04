@@ -5334,7 +5334,11 @@ dialog menu button { width: auto; margin: 0; }
     0 12px 18px rgba(0, 0, 0, 0.65);
 }
 
-.pulled {
+/* Scoped to the card by id: `.pulled` is also the class the spine wears while
+   it is out of the shelf, and a bare `.pulled` rule dressed the book in the
+   card's padding, background and 10px corners — a pill where a book should
+   be. The same collision `.sheet` caused a while back. */
+#loreDetail {
   margin: 0.6rem 0 0.2rem;
   padding: 0.7rem 0.8rem 0.8rem;
   background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
