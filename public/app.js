@@ -3881,18 +3881,73 @@ const closeDrawer = () => {
   $("#drawer").classList.remove("open");
   $("#scrim").hidden = true;
 };
-$("#menuBtn").onclick = openDrawer;
-$("#tuckBtn").onclick = () => {
-  document.body.classList.toggle("tucked");
-  $("#tuckBtn").setAttribute("aria-label",
-    document.body.classList.contains("tucked") ? "Show the panel" : "Hide the panel");
+/**
+ * Wide screens fold the panel away rather than sliding it off, so the two
+ * breakpoints need one pair of words for the same idea.
+ */
+const wide = () => matchMedia("(min-width: 900px)").matches;
+const panelShowing = () =>
+  wide() ? !document.body.classList.contains("tucked") : $("#drawer").classList.contains("open");
+const retractPanel = () => {
+  // The lit link means "this one is up", so once nothing is up nothing is lit.
+  for (const x of document.querySelectorAll(".chainlink")) x.classList.remove("on");
+  if (!wide()) return closeDrawer();
+  document.body.classList.add("tucked");
 };
+const showPanel = () => {
+  if (!wide()) return openDrawer();
+  document.body.classList.remove("tucked");
+  refreshChats(); refreshCast(); refreshPersonas(); refreshPresets(); refreshLore();
+};
+
 $("#scrim").onclick = closeDrawer;
 
-document.querySelectorAll(".tabs button").forEach((b) => {
+/**
+ * Click back into the room and the panel folds itself away. You came out of
+ * the chain to look something up; once you have looked at it, the thing you
+ * want back is the story, and having to find a second control to dismiss what
+ * one control opened is the sort of bookkeeping this redesign is meant to end.
+ *
+ * Capture, so the target is still attached: plenty of things in here re-render
+ * their own list from the click handler, which would leave a detached node
+ * with no ancestors to test by the time a bubbled listener ran.
+ */
+addEventListener("click", (e) => {
+  if (!panelShowing()) return;
+  if (e.target.closest("#drawer, .chain, .chainveil, #menuBtn, dialog, .palette")) return;
+  retractPanel();
+}, true);
+
+// ---- the chain ----------------------------------------------------------
+//
+// The seven panels used to be a row of icons across the top of the drawer.
+// They hang off the hamburger now instead: poke the three lines and the links
+// unroll down the thumb side, poke one and it pulls that panel up.
+
+const chainOpen = () => document.body.classList.contains("chained");
+const closeChain = () => {
+  document.body.classList.remove("chained");
+  $("#menuBtn").setAttribute("aria-expanded", "false");
+};
+const openChain = () => {
+  document.body.classList.add("chained");
+  $("#menuBtn").setAttribute("aria-expanded", "true");
+};
+
+$("#menuBtn").setAttribute("aria-haspopup", "true");
+$("#menuBtn").setAttribute("aria-expanded", "false");
+$("#menuBtn").onclick = (e) => {
+  e.stopPropagation();
+  chainOpen() ? closeChain() : openChain();
+};
+$("#chainVeil").onclick = closeChain;
+
+document.querySelectorAll(".chainlink").forEach((b) => {
   b.onclick = () => {
-    document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll(".chainlink").forEach((x) => x.classList.toggle("on", x === b));
     document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== b.dataset.tab));
+    closeChain();
+    showPanel();
   };
 });
 
@@ -4383,7 +4438,7 @@ $("#cardFile").onchange = async (e) => {
 };
 $("#emptyAction").onclick = () => {
   openDrawer();
-  document.querySelector('.tabs [data-tab="cast"]').click();
+  document.querySelector('.chainlink[data-tab="cast"]').click();
 };
 
 $("#charForm").addEventListener("submit", async (e) => {
@@ -6485,12 +6540,12 @@ function palSources() {
   ]) {
     add("Go to", name, "panel", () => {
       openDrawer?.();
-      document.querySelector(`.tabs button[data-tab="${tab}"]`)?.click();
+      document.querySelector(`.chainlink[data-tab="${tab}"]`)?.click();
     });
   }
   add("Do", "New chat with…", "pick a character", () => {
     openDrawer?.();
-    document.querySelector('.tabs button[data-tab="cast"]')?.click();
+    document.querySelector('.chainlink[data-tab="cast"]')?.click();
   });
   add("Do", "Roll dice", "the composer's die", () => $("#diceBtn")?.click());
   add("Do", document.body.dataset.mode === "tabletop" ? "Leave tabletop mode" : "Enter tabletop mode",
@@ -6969,6 +7024,10 @@ function closeAllMenus() {
   for (const b of document.querySelectorAll(".panelmore")) b.setAttribute("aria-expanded", "false");
 }
 addEventListener("click", closeAllMenus);
-addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllMenus(); });
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  closeAllMenus();
+  closeChain();
+});
 
 wirePanelChrome();

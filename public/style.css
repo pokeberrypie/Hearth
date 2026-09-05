@@ -172,8 +172,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
 
 /* Each side reserves room for two buttons whether it holds two, one or none,
    so the title is centred on the bar rather than on the space between whatever
-   happens to be showing. The chat menu appears only inside a chat and the
-   hamburger only on narrow screens, so that space was never symmetrical. */
+   happens to be showing. The chat menu appears only inside a chat, so that
+   space was never symmetrical on its own. */
 .barside {
   flex: 0 0 auto;
   min-width: calc(2 * var(--bar-icon, 42px) + 4px);
@@ -422,37 +422,134 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
 }
 
-.tabs { display: flex; flex: none; border-bottom: 1px solid var(--lumiverse-border); }
-/* Icon tabs. The active one names itself, so nothing has to be guessed at
-   while still keeping the bar quiet. */
-.tabs button {
-  flex: 1;
+/* ---- the chain ----------------------------------------------------------
+   The seven panels hang off the hamburger rather than sitting in a row welded
+   to the top of the drawer. A row of seven icons is the shape every other
+   frontend uses, and it was the single thing making this read like a cockpit:
+   you had to decode it before you could use it, every time, forever.
+
+   So: labelled links, unrolling down the thumb side on a slight bow, over a
+   scrim thin enough that the room stays visible behind them. The bow is
+   deliberate — a straight column of seven is a menu, a bowed one is a chain
+   hanging off a hook, which is what the gesture actually is. */
+
+.chainveil {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  background: rgba(9, 6, 4, 0.42);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .26s ease, visibility 0s linear .26s;
+}
+body.chained .chainveil { opacity: 1; visibility: visible; transition-delay: 0s; }
+
+.chain {
+  position: fixed;
+  z-index: 45;
+  /* Hangs from under the bar, stops above the composer, and scrolls in
+     between — so an eighth panel one day just makes the chain longer. */
+  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  right: 0;
+  bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  width: 15.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  visibility: hidden;
+  transition: visibility 0s linear .34s;
+}
+.chain::-webkit-scrollbar { width: 0; }
+body.chained .chain { visibility: visible; transition-delay: 0s; }
+
+/* Rolled up into the hamburger it came out of, which is why the origin is the
+   top right corner and not the centre. */
+.chainlinks {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.18rem;
-  padding: 0.7rem 0.2rem 0.55rem;
-  background: none; border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--lumiverse-text-dim);
-  font-family: var(--lumiverse-font-display);
-  font-size: 0.72rem;
-  letter-spacing: 0.03em;
-  cursor: pointer;
-  transition: color 0.14s ease;
-}
-.tabs button svg { width: 20px; height: 20px; stroke-width: 1.6; }
-.tabs button:hover { color: var(--lumiverse-text-muted); }
-.tabs button.on { color: var(--lumiverse-primary); border-bottom-color: var(--lumiverse-primary); }
-
-.tablabel {
-  height: 0.95rem;
-  line-height: 0.95rem;
+  align-items: flex-end;
+  gap: 0.62rem;
+  padding: 0.9rem 0 1.5rem;
+  transform-origin: top right;
+  transform: scale(0.86);
   opacity: 0;
-  transition: opacity 0.14s ease;
+  transition: transform .34s cubic-bezier(.2, 1.2, .4, 1), opacity .24s ease;
 }
-.tabs button.on .tablabel { opacity: 1; }
-.tabs button:hover .tablabel { opacity: 0.6; }
+body.chained .chainlinks { transform: none; opacity: 1; }
+
+.chainlink {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  /* The bow. Margin rather than transform, so the transform stays free to
+     carry the stagger below without the two fighting over one property. */
+  margin-right: calc(1rem + var(--bow, 0px));
+  transform: translateX(1.1rem);
+  opacity: 0;
+  transition: transform .3s cubic-bezier(.2, 1.1, .4, 1), opacity .2s ease;
+}
+.chainlink:nth-child(1), .chainlink:nth-child(7) { --bow: 2px; }
+.chainlink:nth-child(2), .chainlink:nth-child(6) { --bow: 10px; }
+.chainlink:nth-child(3), .chainlink:nth-child(5) { --bow: 16px; }
+.chainlink:nth-child(4) { --bow: 18px; }
+
+/* Unrolling: each link a beat behind the one above it, so it reads as a chain
+   paying out rather than a block appearing. Rolling up they all go at once —
+   waiting for a menu to leave is nobody's idea of a good time. */
+body.chained .chainlink {
+  transform: none;
+  opacity: 1;
+  transition-delay: calc(var(--i) * 34ms);
+}
+
+.chainname {
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.02rem;
+  letter-spacing: 0.08em;
+  color: var(--lumiverse-text-muted);
+  white-space: nowrap;
+  transition: color .16s;
+}
+.chainpip {
+  flex: none;
+  width: 48px; height: 48px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--lumiverse-primary-muted);
+  background: var(--lumiverse-bg-elevated);
+  color: var(--lumiverse-primary);
+  transition: border-color .16s, background .16s, color .16s;
+}
+.chainpip svg { width: 21px; height: 21px; stroke-width: 1.4; }
+
+.chainlink:hover .chainname,
+.chainlink:focus-visible .chainname { color: var(--lumiverse-text); }
+.chainlink:hover .chainpip,
+.chainlink:focus-visible .chainpip { border-color: var(--lumiverse-primary); }
+
+/* Whichever panel is up. Lit rather than filled, the same way the initiative
+   card marks whose go it is. */
+.chainlink.on .chainname { color: var(--lumiverse-primary-hover); }
+.chainlink.on .chainpip {
+  border-color: var(--lumiverse-primary);
+  background: radial-gradient(circle at 35% 30%,
+    color-mix(in srgb, var(--lumiverse-primary) 24%, var(--lumiverse-bg-elevated)),
+    var(--lumiverse-bg-deep));
+  color: var(--lumiverse-primary-hover);
+}
+
+/* The three lines take a ring while the chain is out, so the button reads as
+   the thing currently holding the menu open. */
+#menuBtn { border: 1px solid transparent; border-radius: 50%; transition: border-color .2s; }
+body.chained #menuBtn { border-color: var(--lumiverse-primary-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .chainlinks, .chainlink { transition: none; }
+}
 
 .panel { flex: 1; overflow-y: auto; padding: 1rem 1.1rem 2.5rem; }
 /**
@@ -590,8 +687,7 @@ input[type="color"] { padding: 0; height: 30px; width: 46px; border-radius: var(
 }
 
 @media (min-width: 900px) {
-  #menuBtn, .scrim { display: none; }
-  .bar { padding-right: 14px; }
+  .scrim { display: none; }
 }
 
 dialog {
@@ -913,34 +1009,13 @@ body[data-msgstyle="page"] .platename { display: none; }
 
 /* ---- collapsible panel --------------------------------------------------- */
 
-.rail {
-  flex: none;
-  width: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: calc(var(--bar-h) + env(safe-area-inset-top) + 0.6rem);
-}
-.railbtn {
-  width: 26px; height: 46px;
-  display: grid; place-items: center;
-  background: var(--lumiverse-bg-elevated);
-  border: 1px solid var(--lumiverse-border);
-  border-right: 0;
-  border-radius: var(--lumiverse-radius-sm) 0 0 var(--lumiverse-radius-sm);
-  color: var(--lumiverse-text-dim);
-  cursor: pointer;
-  margin-left: -26px;
-}
-.railbtn:hover { color: var(--lumiverse-primary); }
-.railbtn svg { width: 15px; }
-
 @media (min-width: 900px) {
+  /* Folded away rather than slid off: the story column simply takes the room
+     back. There is no handle to fold it with — the chain is the only way in,
+     and clicking back into the room is the only way out. */
   .panelbar { transition: width 0.22s ease, opacity 0.18s ease; overflow: hidden; }
   body.tucked .panelbar { width: 0; border-left: 0; opacity: 0; pointer-events: none; }
-  body.tucked .railbtn svg { transform: scaleX(-1); }
 }
-@media (max-width: 899px) { .rail { display: none; } }
 
 /* corner softness is user-set */
 .plate, .ghost, .solid, .filebtn, .item, dialog, .portrait,
@@ -5685,25 +5760,6 @@ kbd {
    loudest. Two rows of icons before you reach anything you came for is the
    shape of a cockpit; this is meant to be a room. */
 
-/* Three clusters rather than seven evenly spaced icons: what you are talking
-   to, how the prompt is shaped, and how the place looks. The gap does the
-   work; the hairline is only there to say the gap is deliberate. */
-.tabs button[data-tab="presets"],
-.tabs button[data-tab="look"] {
-  margin-left: 14px;
-  position: relative;
-}
-.tabs button[data-tab="presets"]::before,
-.tabs button[data-tab="look"]::before {
-  content: "";
-  position: absolute;
-  left: -7px;
-  top: 28%;
-  bottom: 28%;
-  width: 1px;
-  background: color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
-}
-
 .panelhead {
   display: flex;
   align-items: center;
@@ -5796,16 +5852,6 @@ kbd {
    starts, which is exactly when this should appear. */
 .selbar:has(> :not([hidden])) { display: flex; }
 .selbar .selcount { flex: 1; font-size: 0.85rem; color: var(--lumiverse-text-muted); }
-
-/* ---- a phone has no hover, so the tabs say what they are ---- */
-
-@media (max-width: 700px) {
-  .tablabel { opacity: 0.55; font-size: 0.6rem; }
-  .tabs button.on .tablabel { opacity: 1; }
-  .tabs button { padding: 0.6rem 0.1rem 0.45rem; font-size: 0.62rem; }
-  .tabs button[data-tab="presets"], .tabs button[data-tab="look"] { margin-left: 9px; }
-  .tabs button[data-tab="presets"]::before, .tabs button[data-tab="look"]::before { left: -5px; }
-}
 
 /* ---- rows that let the name be the loudest thing ----------------------------
    Four buttons at rest on every row is four things competing with the one
