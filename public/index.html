@@ -933,6 +933,20 @@
 <!-- What the game is going to be about. Asked once, at the top of a new game,
      straight after the memory book — a table where somebody has done the
      reading starts playing instead of deciding. See src/campaigns.ts. -->
+<!-- Every roll this game has made. Tables keep one, and for the same reason:
+     it is the only proof the dice were not decided by whoever narrates. -->
+<dialog id="rollDialog">
+  <h2>The roll log</h2>
+  <p class="hint">Every die this game has thrown, newest first. Rolled by Hearth, never by
+    the model.</p>
+  <div id="rollList" class="rolllog"></div>
+  <menu>
+    <span id="rollStats" class="hint"></span>
+    <span class="grow"></span>
+    <button type="button" class="ghost" id="rollClose">Close</button>
+  </menu>
+</dialog>
+
 <dialog id="campaignDialog" class="storybook">
   <div id="campPick">
     <h2>What are we playing?</h2>
@@ -1069,6 +1083,8 @@
   <div class="sheetbody">
     <div class="sheethead" id="chatSheetTitle">Chat</div>
     <button class="sheetrow" data-act="inspect"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/><path d="M8.5 11h5M11 8.5v5"/></svg> What is being sent</button>
+    <!-- Tabletop only; hidden by CSS elsewhere. -->
+    <button class="sheetrow tableonly" data-act="rolls"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/><circle cx="15" cy="9" r="1.2"/><circle cx="9" cy="15" r="1.2"/></svg> The roll log</button>
     <!-- Tabletop only; hidden by CSS elsewhere. -->
     <button class="sheetrow tableonly" data-act="campaign"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M8 8h7M8 12h5"/></svg> The campaign</button>
     <button class="sheetrow" data-act="note"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 10h8M8 14h5"/></svg> Author's note</button>

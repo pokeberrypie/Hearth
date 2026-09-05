@@ -129,6 +129,22 @@ CREATE TABLE IF NOT EXISTS npcs (
   deleted_at INTEGER
 );
 
+-- Every roll this game has made, in order. Tables keep one of these, and it
+-- is the only proof a player has that the dice were not decided by whoever is
+-- narrating. Rows, not JSON on the chat: a log is appended to and read back in
+-- order, which is what a table is for. See src/index.ts.
+-- (No backticks in here: this whole block is a TypeScript template literal.)
+CREATE TABLE IF NOT EXISTS rolls (
+  id         TEXT PRIMARY KEY,
+  chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL DEFAULT 'dice',
+  label      TEXT NOT NULL DEFAULT '',
+  detail     TEXT NOT NULL DEFAULT '',
+  total      INTEGER NOT NULL DEFAULT 0,
+  who        TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS lorebook_links (
   id        TEXT PRIMARY KEY,
   book_id   TEXT NOT NULL REFERENCES lorebooks(id) ON DELETE CASCADE,
@@ -137,6 +153,7 @@ CREATE TABLE IF NOT EXISTS lorebook_links (
 );
 
 CREATE INDEX IF NOT EXISTS idx_npcs_chat ON npcs(chat_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_rolls_chat ON rolls(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_links_book ON lorebook_links(book_id);
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_chats_character ON chats(character_id, updated_at);

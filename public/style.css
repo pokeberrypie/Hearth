@@ -5576,3 +5576,58 @@ kbd {
   .palette { padding: 5vh 0.6rem 0.6rem; }
   .pallist { max-height: 64vh; }
 }
+
+/* ---- the roll log ---- */
+
+#rollDialog { width: min(94vw, 34rem); }
+.rolllog { max-height: 60dvh; overflow-y: auto; display: grid; gap: 2px; }
+
+.rollrow {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+}
+.rolltotal {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.3rem; height: 2.3rem;
+  border-radius: 50%;
+  background: var(--lumiverse-bg-deep);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.95rem;
+  color: var(--lumiverse-primary);
+  font-variant-numeric: tabular-nums;
+}
+.rollmid { flex: 1; min-width: 0; display: grid; }
+.rolllabel { font-size: 0.9rem; color: var(--lumiverse-text); }
+.rolldetail {
+  font-size: 0.76rem;
+  color: var(--lumiverse-text-dim);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rollwhen { flex: none; display: grid; justify-items: end; font-size: 0.7rem; color: var(--lumiverse-text-hint); }
+.rollkind {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* The two results anybody remembers. */
+.rollrow.crit { background: color-mix(in srgb, var(--lumiverse-primary) 12%, transparent); }
+.rollrow.crit .rolltotal {
+  background: radial-gradient(circle at 50% 30%, #f0d193, var(--lumiverse-primary) 72%);
+  color: var(--lumiverse-bg-deep);
+  box-shadow: inset 0 0 0 1px #f4dcae, 0 0 12px color-mix(in srgb, var(--lumiverse-primary) 50%, transparent);
+}
+.rollrow.fumble { background: color-mix(in srgb, var(--hearth-hurt) 10%, transparent); }
+.rollrow.fumble .rolltotal {
+  color: var(--hearth-hurt);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hearth-hurt) 60%, transparent);
+}

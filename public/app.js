@@ -1933,7 +1933,7 @@ async function rollCheck(ability) {
   try {
     const { text, check } = await api(`/sheets/${activePersonaId}/check`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ability }),
+      body: JSON.stringify({ ability, chat: S.chatId }),
     });
     if (!S.chatId) { toast(text); return; }
     closeDrawer();
@@ -2739,7 +2739,7 @@ async function rollFor(notation) {
   try {
     const { text } = await api("/dice", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ notation }),
+      body: JSON.stringify({ notation, chat: S.chatId }),
     });
     return `[[${text}]]`;
   } catch (err) {
@@ -3035,6 +3035,9 @@ $("#chatSheet").addEventListener("click", async (e) => {
   closeSheet();
 
   switch (row.dataset.act) {
+    case "rolls":
+      openRollLog();
+      break;
     case "campaign":
       // Straight into the storybook with whatever this game already is, since
       // wanting to change it and wanting to see the three again are different
@@ -6577,3 +6580,68 @@ addEventListener("keydown", (e) => {
     $("#palette").hidden ? openPalette() : closePalette();
   }
 });
+
+/* ---- the roll log -----------------------------------------------------------
+   Every table keeps one, and for the same reason: it is the only proof a
+   player has that the dice were not quietly decided by whoever is narrating.
+   Hearth's have always been honest — thrown on the server, never by the model
+   — but "trust me" is not evidence and a scrollback is.
+
+   It is also just nice to look at. Twenty rolls into an evening you can see
+   the shape of your own luck. */
+
+const ROLL_KIND = { dice: "Dice", check: "Check", attack: "Attack", initiative: "Initiative" };
+
+async function openRollLog() {
+  const box = $("#rollList");
+  box.innerHTML = `<p class="hint">Reading the log…</p>`;
+  $("#rollStats").textContent = "";
+  $("#rollDialog").showModal();
+
+  let rolls = [];
+  try { rolls = await api(`/chats/${S.chatId}/rolls`); } catch {}
+  if (!Array.isArray(rolls) || !rolls.length) {
+    box.innerHTML = `<p class="hint">Nothing thrown in this game yet.</p>`;
+    return;
+  }
+
+  box.innerHTML = rolls.map((r) => {
+    /*
+     * A natural twenty and a natural one are the two results anybody
+     * remembers, so they are the two the log picks out. Read off the working
+     * rather than the total, since a 20 with a +3 on it is a 23 and still the
+     * thing that happened.
+     */
+    const die = /:\s*(\d+)/.exec(r.detail)?.[1];
+    const crit = r.kind !== "initiative" && die === "20";
+    const fumble = r.kind !== "initiative" && die === "1";
+    return `<div class="rollrow${crit ? " crit" : ""}${fumble ? " fumble" : ""}">
+      <span class="rolltotal">${r.total}</span>
+      <span class="rollmid">
+        <span class="rolllabel">${esc(r.label)}${crit ? " · natural twenty" : ""}${fumble ? " · natural one" : ""}</span>
+        <span class="rolldetail">${esc(r.detail)}</span>
+      </span>
+      <span class="rollwhen">
+        <span class="rollkind">${esc(ROLL_KIND[r.kind] ?? r.kind)}</span>
+        <span>${ago(r.created_at)}</span>
+      </span>
+    </div>`;
+  }).join("");
+
+  // The shape of your own luck, which is half the reason to keep one.
+  const d20s = rolls
+    .filter((r) => r.kind !== "initiative")
+    .map((r) => Number(/:\s*(\d+)/.exec(r.detail)?.[1]))
+    .filter((n) => Number.isFinite(n) && n <= 20);
+  if (d20s.length > 2) {
+    const mean = d20s.reduce((a, b) => a + b, 0) / d20s.length;
+    const nat20 = d20s.filter((n) => n === 20).length;
+    const nat1 = d20s.filter((n) => n === 1).length;
+    $("#rollStats").textContent =
+      `${rolls.length} rolls · average ${mean.toFixed(1)} · ${nat20} nat 20 · ${nat1} nat 1`;
+  } else {
+    $("#rollStats").textContent = `${rolls.length} roll${rolls.length === 1 ? "" : "s"}`;
+  }
+}
+
+$("#rollClose").onclick = () => $("#rollDialog").close();

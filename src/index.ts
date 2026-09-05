@@ -838,10 +838,27 @@ api.post("/chats/:id/generate", async (c) => {
          * left to write its own outcome writes the one that suits it, which is
          * the single thing dice exist to prevent.
          */
-        full = resolveRolls(full).text;
+        {
+          const rolled = resolveRolls(full);
+          full = rolled.text;
+          // Logged here rather than at the die, because this is the branch
+          // where the narrator rolls — the one a player has least reason to
+          // take on faith and most reason to want written down.
+          for (const r of rolled.rolls) {
+            logRoll(chatId, "dice", r.notation, describeRoll(r), r.total, who?.name ?? "");
+          }
+        }
         // And checks, against the sheet of whoever is playing this chat — the
         // reason a sheet is kept at all rather than described in prose.
-        full = resolveChecks(full, sheetFor(a.playerId)).text;
+        {
+          const checked = resolveChecks(full, sheetFor(a.playerId));
+          full = checked.text;
+          const me = whoAmI(chat.persona_id);
+          for (const ch of checked.checks) {
+            logRoll(chatId, "check", `${ABILITY_NAMES[ch.ability]} check`,
+                    describeCheck(ch), ch.total, me.name);
+          }
+        }
 
         /*
          * And anyone the narrator introduced, and anywhere it moved everyone.
@@ -2722,12 +2739,18 @@ api.put("/sheets/:ownerId", async (c) => {
  * two different dice.
  */
 api.post("/sheets/:ownerId/check", async (c) => {
-  const { ability } = await c.req.json().catch(() => ({}));
+  // `chat` is optional: pressing an ability on the sheet with no chat open is
+  // a legitimate thing to do and there is nowhere to file the result.
+  const { ability, chat } = await c.req.json().catch(() => ({}));
   const key = String(ability ?? "").toLowerCase() as Ability;
   if (!(key in ABILITY_NAMES)) return c.json({ error: "No such ability." }, 400);
   const sheet = sheetFor(c.req.param("ownerId"));
   if (!sheet) return c.json({ error: "No sheet to roll against." }, 400);
   const check = abilityCheck(sheet, key);
+  if (chat) {
+    logRoll(String(chat), "check", `${ABILITY_NAMES[key]} check`,
+            describeCheck(check), check.total, whoAmI().name);
+  }
   return c.json({ check, text: describeCheck(check) });
 });
 
@@ -2777,6 +2800,32 @@ export function swipeAllowance(): number {
   if (!Number.isFinite(n)) return 3;
   return Math.max(0, Math.min(MAX_TABLE_SWIPES, Math.round(n)));
 }
+
+/* ---- the roll log -----------------------------------------------------------
+   Every table keeps one, and for the same reason: it is the only proof a
+   player has that the dice were not quietly decided by whoever is narrating.
+   Hearth's dice were already honest — rolled server-side, never by the model —
+   but "trust me" is not evidence and a scrollback is. */
+
+export function logRoll(
+  chatId: string,
+  kind: "dice" | "check" | "attack" | "initiative",
+  label: string,
+  detail: string,
+  total: number,
+  who = "",
+) {
+  if (!chatId) return;
+  db.query(
+    "INSERT INTO rolls (id, chat_id, kind, label, detail, total, who, created_at) VALUES (?,?,?,?,?,?,?,?)",
+  ).run(uid(), chatId, kind, label.slice(0, 80), detail.slice(0, 200), Math.round(total), who.slice(0, 60), now());
+}
+
+api.get("/chats/:id/rolls", (c) =>
+  c.json(db.query(
+    "SELECT * FROM rolls WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 200",
+  ).all(c.req.param("id"))),
+);
 
 /** The fight this chat is in the middle of, if it is in the middle of one. */
 function fightIn(chatId: string): Fight | null {
@@ -2829,6 +2878,8 @@ export function applyVerbs(chatId: string, text: string, playerId?: string | nul
       const fight = startFight(intent.foes, playerInFight(playerId));
       if (!fight) return null;
       saveFight(chatId, fight);
+      logRoll(chatId, "initiative", "Initiative", describeInitiative(fight),
+              fight.order[0]?.initiative ?? 0, fight.order[0]?.name ?? "");
       return `[[initiative: ${describeInitiative(fight)}]]`;
     }
 
@@ -3021,6 +3072,7 @@ api.post("/chats/:id/roll", async (c) => {
   // No sheet, or nothing asked for: a die is still a die.
   if (!ability) {
     const roll = rollDice("1d20")!;
+    logRoll(chatId, "dice", "1d20", describeRoll(roll), roll.total, me.name);
     return c.json({
       total: roll.total, die: roll.rolls[0], modifier: 0, label: "Roll",
       parts: [{ label: "d20", value: roll.rolls[0] }],
@@ -3029,6 +3081,8 @@ api.post("/chats/:id/roll", async (c) => {
   }
 
   const check = abilityCheck(sheet!, ability);
+  logRoll(chatId, label === "Attack" ? "attack" : "check", label,
+          describeCheck(check), check.total, me.name);
   return c.json({
     total: check.total,
     die: check.die,
@@ -3045,9 +3099,10 @@ api.post("/chats/:id/roll", async (c) => {
 });
 
 api.post("/dice", async (c) => {
-  const { notation } = await c.req.json().catch(() => ({ notation: "" }));
+  const { notation, chat } = await c.req.json().catch(() => ({ notation: "" }));
   const roll = rollDice(String(notation ?? ""));
   if (!roll) return c.json({ error: `"${String(notation ?? "").slice(0, 40)}" is not dice.` }, 400);
+  if (chat) logRoll(String(chat), "dice", roll.notation, describeRoll(roll), roll.total, whoAmI().name);
   return c.json({ roll, text: describeRoll(roll) });
 });
 
