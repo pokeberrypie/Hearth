@@ -478,7 +478,7 @@ body.chained .chainveil { opacity: 1; visibility: visible; transition-delay: 0s;
   top: calc(var(--bar-h) + env(safe-area-inset-top));
   right: 0;
   bottom: calc(5.5rem + env(safe-area-inset-bottom));
-  width: 15.5rem;
+  width: min(20rem, 86vw);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -494,8 +494,8 @@ body.chained .chain { visibility: visible; transition-delay: 0s; }
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.62rem;
-  padding: 0.9rem 0 1.5rem;
+  gap: var(--chain-gap, 0.62rem);
+  padding: var(--chain-pad, 0.9rem) 0 var(--chain-pad, 1.5rem);
   transform-origin: top right;
   transform: scale(0.86);
   opacity: 0;
@@ -514,14 +514,19 @@ body.chained .chainlinks { transform: none; opacity: 1; }
   /* The bow. Margin rather than transform, so the transform stays free to
      carry the stagger below without the two fighting over one property. */
   margin-right: calc(1rem + var(--bow, 0px));
+  /* A flex item wider than its line overflows at the *end*, which here is the
+     right — so a long label did not push the name off the left, it pushed the
+     pip off the right and cut it in half. "Import and export" at a larger font
+     scale is all it takes. The row cannot outgrow the chain now, and the name
+     gives way before the pip does. */
+  max-width: calc(100% - 1rem - var(--bow, 0px));
   transform: translateX(1.1rem);
   opacity: 0;
   transition: transform .3s cubic-bezier(.2, 1.1, .4, 1), opacity .2s ease;
 }
-.chainlink:nth-child(1), .chainlink:nth-child(7) { --bow: 2px; }
-.chainlink:nth-child(2), .chainlink:nth-child(6) { --bow: 10px; }
-.chainlink:nth-child(3), .chainlink:nth-child(5) { --bow: 16px; }
-.chainlink:nth-child(4) { --bow: 18px; }
+/* The bow itself is set in JS, as a sine over however many links there are —
+   these four rules held the seven values the drawing asked for, and when the
+   chain went to eleven four links bowed and seven hung straight. */
 
 /* Unrolling: each link a beat behind the one above it, so it reads as a chain
    paying out rather than a block appearing. Rolling up they all go at once —
@@ -533,6 +538,9 @@ body.chained .chainlink {
 }
 
 .chainname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--lumiverse-font-display);
   font-size: 1.02rem;
   letter-spacing: 0.08em;
@@ -542,7 +550,7 @@ body.chained .chainlink {
 }
 .chainpip {
   flex: none;
-  width: 48px; height: 48px;
+  width: var(--chain-pip, 48px); height: var(--chain-pip, 48px);
   display: grid; place-items: center;
   border-radius: 50%;
   border: 1px solid var(--lumiverse-primary-muted);
@@ -550,7 +558,7 @@ body.chained .chainlink {
   color: var(--lumiverse-primary);
   transition: border-color .16s, background .16s, color .16s;
 }
-.chainpip svg { width: 21px; height: 21px; stroke-width: 1.4; }
+.chainpip svg { width: calc(var(--chain-pip, 48px) * 0.44); height: calc(var(--chain-pip, 48px) * 0.44); stroke-width: 1.4; }
 
 .chainlink:hover .chainname,
 .chainlink:focus-visible .chainname { color: var(--lumiverse-text); }
@@ -572,6 +580,35 @@ body.chained .chainlink {
    the thing currently holding the menu open. */
 #menuBtn { border: 1px solid transparent; border-radius: 50%; transition: border-color .2s; }
 body.chained #menuBtn { border-color: var(--lumiverse-primary-muted); }
+
+/* Eleven links have to fit the height they are given.
+   Settings used to be one link that opened a page of its own; taking it apart
+   put its five rooms on the chain, and eleven at the drawn size is taller than
+   the gap between the bar and the composer on an ordinary laptop. It scrolled,
+   which sounds fine and is not: the chain has no scrollbar by design, so the
+   last link was simply cut off with nothing to say there was more.
+
+   So the links close up as the room gets shorter. And the chain fades at the
+   foot whenever it does still overflow, because an edge that fades reads as
+   "more below" where a clean cut reads as broken. */
+@media (max-height: 900px) {
+  .chain { --chain-pip: 44px; --chain-gap: 0.42rem; --chain-pad: 0.7rem; }
+}
+@media (max-height: 780px) {
+  .chain { --chain-pip: 40px; --chain-gap: 0.3rem; --chain-pad: 0.5rem; }
+}
+@media (max-height: 660px) {
+  .chain { --chain-pip: 36px; --chain-gap: 0.22rem; --chain-pad: 0.4rem; }
+  .chainname { font-size: 0.92rem; }
+}
+.chain {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+}
+/* Nothing to fade once it all fits. */
+.chain:not(:has(.chainlinks)) , .chain.fits {
+  -webkit-mask-image: none; mask-image: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .chainlinks, .chainlink { transition: none; }
@@ -2048,11 +2085,18 @@ body[data-msgstyle="page"] .tools { position: static; opacity: 1; padding-left: 
 
 /* ---- settings sections --------------------------------------------------- */
 
+/* Five rooms, each one a card that looks like the others and says which it is
+   at a glance. Behaviour and the table used to be loose controls sitting under
+   the cards, so the page was half list and half form and the two halves did
+   not look related. */
 .navcard {
-  display: block;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.85rem;
   width: 100%;
   text-align: left;
-  padding: 0.85rem 1rem;
+  padding: 0.8rem 1rem;
   margin-bottom: 0.55rem;
   background: color-mix(in srgb, var(--lumiverse-bg) 55%, transparent);
   border: 1px solid var(--lumiverse-border);
@@ -2069,6 +2113,35 @@ body[data-msgstyle="page"] .tools { position: static; opacity: 1; padding-left: 
   color: var(--lumiverse-primary);
 }
 .navcard .s { display: block; font-size: 0.8rem; color: var(--lumiverse-text-dim); }
+.navcard .tx { min-width: 0; }
+
+/* A struck disc, the same one the composer and the sheet use. */
+.navcard .ni {
+  flex: none;
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--lumiverse-primary-muted);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  color: var(--lumiverse-primary);
+  transition: border-color .16s, color .16s;
+}
+.navcard .ni svg {
+  width: 18px; height: 18px;
+  fill: none; stroke: currentColor; stroke-width: 1.5;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.navcard:hover .ni { border-color: var(--lumiverse-primary); color: var(--lumiverse-primary-hover); }
+
+/* The one card that is a door rather than a page: entering tabletop mode. */
+.solidcard { margin-bottom: 1.4rem; }
+.solidcard .ni {
+  border-color: var(--lumiverse-primary);
+  background: radial-gradient(circle at 32% 26%,
+    color-mix(in srgb, var(--lumiverse-primary) 26%, var(--lumiverse-bg-elevated)),
+    var(--lumiverse-bg-deep));
+  color: var(--lumiverse-primary-hover);
+}
 
 .backlink {
   display: inline-flex;

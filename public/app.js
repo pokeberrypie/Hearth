@@ -3961,6 +3961,7 @@ const closeChain = () => {
 };
 const openChain = () => {
   document.body.classList.add("chained");
+  chainFits();
   $("#menuBtn").setAttribute("aria-expanded", "true");
 };
 
@@ -3977,6 +3978,33 @@ $("#chainVeil").onclick = closeChain;
  * them: the chain you summon and the rail down the panel's inner edge. They
  * have to agree, and the way to make sure they agree is to have one of them.
  */
+/*
+ * The bow, measured rather than written down.
+ *
+ * It used to be four nth-child rules holding the seven values the drawing
+ * asked for, which was fine until settings was taken apart and the chain went
+ * to eleven — at which point four of them had a bow and seven hung straight.
+ * A sine over however many links there are cannot fall out of step with the
+ * list, and reads the same at seven as at eleven.
+ */
+function bowChain() {
+  const links = [...document.querySelectorAll(".chainlink")];
+  const n = links.length;
+  links.forEach((b, i) => {
+    const t = n < 2 ? 0 : Math.sin((Math.PI * i) / (n - 1));
+    b.style.setProperty("--bow", `${(t * 18).toFixed(1)}px`);
+    b.style.setProperty("--i", String(i));
+  });
+}
+bowChain();
+
+/** The foot only fades while there is something under it to fade. */
+function chainFits() {
+  const c = $("#chain");
+  if (c) c.classList.toggle("fits", c.scrollHeight <= c.clientHeight + 1);
+}
+addEventListener("resize", chainFits);
+
 function pickPanel(tab) {
   for (const x of document.querySelectorAll(".chainlink, .raillink"))
     x.classList.toggle("on", x.dataset.tab === tab);
@@ -4498,15 +4526,6 @@ $("#charForm").addEventListener("submit", async (e) => {
   if (S.chatId) S.charAvatar = "";
 });
 
-// ---- settings sections --------------------------------------------------
-
-function showView(name) {
-  document.querySelectorAll('[data-panel="settings"] [data-view]').forEach((v) => {
-    v.hidden = v.dataset.view !== name;
-  });
-}
-document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => showView(b.dataset.go)));
-document.querySelectorAll("[data-back]").forEach((b) => (b.onclick = () => showView("menu")));
 
 /**
  * The preset currently overriding the sampling fields, if any.
@@ -6573,7 +6592,9 @@ function palSources() {
   for (const [tab, name] of [
     ["cast", "Cast"], ["you", "You and your personas"], ["lore", "Lorebooks"],
     ["presets", "Presets and sampling"], ["regex", "Regex scripts"],
-    ["look", "Look and theme"], ["settings", "Settings"],
+    ["look", "Look and theme"], ["table", "The table"],
+    ["connection", "Connection, keys and model"], ["behaviour", "Behaviour"],
+    ["data", "Import and export"], ["extensions", "Extensions"],
   ]) {
     add("Go to", name, "panel", () => {
       openDrawer?.();
