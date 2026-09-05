@@ -3110,7 +3110,30 @@ api.post("/dice", async (c) => {
   const roll = rollDice(String(notation ?? ""));
   if (!roll) return c.json({ error: `"${String(notation ?? "").slice(0, 40)}" is not dice.` }, 400);
   if (chat) logRoll(String(chat), "dice", roll.notation, describeRoll(roll), roll.total, whoAmI().name);
-  return c.json({ roll, text: describeRoll(roll) });
+  /*
+   * The same shape the table's own roll answers in, so the die can be thrown
+   * where you can watch it here too. A story chat has no situation to read and
+   * still asks what to roll, but once it knows, a roll is a roll: it should
+   * land rather than appear.
+   *
+   * `die` is the dice added up without the modifier — what the dice came up,
+   * which is what belongs on a face. `faces` bounds the scramble so a d6 never
+   * flickers through seventeen on its way down.
+   */
+  const dice = roll.rolls.reduce((a, b) => a + b, 0);
+  return c.json({
+    roll,
+    text: describeRoll(roll),
+    total: roll.total,
+    die: dice,
+    modifier: roll.modifier,
+    label: roll.notation,
+    faces: { min: roll.count, max: roll.count * roll.sides },
+    parts: [
+      { label: `${roll.count}d${roll.sides}`, value: dice },
+      ...(roll.modifier ? [{ label: roll.modifier < 0 ? "penalty" : "bonus", value: roll.modifier }] : []),
+    ],
+  });
 });
 
 api.get("/extensions", (c) => c.json(liveExtensions()));

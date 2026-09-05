@@ -2739,11 +2739,14 @@ function fail(msg) {
 
 async function rollFor(notation) {
   try {
-    const { text } = await api("/dice", {
+    const result = await api("/dice", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ notation, chat: S.chatId }),
     });
-    return `[[${text}]]`;
+    // Thrown where you can watch it, the same as at the table. Story mode was
+    // the only place a roll arrived as a line of text with nothing happening.
+    await showDie(result);
+    return `[[${result.text}]]`;
   } catch (err) {
     fail(err?.message ?? "That is not dice.");
     return null;
@@ -2774,12 +2777,14 @@ function showDie(result) {
   stage.querySelector(".dielabel").textContent = result.label ?? "Roll";
 
   // A modifier of zero is not worth a column; the die always is, even when it
-  // is the only thing that happened.
-  const parts = (result.parts ?? []).filter((p) => p.value !== 0 || p.label === "d20");
+  // is the only thing that happened. The die is whatever came first, which is
+  // the d20 at the table and "2d6" in a story chat — it used to be spelled
+  // "d20", so a story roll got a + in front of its dice.
+  const parts = (result.parts ?? []).filter((p, i) => i === 0 || p.value !== 0);
   stage.querySelector(".diebreak").innerHTML =
-    parts.map((p) => {
+    parts.map((p, i) => {
       // Label then number, so it reads "d20 16" rather than "16 d20".
-      const sign = p.label === "d20" || p.value < 0 ? "" : "+";
+      const sign = i === 0 || p.value < 0 ? "" : "+";
       return `<span>${esc(p.label)} <b>${esc(sign + String(p.value))}</b></span>`;
     }).join(`<span class="diesep">·</span>`) +
     `<span class="diesep">=</span><span class="dietot">${esc(String(result.total))}</span>`;
@@ -2804,8 +2809,12 @@ function showDie(result) {
 
     // Faces flicking past while it tumbles. Stopped by the same timer that
     // lands it, so there is no way for the scramble to outlive the throw.
+    // Bounded by what was actually thrown, so a d6 does not flicker through
+    // seventeen on its way down.
+    const lo = result.faces?.min ?? 1;
+    const hi = result.faces?.max ?? 20;
     const spin = setInterval(() => {
-      num.textContent = String(1 + Math.floor(Math.random() * 20));
+      num.textContent = String(lo + Math.floor(Math.random() * (hi - lo + 1)));
     }, 60);
     setTimeout(() => { clearInterval(spin); land(); }, 950);
   });
