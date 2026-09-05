@@ -6330,7 +6330,7 @@ $("#themeCopy").onclick = async () => {
  * it is the thing everyone else is looking at. The guest's view is the same
  * app with the drawer taken away; there is no second client to keep in step.
  */
-const TG = { share: null, feed: null, answering: false };
+const TG = { share: null, feed: null, answering: false, door: null };
 
 /**
  * The address to put in front of the link.
@@ -6340,7 +6340,11 @@ const TG = { share: null, feed: null, answering: false };
  * everywhere, and only the person who set it up knows what it is — so it is
  * asked for rather than guessed at, remembered, and used when it is there.
  */
-const tgBase = () => (localStorage.getItem("hearth.tableBase") || "").replace(/\/+$/, "");
+const tgBase = () => {
+  // What you typed wins; otherwise whatever the door is currently giving out.
+  const mine = (localStorage.getItem("hearth.tableBase") || "").trim().replace(/\/+$/, "");
+  return mine || (TG.door?.url || "").replace(/\/+$/, "");
+};
 
 function tgLinkFor(share) {
   return (tgBase() || location.origin) + share.join;
@@ -6386,10 +6390,50 @@ function renderTogether() {
   }
 }
 
+/**
+ * The door, from the panel.
+ *
+ * Opening it is a few seconds of waiting on somebody else's network, so the
+ * button says so rather than looking broken while it thinks.
+ */
+function renderDoor() {
+  const btn = $("#tgDoor"), note = $("#tgDoorState");
+  if (!btn || !note) return;
+  const d = TG.door;
+  btn.textContent = d?.running ? "Close the door" : "Open the door";
+  note.textContent = d?.running
+    ? `Open at ${d.url}. Anyone with the link can sit down, so treat it like a door key.`
+    : d?.trouble
+      ? `${d.trouble} Install cloudflared, or put your own address in below.`
+      : "Shut. The link above only works inside this house.";
+}
+
+async function refreshDoor() {
+  TG.door = await api("/door").catch(() => null);
+  renderDoor();
+  renderTogether();
+}
+
+$("#tgDoor").onclick = async () => {
+  const btn = $("#tgDoor");
+  if (TG.door?.running) {
+    TG.door = await api("/door", { method: "DELETE" }).catch(() => null);
+  } else {
+    btn.disabled = true;
+    btn.textContent = "Opening…";
+    $("#tgDoorState").textContent = "Asking Cloudflare for an address. This takes a few seconds.";
+    TG.door = await api("/door", { method: "POST" }).catch(() => null);
+    btn.disabled = false;
+  }
+  renderDoor();
+  renderTogether();
+};
+
 async function refreshTogether() {
   const shares = await api("/shares").catch(() => []);
   if (!Array.isArray(shares)) return;
   TG.share = shares.find((s) => s.chat_id === S.chatId) ?? shares[0] ?? null;
+  if (!TG.door) await refreshDoor();
   renderTogether();
   tgListen();
 }

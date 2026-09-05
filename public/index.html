@@ -824,13 +824,20 @@
           <p class="hint" id="tgReach"></p>
 
           <h3>Where they reach you</h3>
-          <label>Address
-            <input type="text" id="tgBase" placeholder="https://something.trycloudflare.com" autocomplete="off">
-          </label>
           <p class="hint">Two houses on the internet cannot find each other on their own, and
-            Hearth will not pretend otherwise. Point a tunnel or a VPN at this machine and paste
-            the address it gives you here; the link above is then the one to send. Leave it empty
-            and you get the address for this house only, which is right if you are in the same one.</p>
+            Hearth will not pretend otherwise — there is no relay in the middle of your chats,
+            and there is not going to be. What it can do is open a tunnel straight to this
+            machine and put the address in the link for you.</p>
+          <button class="solid wide" id="tgDoor">Open the door</button>
+          <p class="hint" id="tgDoorState">Shut. The link above only works inside this house.</p>
+          <details class="fold">
+            <summary>Use my own address instead</summary>
+            <label>Address
+              <input type="text" id="tgBase" placeholder="https://something.trycloudflare.com" autocomplete="off">
+            </label>
+            <p class="hint">For a VPN, your own tunnel, or a forwarded port. Whatever is in here
+              wins over the door above.</p>
+          </details>
 
           <h3>Who is here</h3>
           <div id="tgPlayers" class="list"></div>

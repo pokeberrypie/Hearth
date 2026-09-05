@@ -218,6 +218,34 @@ describe("with no seat at all", () => {
   });
 });
 
+describe("a proxy in front", () => {
+  test("a forwarded request is never the owner, whatever the socket says", async () => {
+    /*
+     * The hole this closes, found by opening a real tunnel and asking it for
+     * the settings. cloudflared connects to localhost, so everything it
+     * forwards arrives *from loopback* — and loopback was the whole basis for
+     * "this is the owner sitting at their own machine". The entire library was
+     * being handed to anyone with the address, over the internet, and every
+     * test in this file passed while it was.
+     *
+     * The real fix is a separate listener for the tunnel (see serve.ts), since
+     * which socket the bytes arrived on is a fact rather than a claim. This is
+     * the backstop for somebody pointing their own proxy at the ordinary port.
+     */
+    seed();
+    for (const header of ["x-forwarded-for", "cf-connecting-ip"]) {
+      const res = await ask("/api/settings", { headers: { [header]: "203.0.113.9" } }, HOME);
+      expect(res.status).toBe(403);
+      expect(await res.text()).not.toContain("THE-SECRET-KEY");
+    }
+  });
+
+  test("and an ordinary local request still is", async () => {
+    seed();
+    expect((await ask("/api/settings", {}, HOME)).status).toBe(200);
+  });
+});
+
 describe("closing the table", () => {
   test("turns off the link and every seat at it", async () => {
     seed();

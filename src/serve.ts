@@ -9,7 +9,7 @@
  * The mobile build's `mobile/server/serve.mobile.ts` is the Node equivalent.
  */
 import { serveStatic } from "hono/bun";
-import { app, ensureStarterCharacter } from "./index";
+import { app, ensureStarterCharacter, markPublic } from "./index";
 
 // A brand-new library gets its one character here, where the database is
 // certainly ready — never from index.ts's body; see ensureStarterCharacter().
@@ -50,4 +50,32 @@ console.log("");
 // 255 is Bun's ceiling for idleTimeout, and a long reasoning reply can still
 // out-wait it. The generation route sends a keep-alive comment frame every 15
 // seconds so the socket never actually goes idle mid-answer.
+/**
+ * The front door gets a socket of its own.
+ *
+ * A tunnel connects to localhost, so everything it forwards arrives *from
+ * loopback* — and loopback is what "this is the owner sitting at their own
+ * machine" was built on. Point cloudflared at the ordinary port and the whole
+ * library is handed to anyone with the address. That is not hypothetical: it
+ * is what happened the first time this was tried for real.
+ *
+ * So the tunnel is given a second listener, on its own port, and every request
+ * arriving there is marked public before it reaches the gate. It is a fact
+ * about which socket the bytes came in on rather than a guess from a header,
+ * which is what makes it hold.
+ *
+ * Loopback-bound, because it is only ever meant to be reached through the
+ * tunnel — nothing on the network should be able to knock on it directly.
+ */
+const publicPort = Number(process.env.PUBLIC_PORT ?? port + 1);
+Bun.serve({
+  port: publicPort,
+  hostname: "127.0.0.1",
+  idleTimeout: 255,
+  fetch(req, server) {
+    markPublic(req);
+    return app.fetch(req, server);
+  },
+});
+
 export default { port, hostname, fetch: app.fetch, idleTimeout: 255 };

@@ -11,6 +11,7 @@ import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinsta
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
 import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
+import { closeDoor, doorState, openDoor } from "./door";
 import {
   clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
   treatAsHost,
@@ -82,6 +83,25 @@ function guestOf(c: any) {
 }
 
 /**
+ * Requests that arrived through the front door rather than from this machine.
+ *
+ * The hole this closes, found by opening a real tunnel and asking it for the
+ * settings: cloudflared connects to localhost, so every request it forwards
+ * *arrives from loopback* — and loopback was the whole basis for "this is the
+ * owner". A tunnel in front of the server therefore handed the entire library
+ * to anyone who had the address. Any reverse proxy does the same thing.
+ *
+ * So the tunnel gets a listener of its own, and everything through it is
+ * marked before it reaches the gate. Not a header check — headers are a
+ * guess about who is in front of you, and this is a fact about which socket
+ * the bytes came in on.
+ */
+const throughTheDoor = new WeakSet<object>();
+export function markPublic(req: Request): void {
+  throughTheDoor.add(req);
+}
+
+/**
  * The address the request came from, however the runtime chooses to say it.
  *
  * Bun hands `Bun.serve`'s server object to `app.fetch` as the second argument,
@@ -134,12 +154,17 @@ const PLAYER_COOKIE = "hearth_player";
 app.use("/api/*", async (c, next) => {
   const addr = remoteAddr(c);
   /*
-   * An address we do not recognise counts as local only while this copy is
-   * listening to nothing but this machine — where it can only have been local.
-   * Once it is bound wider, an unknown address is an unknown address, and the
-   * benefit of the doubt goes to the keys rather than to the caller.
+   * Through the public listener, or carrying the marks of a proxy we did not
+   * put there: either way the address on the socket is not the caller's, and
+   * loopback stops meaning anything. The header check is a backstop for
+   * somebody pointing their own proxy at the ordinary port — it cannot be
+   * relied on alone, since headers are the proxy's word, but a request that
+   * says it was forwarded was forwarded.
    */
-  if (treatAsHost(addr, BOUND_WIDE)) {
+  const proxied = throughTheDoor.has(c.req.raw)
+    || !!c.req.header("x-forwarded-for")
+    || !!c.req.header("cf-connecting-ip");
+  if (!proxied && treatAsHost(addr, BOUND_WIDE)) {
     callerOf.set(c.req.raw, { kind: "host" });
     return next();
   }
@@ -175,7 +200,10 @@ app.use("/api/*", async (c, next) => {
  */
 app.use("/uploads/*", async (c, next) => {
   const addr = remoteAddr(c);
-  if (treatAsHost(addr, BOUND_WIDE)) return next();
+  const proxied = throughTheDoor.has(c.req.raw)
+    || !!c.req.header("x-forwarded-for")
+    || !!c.req.header("cf-connecting-ip");
+  if (!proxied && treatAsHost(addr, BOUND_WIDE)) return next();
   const token = playerToken(c);
   const player = token
     ? (db.query("SELECT * FROM players WHERE token = ?").get(token) as any)
@@ -4191,6 +4219,27 @@ api.delete("/shares/:id/players/:pid", (c) => {
   publish(row.id, "players", { players: playersAt(row.id) });
   return c.json({ ok: true, players: playersAt(row.id) });
 });
+
+/**
+ * Opening and shutting the door.
+ *
+ * Host only — it is behind the gate like everything else, so this is reachable
+ * from this machine and nowhere on earth besides. Which matters more here than
+ * anywhere: a route that starts a process is a route worth reaching.
+ *
+ * It takes no command and no arguments. The only thing it can start is the one
+ * tunnel it goes looking for, pointed at this server's own port.
+ */
+api.get("/door", (c) => c.json(doorState()));
+
+api.post("/door", async (c) => {
+  // The public listener, never the ordinary one — see serve.ts. Pointing a
+  // tunnel at the ordinary port is exactly the mistake this exists to stop.
+  const port = Number(process.env.PUBLIC_PORT ?? Number(process.env.PORT ?? 7870) + 1);
+  return c.json(await openDoor(port));
+});
+
+api.delete("/door", (c) => c.json(closeDoor()));
 
 // ---- the guest's half -----------------------------------------------------
 
