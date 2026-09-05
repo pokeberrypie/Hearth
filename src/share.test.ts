@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   clearRoom, guestMayTouch, isLoopback, listeners, newToken, publicPlayer,
-  publish, sameToken, subscribe, tidyPlayerName, type Player,
+  publish, sameToken, subscribe, tidyPlayerName, treatAsHost, type Player,
 } from "./share";
 
 describe("tokens", () => {
@@ -87,6 +87,40 @@ describe("loopback", () => {
                      "2001:db8::1", "", null, undefined, "127.0.0.1.nip.io"]) {
       expect(isLoopback(a as any)).toBe(false);
     }
+  });
+});
+
+describe("who counts as the owner", () => {
+  test("loopback always does, bound however it likes", () => {
+    for (const wide of [false, true]) {
+      expect(treatAsHost("127.0.0.1", wide)).toBe(true);
+      expect(treatAsHost("::1", wide)).toBe(true);
+      expect(treatAsHost("::ffff:127.0.0.1", wide)).toBe(true);
+    }
+  });
+
+  test("a real remote address never does", () => {
+    for (const wide of [false, true]) {
+      expect(treatAsHost("192.168.1.9", wide)).toBe(false);
+      expect(treatAsHost("203.0.113.9", wide)).toBe(false);
+      expect(treatAsHost("::ffff:8.8.8.8", wide)).toBe(false);
+    }
+  });
+
+  test("an unknown address is local only while nothing else can reach us", () => {
+    // This is the whole bug, written down. Bound to loopback, a request the
+    // runtime could not name can only have come from this machine. Bound to
+    // 0.0.0.0 it might have come from anywhere, and the first version said
+    // "local" to both — so the gate stood open on the network while every
+    // test passed, because a test always supplies an address.
+    expect(treatAsHost("", false)).toBe(true);
+    expect(treatAsHost(undefined, false)).toBe(true);
+    expect(treatAsHost(null, false)).toBe(true);
+
+    expect(treatAsHost("", true)).toBe(false);
+    expect(treatAsHost(undefined, true)).toBe(false);
+    expect(treatAsHost(null, true)).toBe(false);
+    expect(treatAsHost("   ", true)).toBe(false);
   });
 });
 

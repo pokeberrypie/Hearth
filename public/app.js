@@ -2834,6 +2834,13 @@ function showDie(result) {
 }
 
 $("#diceBtn").onclick = async () => {
+  // A guest rolls on the table's dice, and everybody watches it land.
+  if (GUEST.on) {
+    const notation = await askFor("Roll what?", localStorage.getItem("hearth.lastRoll") || "1d20");
+    if (!notation?.trim()) return;
+    try { localStorage.setItem("hearth.lastRoll", notation.trim()); } catch {}
+    return guestRoll(notation.trim());
+  }
   /*
    * At a table, the dice are already chosen.
    *
@@ -2866,6 +2873,21 @@ $("#diceBtn").onclick = async () => {
 
 function send() {
   const input = $("#input");
+  /*
+   * A guest's turn goes to the table instead.
+   *
+   * Everything below this point talks to routes a guest cannot reach — the
+   * generation stream, the chat's own message list, the swipe machinery — so
+   * the fork is here at the top rather than threaded through all of it.
+   */
+  if (GUEST.on) {
+    const text = extTransform("send:before", input.value.trim());
+    if (!text) return;
+    input.value = "";
+    input.style.height = "auto";
+    guestSay(text);
+    return;
+  }
   // Extensions see what was typed before it becomes a turn, so a slash command
   // or a bit of shorthand can be expanded into what actually gets sent.
   const content = extTransform("send:before", input.value.trim());
@@ -3901,6 +3923,7 @@ document.addEventListener("keydown", (e) => {
 const openDrawer = () => {
   $("#drawer").classList.add("open");
   $("#scrim").hidden = false;
+  refreshTogether();
   refreshChats();
   refreshCast();
   refreshPersonas();
@@ -3928,6 +3951,7 @@ const showPanel = () => {
   if (!wide()) return openDrawer();
   document.body.classList.remove("tucked");
   refreshChats(); refreshCast(); refreshPersonas(); refreshPresets(); refreshLore();
+  refreshTogether();
 };
 
 $("#scrim").onclick = closeDrawer;
@@ -6283,6 +6307,173 @@ $("#themeCopy").onclick = async () => {
   setTimeout(() => ($("#themeHint").textContent = ""), 3000);
 };
 
+
+// ---- playing together ----------------------------------------------------
+
+/**
+ * The host's side of a shared table.
+ *
+ * Open the chat you are in, hand somebody the link, and from then on this copy
+ * of Hearth is the table: it holds the transcript, it makes the replies, and
+ * it is the thing everyone else is looking at. The guest's view is the same
+ * app with the drawer taken away; there is no second client to keep in step.
+ */
+const TG = { share: null, feed: null, answering: false };
+
+/**
+ * The address to put in front of the link.
+ *
+ * Whatever the browser is showing is right for this house, and wrong for
+ * anybody outside it. A tunnel or a VPN gives an address that is right
+ * everywhere, and only the person who set it up knows what it is — so it is
+ * asked for rather than guessed at, remembered, and used when it is there.
+ */
+const tgBase = () => (localStorage.getItem("hearth.tableBase") || "").replace(/\/+$/, "");
+
+function tgLinkFor(share) {
+  return (tgBase() || location.origin) + share.join;
+}
+
+function renderTogether() {
+  const shut = $("#tgShut"), live = $("#tgLive");
+  if (!shut || !live) return;
+  const on = !!TG.share;
+  shut.hidden = on;
+  live.hidden = !on;
+  $("#tgNoChat").hidden = !!S.chatId;
+  $("#tgOpen").disabled = !S.chatId;
+  if (!on) return;
+
+  $("#tgLink").value = tgLinkFor(TG.share);
+  $("#tgReach").textContent = tgBase()
+    ? "Anyone with this link can sit down, so treat it like a door key."
+    : "This address only works inside this house. For anyone further away, "
+      + "give Hearth a public address below and copy the link again.";
+
+  const list = $("#tgPlayers");
+  const people = TG.share.players ?? [];
+  $("#tgAlone").hidden = people.length > 0;
+  list.innerHTML = "";
+  for (const p of people) {
+    const row = document.createElement("div");
+    row.className = "item";
+    row.innerHTML = medallion("", p.name) +
+      `<span class="meta"><span class="t">${esc(p.name)}</span>` +
+      `<span class="s">${p.seen_at ? `here ${ago(p.seen_at)}` : "just arrived"}</span></span>`;
+    const kick = document.createElement("button");
+    kick.className = "ico danger";
+    kick.title = "Show them the door";
+    kick.setAttribute("aria-label", `Remove ${p.name}`);
+    kick.innerHTML = `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+    kick.onclick = async () => {
+      await api(`/shares/${TG.share.id}/players/${p.id}`, { method: "DELETE" });
+      refreshTogether();
+    };
+    row.append(kick);
+    list.append(row);
+  }
+}
+
+async function refreshTogether() {
+  const shares = await api("/shares").catch(() => []);
+  if (!Array.isArray(shares)) return;
+  TG.share = shares.find((s) => s.chat_id === S.chatId) ?? shares[0] ?? null;
+  renderTogether();
+  tgListen();
+}
+
+/**
+ * Listen to the table, and answer for it.
+ *
+ * One socket while a table is open. Reconnected by the browser on its own if
+ * it drops, which is the whole reason this is an EventSource rather than a
+ * long fetch — a game that quietly stops updating after a Wi-Fi blip is worse
+ * than one that never worked.
+ */
+function tgListen() {
+  if (!TG.share) { TG.feed?.close(); TG.feed = null; return; }
+  if (TG.feed && TG.feed.url.includes(TG.share.id)) return;
+  TG.feed?.close();
+
+  const feed = new EventSource(`/api/shares/${TG.share.id}/live`);
+  TG.feed = feed;
+  feed.onmessage = (e) => {
+    let evt; try { evt = JSON.parse(e.data); } catch { return; }
+    if (evt.event === "players") {
+      if (TG.share) TG.share.players = evt.players ?? [];
+      renderTogether();
+      return;
+    }
+    if (evt.event === "rolled") {
+      // Everyone at the table watches the same die land.
+      if (evt.thrown) showDie(evt.thrown);
+      return;
+    }
+    if (evt.event === "said") tgAnswer(evt);
+  };
+}
+
+/**
+ * Somebody at the table has taken a turn.
+ *
+ * Their message is already written down — this copy only has to show it and
+ * then let the narrator answer. `silent` rather than `reply` because the turn
+ * is in the transcript already; sending it again would say it twice.
+ *
+ * Guarded, because two people typing at once is two announcements, and two
+ * generations on one chat is two narrators talking over each other.
+ */
+async function tgAnswer(evt) {
+  if (S.chatId !== TG.share?.chat_id) { await refreshChats(); return; }
+  await openChat(S.chatId).catch(() => {});
+  if (TG.answering || S.generating) return;
+  TG.answering = true;
+  try { await run("silent"); } finally { TG.answering = false; }
+}
+
+$("#tgOpen").onclick = async () => {
+  if (!S.chatId) return;
+  const r = await api("/shares", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: S.chatId }),
+  });
+  if (r?.error) return fail(r.error);
+  await refreshTogether();
+};
+
+$("#tgClose").onclick = async () => {
+  if (!TG.share) return;
+  const sure = await askDialog({
+    title: "Close the table?",
+    text: "The link stops working and everybody at it loses their seat. The chat itself stays "
+        + "exactly as it is — this only shuts the door.",
+    confirmLabel: "Close it",
+  });
+  if (!sure) return;
+  await api(`/shares/${TG.share.id}`, { method: "DELETE" });
+  TG.feed?.close(); TG.feed = null; TG.share = null;
+  renderTogether();
+};
+
+$("#tgCopy").onclick = async () => {
+  if (!TG.share) return;
+  try {
+    await navigator.clipboard.writeText(tgLinkFor(TG.share));
+    $("#tgCopy").classList.add("done");
+    setTimeout(() => $("#tgCopy").classList.remove("done"), 1400);
+  } catch {
+    // Clipboard permission is not a given in a WebView; select it instead so
+    // the copy is one keystroke rather than impossible.
+    $("#tgLink").select();
+  }
+};
+
+$("#tgBase").oninput = () => {
+  try { localStorage.setItem("hearth.tableBase", $("#tgBase").value.trim()); } catch {}
+  renderTogether();
+};
+try { $("#tgBase").value = tgBase(); } catch {}
+
 // ---- settings -----------------------------------------------------------
 
 const FIELDS = [
@@ -6475,6 +6666,173 @@ input.addEventListener("keydown", (e) => {
 $("#composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
 
 /** Each step stands alone: one failing panel must not blank the others. */
+
+// ---- being a guest -------------------------------------------------------
+
+/**
+ * The other side of the link.
+ *
+ * A guest is running the same app off the same server, and almost none of it
+ * applies to them: there is no cast to browse, no settings to change, no keys,
+ * no other chats. The ordinary boot would fire a dozen requests at the gate,
+ * collect a dozen refusals, and leave them looking at a broken program.
+ *
+ * So a guest gets their own boot: the room, the composer, the die, the
+ * initiative, and the drawer taken away entirely. Nothing is hidden that they
+ * could un-hide, because nothing is loaded — the gate would refuse it anyway,
+ * and a UI that depends on the server saying no is a UI that leaks the day
+ * somebody says yes by accident.
+ *
+ * How we know: we ask. The cookie is HttpOnly on purpose, so the page cannot
+ * read its own seat; instead it tries the one route only a guest can reach. A
+ * 200 means guest, anything else means host. The host is not a guest — the
+ * gate refuses them this route too — so this cannot answer wrongly.
+ */
+const GUEST = { on: false, state: null, feed: null };
+
+async function guestBoot(state) {
+  GUEST.on = true;
+  GUEST.state = state;
+  document.body.classList.add("guest");
+  document.body.dataset.mode = state.chat?.mode === "tabletop" ? "tabletop" : "story";
+
+  // The drawer and everything that reaches into it. Removed rather than
+  // hidden: none of it has anything to talk to.
+  for (const sel of ["#drawer", "#chain", "#chainVeil", "#menuBtn", "#scrim", "#chatMenuBtn", "#homeBtn"]) {
+    document.querySelector(sel)?.remove();
+  }
+  $("#splash")?.remove();
+  $("#composer").hidden = false;
+  $("#thread").hidden = false;
+
+  guestPaint();
+  guestListen();
+
+  // A name, so the transcript is not four people all called "A player".
+  const saved = (localStorage.getItem("hearth.myName") || "").trim();
+  if (saved) await guestName(saved);
+  else if (/^A player/.test(state.you?.name ?? "")) guestAskName();
+}
+
+function guestTitle() {
+  const bar = $(".bar h1");
+  if (bar) bar.textContent = GUEST.state?.chat?.title || "The table";
+  const here = (GUEST.state?.players ?? []).map((p) => p.name).join(" · ");
+  const sub = $("#castBar");
+  if (sub) { sub.hidden = !here; sub.textContent = here; }
+}
+
+function guestPaint() {
+  const thread = $("#thread");
+  thread.innerHTML = "";
+  for (const m of GUEST.state.messages ?? []) thread.append(messageEl(m));
+  guestTitle();
+  renderTrack(GUEST.state.fight ?? null);
+  stick(true);
+}
+
+/** One socket, reconnected by the browser if the line drops. */
+function guestListen() {
+  GUEST.feed?.close();
+  const feed = new EventSource("/api/table/live");
+  GUEST.feed = feed;
+
+  // The narrator's reply arrives as the same frames the host sees, so it
+  // types itself out here exactly as it does there.
+  let streaming = null;
+  feed.onmessage = (e) => {
+    let evt; try { evt = JSON.parse(e.data); } catch { return; }
+
+    if (evt.event === "hello") { GUEST.state = evt; guestPaint(); return; }
+    if (evt.event === "players") { GUEST.state.players = evt.players ?? []; guestTitle(); return; }
+    if (evt.event === "closed") { guestClosed(); return; }
+    if (evt.event === "said") {
+      GUEST.state.messages.push(evt.message);
+      $("#thread").append(messageEl(evt.message));
+      stick(true);
+      return;
+    }
+    if (evt.event === "rolled") { if (evt.thrown) showDie(evt.thrown); return; }
+
+    if (evt.event !== "frame") return;
+    // A generation frame: delta, then done.
+    if (typeof evt.delta === "string") {
+      if (!streaming) {
+        streaming = messageEl({ id: "", role: "assistant", name: evt.name ?? "", content: "" });
+        $("#thread").append(streaming);
+      }
+      streaming.dataset.raw = (streaming.dataset.raw ?? "") + evt.delta;
+      const body = streaming.querySelector(".body");
+      if (body) body.innerHTML = renderBody(streaming.dataset.raw, 2, 0);
+      stick(true);
+    }
+    if (evt.done) {
+      streaming = null;
+      // The settled reply, with the brackets already resolved, rather than
+      // whatever the model happened to type.
+      guestSync();
+      if (Array.isArray(evt.thrown) && evt.thrown.length) showDie(evt.thrown[evt.thrown.length - 1]);
+    }
+  };
+}
+
+async function guestSync() {
+  const state = await api("/table/state").catch(() => null);
+  if (!state || state.error) return;
+  GUEST.state = state;
+  guestPaint();
+}
+
+function guestClosed() {
+  GUEST.feed?.close();
+  $("#composer").hidden = true;
+  const note = document.createElement("div");
+  note.className = "empty";
+  note.innerHTML = `<h3>The table has closed.</h3>` +
+    `<p>Whoever was hosting has shut the door. Ask them for a fresh link if you were ` +
+    `not finished — the chat is still theirs, and still there.</p>`;
+  $("#thread").append(note);
+  stick(true);
+}
+
+async function guestName(name) {
+  const r = await api("/table/me", {
+    method: "PUT", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  }).catch(() => null);
+  if (r?.you) {
+    GUEST.state.you = r.you;
+    try { localStorage.setItem("hearth.myName", r.you.name); } catch {}
+  }
+}
+
+async function guestAskName() {
+  const name = await askDialog({
+    title: "What should the table call you?",
+    text: "It goes on your turns, so everybody can tell who did what.",
+    confirmLabel: "Sit down",
+    value: "",
+  });
+  if (name) await guestName(String(name).trim());
+}
+
+/** A guest's turn goes to the table, and comes back the way everything does. */
+async function guestSay(text) {
+  const r = await api("/table/say", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content: text }),
+  }).catch(() => null);
+  if (r?.error) fail(r.error);
+}
+
+async function guestRoll(notation) {
+  const r = await api("/table/roll", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ notation }),
+  }).catch(() => null);
+  if (r?.error) return fail(r.error);
+}
+
 async function boot() {
   const steps = [
     ["settings", loadSettings], ["presets", refreshPresets], ["personas", refreshPersonas],
@@ -6524,7 +6882,28 @@ function openTheHearth() {
   }, wait);
 }
 
-boot();
+/*
+ * Which program is this?
+ *
+ * Asked of the server rather than guessed from the URL, because the seat lives
+ * in an HttpOnly cookie that the page deliberately cannot read. Only a guest
+ * can reach /table/state — the host is refused it too — so a 200 here is
+ * proof, not a hint.
+ */
+(async () => {
+  let seat = null;
+  try {
+    const res = await fetch("/api/table/state");
+    if (res.ok) seat = await res.json();
+  } catch {}
+  if (seat && !seat.error) {
+    try { await guestBoot(seat); }
+    catch (err) { console.error("Hearth: could not sit down", err); }
+    openTheHearth();
+    return;
+  }
+  boot();
+})();
 
 /* ---- everything, from one box -----------------------------------------------
    A deep app with its depth behind a gear icon is an app most people only ever

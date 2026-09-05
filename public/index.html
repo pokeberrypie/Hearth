@@ -420,6 +420,7 @@
       <button class="chainlink" data-tab="regex" style="--i:4"><span class="chainname">Regex</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M8 5.5 5 12l3 6.5"/><path d="m16 5.5 3 6.5-3 6.5"/><path d="M13.4 9.2 10.6 15"/></svg></span></button>
       <button class="chainlink" data-tab="look" style="--i:5"><span class="chainname">Look</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.9-.8 1.9-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.8" cy="11.2" r="1.1"/><circle cx="11" cy="7.4" r="1.1"/><circle cx="15.4" cy="9.2" r="1.1"/></svg></span></button>
       <button class="chainlink" data-tab="table" style="--i:6"><span class="chainname">The table</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M12 2.5 20 7v10l-8 4.5L4 17V7z"/><path d="M12 2.5V7M12 7 4 7M12 7l8 0"/></svg></span></button>
+      <button class="chainlink" data-tab="together" style="--i:7"><span class="chainname">Together</span><span class="chainpip"><svg viewBox="0 0 24 24"><circle cx="8.5" cy="8" r="2.9"/><circle cx="16.2" cy="9.2" r="2.3"/><path d="M3 19.5c.9-3.2 3-4.8 5.5-4.8s4.6 1.6 5.5 4.8"/><path d="M16 14.4c2.1 0 3.8 1.5 4.6 4.1"/></svg></span></button>
       <button class="chainlink" data-tab="connection" style="--i:7"><span class="chainname">Connection</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M12 20v-4"/><path d="M8 4v5a4 4 0 0 0 8 0V4"/><path d="M8 4V2M16 4V2"/><circle cx="12" cy="18.5" r="1.4"/></svg></span></button>
       <button class="chainlink" data-tab="behaviour" style="--i:8"><span class="chainname">Behaviour</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg></span></button>
       <button class="chainlink" data-tab="data" style="--i:9"><span class="chainname">Import and export</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z"/><path d="M12 12.5 4 8.5M12 12.5l8-4M12 12.5V20"/></svg></span></button>
@@ -446,6 +447,7 @@
         <button class="raillink" data-tab="look" title="Look" aria-label="Look"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.9-.8 1.9-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.8" cy="11.2" r="1.1"/><circle cx="11" cy="7.4" r="1.1"/><circle cx="15.4" cy="9.2" r="1.1"/></svg></button>
         <span class="railcut"></span>
         <button class="raillink" data-tab="table" title="The table" aria-label="The table"><svg viewBox="0 0 24 24"><path d="M12 2.5 20 7v10l-8 4.5L4 17V7z"/><path d="M12 2.5V7M12 7 4 7M12 7l8 0"/></svg></button>
+        <button class="raillink" data-tab="together" title="Together" aria-label="Together"><svg viewBox="0 0 24 24"><circle cx="8.5" cy="8" r="2.9"/><circle cx="16.2" cy="9.2" r="2.3"/><path d="M3 19.5c.9-3.2 3-4.8 5.5-4.8s4.6 1.6 5.5 4.8"/><path d="M16 14.4c2.1 0 3.8 1.5 4.6 4.1"/></svg></button>
         <button class="raillink" data-tab="connection" title="Connection" aria-label="Connection"><svg viewBox="0 0 24 24"><path d="M12 20v-4"/><path d="M8 4v5a4 4 0 0 0 8 0V4"/><path d="M8 4V2M16 4V2"/><circle cx="12" cy="18.5" r="1.4"/></svg></button>
         <button class="raillink" data-tab="behaviour" title="Behaviour" aria-label="Behaviour"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg></button>
         <button class="raillink" data-tab="data" title="Import and export" aria-label="Import and export"><svg viewBox="0 0 24 24"><path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z"/><path d="M12 12.5 4 8.5M12 12.5l8-4M12 12.5V20"/></svg></button>
@@ -788,6 +790,57 @@
           <input type="file" id="regexImport" accept=".json" multiple hidden>
         <p class="hint" id="regexHint">A regex export, or a preset — its scripts come across either way.</p>
       </section>
+      <!-- Playing together. The host's side of it: open the chat you are in,
+           send somebody the link, watch them arrive. The guest never sees this
+           panel — they get the room and the composer and nothing else. -->
+      <section data-panel="together" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Together</h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+
+        <!-- Nothing open yet. -->
+        <div id="tgShut">
+          <p class="hint">Open the chat you are in to other people. They get a link, they
+            get a seat, and you both watch the same evening happen — their turns, your
+            turns, the narrator writing, the dice, the initiative.</p>
+          <button class="solid wide" id="tgOpen">Open this chat to friends</button>
+          <p class="hint" id="tgNoChat" hidden>Open a chat first — a table has to be a table
+            before anyone can sit at it.</p>
+        </div>
+
+        <!-- Open, with a link to hand out. -->
+        <div id="tgLive" hidden>
+          <h3>The link</h3>
+          <div class="linkrow">
+            <input type="text" id="tgLink" readonly aria-label="The join link">
+            <button class="ico" id="tgCopy" title="Copy the link" aria-label="Copy the link"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 6.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1.5"/></svg></button>
+          </div>
+          <p class="hint" id="tgReach"></p>
+
+          <h3>Where they reach you</h3>
+          <label>Address
+            <input type="text" id="tgBase" placeholder="https://something.trycloudflare.com" autocomplete="off">
+          </label>
+          <p class="hint">Two houses on the internet cannot find each other on their own, and
+            Hearth will not pretend otherwise. Point a tunnel or a VPN at this machine and paste
+            the address it gives you here; the link above is then the one to send. Leave it empty
+            and you get the address for this house only, which is right if you are in the same one.</p>
+
+          <h3>Who is here</h3>
+          <div id="tgPlayers" class="list"></div>
+          <p class="hint" id="tgAlone">Nobody yet. The link works the moment you send it.</p>
+
+          <div class="quietrow">
+            <button class="linkish danger" id="tgClose">Close the table</button>
+          </div>
+          <p class="hint">Closing turns the link off and empties every seat at it. A link that
+            still worked afterwards would not be a link you had closed.</p>
+        </div>
+      </section>
+
       <section data-panel="connection" class="panel" hidden>
         <header class="panelhead">
           <h2>Connection</h2>

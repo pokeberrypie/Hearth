@@ -6177,3 +6177,17 @@ kbd {
 .panel .list .item.withface > .medallion { width: 52px; height: 52px; }
 .panel .list .item.withface .meta { display: grid; gap: 0.1rem; }
 .panel .list .item.withface .meta .t { line-height: 1.2; }
+
+/* ---- playing together ---------------------------------------------------- */
+
+/* The link and the one thing you do with it, on one line: a link you have to
+   select by hand is a link that gets sent half-copied. */
+.linkrow { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
+.linkrow input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+.linkrow .ico.done { color: var(--hearth-mend); border-color: var(--hearth-mend); }

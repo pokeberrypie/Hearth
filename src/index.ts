@@ -13,6 +13,7 @@ import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedF
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
 import {
   clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
+  treatAsHost,
   tidyPlayerName,
 } from "./share";
 import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normaliseFight, takeTurn,
@@ -80,14 +81,43 @@ function guestOf(c: any) {
   return who.kind === "guest" ? who : null;
 }
 
-/** The address the request came from, however the runtime chooses to say it. */
+/**
+ * The address the request came from, however the runtime chooses to say it.
+ *
+ * Bun hands `Bun.serve`'s server object to `app.fetch` as the second argument,
+ * which Hono then calls `c.env` — so the address comes from
+ * `c.env.requestIP(request)`, and not from anything nested under `.server`.
+ * Node's adapter puts the socket on `c.env.incoming`. Getting this wrong is
+ * not a small bug: an unrecognised shape reads as "no address", and the whole
+ * gate below is built on knowing where a request came from.
+ */
 function remoteAddr(c: any): string {
-  const info = (c.env?.incoming?.socket?.remoteAddress
-    ?? c.env?.server?.requestIP?.(c.req.raw)?.address
-    ?? c.env?.remoteAddr?.hostname
-    ?? "") as string;
+  const env = c.env ?? {};
+  const bun = typeof env.requestIP === "function" ? env.requestIP(c.req.raw) : null;
+  const info = bun?.address
+    ?? env.incoming?.socket?.remoteAddress
+    ?? env.server?.requestIP?.(c.req.raw)?.address
+    ?? env.remoteAddr?.hostname
+    ?? "";
   return String(info ?? "");
 }
+
+/**
+ * Is this copy listening anywhere but this machine?
+ *
+ * The whole reason the question matters: bound to loopback, a request with no
+ * address we recognise can only have come from here, and treating it as local
+ * is both safe and necessary — otherwise an unfamiliar runtime locks the owner
+ * out of their own program. Bound to 0.0.0.0, the same unknown address might
+ * have come from anywhere on earth, and guessing "local" hands over the keys.
+ *
+ * So the default flips with the binding, and it flips towards refusing. This
+ * is not hypothetical tidiness: the first version trusted an unknown address
+ * everywhere, every test passed because the tests supply an address, and on
+ * the one runtime this actually ships on the lookup returned nothing — so the
+ * gate was wide open on the LAN while its own suite reported it shut.
+ */
+const BOUND_WIDE = !isLoopback(process.env.HOST ?? "127.0.0.1");
 
 /** The player's token, from the cookie the join page set. */
 function playerToken(c: any): string {
@@ -104,13 +134,12 @@ const PLAYER_COOKIE = "hearth_player";
 app.use("/api/*", async (c, next) => {
   const addr = remoteAddr(c);
   /*
-   * An empty address means the runtime did not tell us, which happens under
-   * some adapters and in tests. Treated as local, because the alternative is
-   * an app that locks its own owner out on a platform we did not anticipate —
-   * and because binding beyond loopback is itself a deliberate act: the
-   * default is 127.0.0.1 and HOST has to be set by hand to change it.
+   * An address we do not recognise counts as local only while this copy is
+   * listening to nothing but this machine — where it can only have been local.
+   * Once it is bound wider, an unknown address is an unknown address, and the
+   * benefit of the doubt goes to the keys rather than to the caller.
    */
-  if (!addr || isLoopback(addr)) {
+  if (treatAsHost(addr, BOUND_WIDE)) {
     callerOf.set(c.req.raw, { kind: "host" });
     return next();
   }
@@ -146,7 +175,7 @@ app.use("/api/*", async (c, next) => {
  */
 app.use("/uploads/*", async (c, next) => {
   const addr = remoteAddr(c);
-  if (!addr || isLoopback(addr)) return next();
+  if (treatAsHost(addr, BOUND_WIDE)) return next();
   const token = playerToken(c);
   const player = token
     ? (db.query("SELECT * FROM players WHERE token = ?").get(token) as any)
@@ -4072,6 +4101,59 @@ api.delete("/shares/:id", (c) => {
   publish(row.id, "closed", {});
   clearRoom(row.id);
   return c.json({ ok: true });
+});
+
+/**
+ * The host's ear on the table.
+ *
+ * The same room the guests listen to, but reachable from this machine — the
+ * guest feed is behind the guest gate, and the host is not a guest.
+ *
+ * This is what makes a guest's turn actually happen. Their turn is written
+ * down and announced; this copy hears the announcement and answers it, with
+ * the host's provider and the host's key. Which is right twice over: it is the
+ * host's table and the host's bill, and it means a guest holding down a button
+ * cannot start work on somebody else's account.
+ *
+ * The cost is that the host has to be here. That is not a limitation to
+ * apologise for so much as what hosting means.
+ */
+api.get("/shares/:id/live", (c) => {
+  const share = shareOf(c.req.param("id"));
+  if (!share) return c.json({ error: "No such table." }, 404);
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const enc = new TextEncoder();
+      let alive = true;
+      const push = (s: string) => {
+        if (!alive) return;
+        try { controller.enqueue(enc.encode(s)); } catch { alive = false; }
+      };
+      const emit = (event: string, data: unknown) =>
+        push(`data: ${JSON.stringify({ event, ...(data as object) })}\n\n`);
+
+      emit("players", { players: playersAt(share.id) });
+      const off = subscribe(share.id, (event, data) => {
+        // The host already has its own copy of the frames it is producing;
+        // echoing them back would paint every reply twice.
+        if (event === "frame") return;
+        emit(event, data);
+      });
+      const beat = setInterval(() => push(": keep-alive\n\n"), 15_000);
+      const stop = () => {
+        alive = false;
+        clearInterval(beat);
+        off();
+        try { controller.close(); } catch {}
+      };
+      c.req.raw.signal?.addEventListener("abort", stop);
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+  });
 });
 
 api.delete("/shares/:id/players/:pid", (c) => {

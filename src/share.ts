@@ -132,6 +132,28 @@ export function isLoopback(addr: string | null | undefined): boolean {
 }
 
 /**
+ * May this request be treated as the owner sitting at their own machine?
+ *
+ * Its own function, and tested to death, because getting it wrong is not a bug
+ * you notice. The first version of this lived inline and read "no address means
+ * local" — reasonable-sounding, and wrong in the one case that matters. Every
+ * test passed, because a test supplies an address. On the runtime this actually
+ * ships on, the address lookup was reading the wrong property and returning
+ * nothing, so every request on the network was "local" and the gate was open
+ * while its own suite reported it shut.
+ *
+ * So: an unrecognised address counts as local only while this copy is
+ * listening to nothing but this machine, where it could not have been anything
+ * else. The moment it is bound wider, an unknown address is unknown, and the
+ * benefit of the doubt goes to the keys rather than to the caller.
+ */
+export function treatAsHost(addr: string | null | undefined, boundWide: boolean): boolean {
+  if (isLoopback(addr)) return true;
+  const known = String(addr ?? "").trim() !== "";
+  return !known && !boundWide;
+}
+
+/**
  * The events a table broadcasts, and everyone who is listening for them.
  *
  * Single-process and in-memory on purpose: there is one Hearth server and it
