@@ -487,7 +487,18 @@ function renderBody(text, placement, depth) {
  * rows saved before group chats stored one.
  */
 function speakerOf(m) {
-  if (m.role === "user") return { name: S.personaName, avatar: S.personaAvatar };
+  if (m.role === "user") {
+    /*
+     * At a table with other people in it, a turn belongs to whoever took it.
+     *
+     * Alone, every user turn is yours, so the persona's name is the right
+     * answer and the stored one was never consulted. With four people at the
+     * table that reads as four turns by "You" — a transcript nobody can
+     * follow, including the narrator, which is handed the same names.
+     */
+    if (m.name && m.name !== S.personaName) return { name: m.name, avatar: m.avatar || "" };
+    return { name: S.personaName, avatar: S.personaAvatar };
+  }
   const byId = m.character_id && S.cast.find((c) => c.id === m.character_id);
   const byName = !byId && m.name && S.cast.find((c) => c.name === m.name);
   const found = byId || byName;
@@ -1914,7 +1925,8 @@ function fullSheet(sheet, name) {
 let CLASS_CACHE = null;
 async function classChooser() {
   if (!CLASS_CACHE) {
-    try { CLASS_CACHE = await api("/tabletop/classes"); } catch { CLASS_CACHE = []; }
+    const where = GUEST.on ? "/table/classes" : "/tabletop/classes";
+    try { CLASS_CACHE = await api(where); } catch { CLASS_CACHE = []; }
   }
   const cards = CLASS_CACHE.map((k) => `
     <button class="classcard" data-klass="${k.id}">
@@ -6695,12 +6707,17 @@ async function guestBoot(state) {
   GUEST.state = state;
   document.body.classList.add("guest");
   document.body.dataset.mode = state.chat?.mode === "tabletop" ? "tabletop" : "story";
+  // The narrator, so their replies are signed. A guest has no cast to look
+  // anyone up in, so this is the only place the name can come from.
+  S.charName = state.chat?.character_name ?? "";
+  S.charAvatar = state.chat?.character_avatar ?? "";
 
   // The drawer and everything that reaches into it. Removed rather than
   // hidden: none of it has anything to talk to.
   for (const sel of ["#drawer", "#chain", "#chainVeil", "#menuBtn", "#scrim", "#chatMenuBtn", "#homeBtn"]) {
     document.querySelector(sel)?.remove();
   }
+  $("#partyBtn").hidden = false;
   $("#splash")?.remove();
   $("#composer").hidden = false;
   $("#thread").hidden = false;
@@ -6727,6 +6744,7 @@ function guestPaint() {
   thread.innerHTML = "";
   for (const m of GUEST.state.messages ?? []) thread.append(messageEl(m));
   guestTitle();
+  guestSheetPanel();
   renderTrack(GUEST.state.fight ?? null);
   stick(true);
 }
@@ -6743,8 +6761,19 @@ function guestListen() {
   feed.onmessage = (e) => {
     let evt; try { evt = JSON.parse(e.data); } catch { return; }
 
-    if (evt.event === "hello") { GUEST.state = evt; guestPaint(); return; }
-    if (evt.event === "players") { GUEST.state.players = evt.players ?? []; guestTitle(); return; }
+    if (evt.event === "hello") {
+      GUEST.state = evt;
+      S.charName = evt.chat?.character_name ?? S.charName;
+      S.charAvatar = evt.chat?.character_avatar ?? S.charAvatar;
+      guestPaint();
+      return;
+    }
+    if (evt.event === "players") {
+      GUEST.state.players = evt.players ?? [];
+      guestTitle();
+      guestSheetPanel();
+      return;
+    }
     if (evt.event === "closed") { guestClosed(); return; }
     if (evt.event === "said") {
       GUEST.state.messages.push(evt.message);
@@ -6776,10 +6805,74 @@ function guestListen() {
   };
 }
 
+/**
+ * A guest's character, and the party they are in.
+ *
+ * The same classes, the same roller, the same sheet the host's own character
+ * uses — somebody at your table is a player, not a spectator with a name. It
+ * hangs off their seat rather than a persona, so sitting down at a table does
+ * not add rows to the host's library and getting up takes it away again.
+ */
+async function guestSheetPanel() {
+  const me = (GUEST.state.players ?? []).find((p) => p.id === GUEST.state.you?.id);
+  const wrap = $("#tableParty");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+
+  for (const p of GUEST.state.players ?? []) {
+    const mine = p.id === GUEST.state.you?.id;
+    const row = document.createElement("div");
+    row.className = "item" + (mine ? " active" : "");
+    const what = p.sheet
+      ? `${klassName(p.sheet.klass)} &middot; level ${p.sheet.level ?? 1} &middot; ${p.sheet.hp}/${p.sheet.maxHp} hp`
+      : "no character yet";
+    row.innerHTML = medallion("", p.name) +
+      `<span class="meta"><span class="t">${esc(p.name)}${mine ? " (you)" : ""}</span>` +
+      `<span class="s">${what}</span></span>`;
+    wrap.append(row);
+  }
+
+  const sheet = $("#tableSheet");
+  if (sheet) sheet.innerHTML = me?.sheet ? sheetCard(me.sheet) : `<p class="hint">You have not made one yet. Everything still works without one; a sheet is what lets the narrator roll against you rather than guess.</p>`;
+  const make = $("#tableMake");
+  if (make) { make.hidden = false; make.textContent = me?.sheet ? "Roll a new character" : "Make your character"; }
+}
+
+/**
+ * Rolling one up, in the same place it will then be read.
+ *
+ * The chooser is drawn where the sheet goes rather than in a dialog of its
+ * own, so picking a class replaces the question with the answer.
+ */
+async function guestMakeCharacter() {
+  const where = $("#tableSheet");
+  where.innerHTML = await classChooser();
+  $("#tableMake").hidden = true;
+  where.querySelectorAll(".classcard").forEach((b) => {
+    b.onclick = async () => {
+      const how = $("#sheetArray")?.checked ? "array" : "roll";
+      where.innerHTML = `<p class="hint">Rolling…</p>`;
+      const r = await api("/table/roll-sheet", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ klass: b.dataset.klass, how }),
+      }).catch(() => null);
+      $("#tableMake").hidden = false;
+      if (r?.error) { fail(r.error); return guestSheetPanel(); }
+      await guestSync();
+    };
+  });
+}
+
+$("#tableMake").onclick = () => { if (GUEST.on) guestMakeCharacter(); };
+$("#tableDone").onclick = () => $("#tableDialog").close();
+$("#partyBtn").onclick = () => { guestSheetPanel(); $("#tableDialog").showModal(); };
+
 async function guestSync() {
   const state = await api("/table/state").catch(() => null);
   if (!state || state.error) return;
   GUEST.state = state;
+  S.charName = state.chat?.character_name ?? S.charName;
+  S.charAvatar = state.chat?.character_avatar ?? S.charAvatar;
   guestPaint();
 }
 

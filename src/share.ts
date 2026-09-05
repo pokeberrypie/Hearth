@@ -106,6 +106,11 @@ const GUEST_ROUTES: { method: string; re: RegExp }[] = [
   // character and nobody else's; the id is checked against their player row.
   { method: "GET",  re: /^\/api\/table\/me$/ },
   { method: "PUT",  re: /^\/api\/table\/me$/ },
+  // Making one. The class list is the same one the host picks from, and is
+  // not private — it is the rules, not anybody's data.
+  { method: "GET",  re: /^\/api\/table\/classes$/ },
+  { method: "POST", re: /^\/api\/table\/roll-sheet$/ },
+  { method: "PUT",  re: /^\/api\/table\/sheet$/ },
 ];
 
 /** Whether a guest may make this request at all. */

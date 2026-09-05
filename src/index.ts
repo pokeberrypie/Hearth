@@ -2119,6 +2119,34 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     if (mySheet) table.push(`${sheetForPrompt(me.name, mySheet)}\n\n${CHECK_BRIEF}`);
 
     /*
+     * And everybody else at the table, if anybody else is.
+     *
+     * Without this a shared game is a narrator running a story for one person
+     * while three others type into it: their turns arrive signed with names it
+     * has never been told, attached to characters it does not know exist, and
+     * it writes around them or invents them from scratch. The party is the
+     * first thing a person at a real table knows.
+     */
+    const openTable = db
+      .query("SELECT * FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1")
+      .get(chat.id) as any;
+    if (openTable) {
+      const party = (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at")
+        .all(openTable.id) as any[])
+        .map((p) => {
+          const s = sheetFor(p.id);
+          return s ? sheetForPrompt(p.name, s) : `${p.name} — at the table, no character sheet yet.`;
+        });
+      if (party.length) {
+        table.push(
+          `# Who is playing\nThis game is being played by more than one person. Each of them ` +
+          `writes their own turns, signed with their name. Address them separately, let them ` +
+          `act separately, and never write a turn for any of them.\n\n${party.join("\n\n")}`,
+        );
+      }
+    }
+
+    /*
      * Where everyone is, and who is standing there.
      *
      * This is the whole reason the verbs write anything down. A narrator that
@@ -4057,7 +4085,7 @@ function shareOf(id: string) {
 
 function playersAt(shareId: string) {
   return (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at").all(shareId) as any[])
-    .map(publicPlayer);
+    .map((p) => ({ ...publicPlayer(p), sheet: sheetFor(p.id) }));
 }
 
 api.get("/shares", (c) => {
@@ -4172,9 +4200,17 @@ function tableState(share: any, player: any) {
   const msgs = db.query(
     "SELECT id, role, name, content, created_at FROM messages WHERE chat_id = ? ORDER BY created_at, rowid",
   ).all(share.chat_id) as any[];
+  // Who the narrator is. A guest has no cast to look them up in, so without
+  // this every reply at the table is written by nobody.
+  const host = chat
+    ? (db.query("SELECT name, avatar FROM characters WHERE id = ?").get(chat.character_id) as any)
+    : null;
   return {
     table: { id: share.id, name: share.name },
-    chat: { id: chat?.id ?? "", title: chat?.title ?? "", mode: getSettings().mode },
+    chat: {
+      id: chat?.id ?? "", title: chat?.title ?? "", mode: getSettings().mode,
+      character_name: host?.name ?? "", character_avatar: host?.avatar ?? "",
+    },
     you: publicPlayer(player),
     players: playersAt(share.id),
     messages: msgs,
@@ -4240,6 +4276,44 @@ api.post("/table/say", async (c) => {
   const msg = { id, role: "user", name: g.player.name, content: text, created_at: at };
   publish(g.share.id, "said", { message: msg, by: publicPlayer(g.player) });
   return c.json({ ok: true, message: msg });
+});
+
+/**
+ * Making a character at somebody else's table.
+ *
+ * The same classes, the same roller, the same sheet the host's own character
+ * uses — a guest is a player, not a spectator with a name. Stored against
+ * their player id rather than a persona, so joining a table does not quietly
+ * add rows to the host's persona list, and leaving takes it with them.
+ */
+api.get("/table/classes", (c) => {
+  if (!guestOf(c)) return c.json({ error: "Not a seat at this table." }, 403);
+  return c.json(CLASSES);
+});
+
+api.post("/table/roll-sheet", async (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const { klass, how } = await c.req.json().catch(() => ({}));
+  const sheet = makeSheet(String(klass ?? ""), how === "array" ? "array" : "roll");
+  if (!sheet) return c.json({ error: "No such class." }, 400);
+  // Their own id, never one from the request: a guest may write their own
+  // character and nobody else's, and the way to guarantee that is to not
+  // accept an owner at all.
+  saveSheet(g.player.id, "player", sheet);
+  publish(g.share.id, "players", { players: playersAt(g.share.id) });
+  return c.json({ sheet });
+});
+
+api.put("/table/sheet", async (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const body = await c.req.json().catch(() => ({}));
+  const sheet = normaliseSheet(body.sheet ?? body);
+  if (!sheet) return c.json({ error: "That is not a sheet." }, 400);
+  saveSheet(g.player.id, "player", sheet);
+  publish(g.share.id, "players", { players: playersAt(g.share.id) });
+  return c.json({ sheet });
 });
 
 api.post("/table/roll", async (c) => {

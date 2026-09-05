@@ -6191,3 +6191,18 @@ kbd {
   font-size: 0.82rem;
 }
 .linkrow .ico.done { color: var(--hearth-mend); border-color: var(--hearth-mend); }
+
+/* A guest has no business with the host's controls, and the gate would refuse
+   them anyway — so they are not drawn rather than drawn and then denied. */
+body.guest .tools,
+body.guest .swipes,
+body.guest .rowtools,
+body.guest #guideBtn { display: none !important; }
+
+/* The sheet card carries the host's own controls — reroll, take damage, roll a
+   check against the host's routes. A guest's copy is theirs to read: the
+   buttons would reach for routes the gate refuses, and a button that does
+   nothing is worse than no button. Their own reroll is the one below it. */
+#tableSheet #csReroll,
+#tableSheet .csacts,
+#tableSheet .hprow button { display: none; }
