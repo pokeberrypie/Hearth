@@ -415,6 +415,12 @@
     </nav>
 
     <section data-panel="cast" class="panel">
+      <header class="panelhead">
+        <h2>Cast<span class="panelcount" data-count-for="castList"></span></h2>
+        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <div class="moremenu" hidden></div>
+      </header>
       <!-- Only in tabletop mode, and only once the game has met somebody. The
            narrator writes these itself, mid-sentence; nobody types them. -->
       <div id="worldSection" hidden>
@@ -436,17 +442,28 @@
         <button class="ico danger" id="castDelete" title="Delete selected" aria-label="Delete selected characters" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
       </div>
       <div id="castList" class="list"></div>
-      <label class="filebtn">Import character cards
+      <!-- One emphasised action, and the rarer two quiet underneath it. Three
+           full-width buttons of identical weight is three things with no
+           answer to "which one did I want". -->
+      <label class="filebtn solid">Import character cards
         <input type="file" id="cardFile" accept=".png,.json" multiple hidden>
       </label>
       <p class="hint" id="importHint">PNG cards or .json, several at once.</p>
-      <button class="ghost wide" id="newCharBtn">Write one by hand</button>
-      <!-- Tabletop only: the table starts empty and fills up one invitation
-           at a time, rather than opening onto everybody you have ever made. -->
-      <button class="ghost wide" id="bringOverBtn" hidden>Bring someone to the table</button>
+      <div class="quietrow">
+        <button class="linkish" id="newCharBtn">Write one by hand</button>
+        <!-- Tabletop only: the table starts empty and fills up one invitation
+             at a time, rather than opening onto everybody you have ever made. -->
+        <button class="linkish" id="bringOverBtn" hidden>Bring someone over</button>
+      </div>
     </section>
 
     <section data-panel="you" class="panel" hidden>
+      <header class="panelhead">
+        <h2>You<span class="panelcount" data-count-for="personaList"></span></h2>
+        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <div class="moremenu" hidden></div>
+      </header>
       <!-- Only in tabletop mode. A sheet belongs to whoever you are playing,
            so it lives with the personas rather than in a room of its own. -->
       <div id="sheetSection" hidden>
@@ -464,10 +481,12 @@
       </div>
       <div id="personaList" class="list"></div>
       <p class="hint">The active persona is who the character is talking to. It fills {{user}} in cards and prompts.</p>
-      <button class="ghost wide" id="newPersonaBtn">New persona</button>
-      <!-- Tabletop only. Who you are at the table is not necessarily who you
-           are in your stories, so the table starts with nobody. -->
-      <button class="ghost wide tableonly" id="bringMeBtn">Bring one of your personas over</button>
+      <button class="solid wide" id="newPersonaBtn">New persona</button>
+      <div class="quietrow">
+        <!-- Tabletop only. Who you are at the table is not necessarily who you
+             are in your stories, so the table starts with nobody. -->
+        <button class="linkish tableonly" id="bringMeBtn">Bring one of yours over</button>
+      </div>
       <label class="filebtn">Import from SillyTavern
         <input type="file" id="personaImport" accept=".json" hidden>
       </label>
@@ -478,6 +497,12 @@
     </section>
 
     <section data-panel="lore" class="panel" hidden>
+      <header class="panelhead">
+        <h2>Lorebooks<span class="panelcount" data-count-for="loreList"></span></h2>
+        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <div class="moremenu" hidden></div>
+      </header>
       <div id="loreActive" class="loreactive"></div>
       <div class="searchrow">
         <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
@@ -499,10 +524,12 @@
            three things you can do with it. -->
       <div id="loreDetail" class="pulled" hidden></div>
       <div id="loreList" class="list"></div>
-      <button class="ghost wide" id="newBookBtn">New lorebook</button>
-      <!-- Tabletop only. A world you built for a story is not automatically
-           the world the game is set in. -->
-      <button class="ghost wide tableonly" id="bringBookBtn">Bring a book to the table</button>
+      <button class="solid wide" id="newBookBtn">New lorebook</button>
+      <div class="quietrow">
+        <!-- Tabletop only. A world you built for a story is not automatically
+             the world the game is set in. -->
+        <button class="linkish tableonly" id="bringBookBtn">Bring one to the table</button>
+      </div>
         <input type="file" id="loreImport" accept=".json" multiple hidden>
 
       <details class="fold">
@@ -528,6 +555,12 @@
     </section>
 
     <section data-panel="look" class="panel" hidden>
+      <header class="panelhead">
+        <h2>Look</h2>
+        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <div class="moremenu" hidden></div>
+      </header>
       <details class="fold" id="wallFold">
         <summary><span>Wallpaper</span><span class="count" id="wallCount"></span></summary>
         <div class="foldbody">
@@ -614,6 +647,12 @@
 
     <!-- Was a page inside Settings. It is a daily-use surface, not configuration. -->
     <section data-panel="presets" class="panel" hidden>
+      <header class="panelhead">
+        <h2>Presets<span class="panelcount" data-count-for="presetList"></span></h2>
+        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <div class="moremenu" hidden></div>
+      </header>
       <p class="hint" id="samplingSource"></p>
 
       <label>Reply length <span class="v" id="v_max_tokens"></span>
@@ -687,6 +726,12 @@
 
     <!-- Likewise: something you reach for while writing, not while setting up. -->
     <section data-panel="regex" class="panel" hidden>
+      <header class="panelhead">
+        <h2>Scripts<span class="panelcount" data-count-for="regexList"></span></h2>
+        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <div class="moremenu" hidden></div>
+      </header>
       <p class="hint">Find-and-replace over message text. <em>shown</em> changes what you read, <em>sent</em> changes what the model gets.</p>
       <div class="searchrow">
         <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
@@ -705,6 +750,12 @@
       <p class="hint" id="regexHint">A regex export, or a preset — its scripts come across either way.</p>
     </section>
     <section data-panel="settings" class="panel" hidden>
+      <header class="panelhead">
+        <h2>Settings</h2>
+        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <div class="moremenu" hidden></div>
+      </header>
       <div data-view="menu">
         <button class="navcard" id="modeCard">
           <span class="t" id="modeCardTitle">Tabletop mode</span>

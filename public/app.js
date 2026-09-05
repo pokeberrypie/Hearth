@@ -6880,3 +6880,95 @@ function applyChatRoom() {
   // surprise. Otherwise it waits for the Scene dialog.
   if (ambience.awake) ambience.play(want);
 }
+
+/* ---- panel chrome -----------------------------------------------------------
+   The drawer used to open on two rows of icons before you reached anything you
+   came for: a strip of tabs, then a strip of tools, then rows that each carried
+   four more buttons at rest. That is the shape of a cockpit, and it is why it
+   read as SillyTavern however carefully everything was drawn.
+
+   The rule underneath the fix: controls at rest should be the quietest thing in
+   the panel, and the content — names, faces, spines — the loudest. So the tools
+   move behind one ⋯, and the ones that only mean something while you are
+   choosing several move to a bar that does not exist until you are.
+
+   Every button keeps its own id and its own handler; this only moves them. */
+
+function wirePanelChrome() {
+  for (const panel of document.querySelectorAll(".panel")) {
+    const head = panel.querySelector(":scope > .panelhead");
+    if (!head) continue;
+    const menu = head.querySelector(".moremenu");
+    const more = head.querySelector(".panelmore");
+
+    // Only a toolbar that belongs to the panel itself — the ones nested inside
+    // a collapsible section are that section's, and are already out of the way.
+    const bar = panel.querySelector(":scope > .listbar");
+    if (bar) {
+      const sel = document.createElement("div");
+      sel.className = "selbar";
+
+      for (const el of [...bar.children]) {
+        if (el.classList.contains("grow")) continue;
+        // Anything that only means something once you have picked something
+        // belongs with the picking, not in a menu you opened beforehand.
+        if (/(Count|Delete|Group)$/.test(el.id)) { sel.append(el); continue; }
+        if (el.tagName !== "BUTTON" && el.tagName !== "LABEL") { menu.append(el); continue; }
+        el.classList.add("morerow");
+        const label = document.createElement("span");
+        label.textContent = el.title || el.getAttribute("aria-label") || "";
+        el.append(label);
+        menu.append(el);
+      }
+      bar.remove();
+      if (sel.children.length) panel.append(sel);
+      if (menu.children.length) more.hidden = false;
+    }
+
+    if (more) {
+      more.onclick = (e) => {
+        e.stopPropagation();
+        const open = menu.hidden;
+        closeAllMenus();
+        menu.hidden = !open;
+        more.setAttribute("aria-expanded", String(open));
+      };
+      // Choosing something should put the menu away; the handler on the button
+      // itself has already run by the time this fires.
+      menu.onclick = (e) => { if (e.target.closest("button")) closeAllMenus(); };
+    }
+  }
+
+  /*
+   * How many of the thing this panel is for.
+   *
+   * Watched rather than pushed, so every list that draws itself gets a count
+   * without any of them having to remember to say so — and the lorebooks get
+   * one whichever of their two views is showing.
+   */
+  for (const slot of document.querySelectorAll("[data-count-for]")) {
+    const id = slot.dataset.countFor;
+    if (!id) continue;
+    const list = document.getElementById(id);
+    if (!list) continue;
+    const shelf = id === "loreList" ? document.getElementById("loreShelf") : null;
+    const paint = () => {
+      const n = (shelf && !shelf.hidden)
+        ? shelf.querySelectorAll(".spine").length
+        : list.querySelectorAll(":scope > .rowwrap, :scope > .item, :scope > .lorerow").length;
+      slot.textContent = n ? String(n) : "";
+    };
+    new MutationObserver(paint).observe(list, { childList: true });
+    if (shelf) new MutationObserver(paint).observe(shelf, { childList: true, attributes: true, attributeFilter: ["hidden"] });
+    paint();
+  }
+}
+
+function closeAllMenus() {
+  for (const m of document.querySelectorAll(".moremenu")) m.hidden = true;
+  for (const b of document.querySelectorAll(".panelmore")) b.setAttribute("aria-expanded", "false");
+}
+addEventListener("click", closeAllMenus);
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllMenus(); });
+
+wirePanelChrome();

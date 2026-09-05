@@ -5679,3 +5679,168 @@ kbd {
 }
 .ambname { font-family: var(--lumiverse-font-display); font-size: 0.92rem; color: var(--lumiverse-text); }
 .ambhint { font-size: 0.74rem; color: var(--lumiverse-text-dim); }
+
+/* ---- the drawer, quieter ----------------------------------------------------
+   Controls at rest should be the quietest thing in a panel and the content the
+   loudest. Two rows of icons before you reach anything you came for is the
+   shape of a cockpit; this is meant to be a room. */
+
+/* Three clusters rather than seven evenly spaced icons: what you are talking
+   to, how the prompt is shaped, and how the place looks. The gap does the
+   work; the hairline is only there to say the gap is deliberate. */
+.tabs button[data-tab="presets"],
+.tabs button[data-tab="look"] {
+  margin-left: 14px;
+  position: relative;
+}
+.tabs button[data-tab="presets"]::before,
+.tabs button[data-tab="look"]::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 28%;
+  bottom: 28%;
+  width: 1px;
+  background: color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
+}
+
+.panelhead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.45rem;
+  /* The same joinery the message plates use, so a panel has a top edge that
+     belongs to this app rather than a border. */
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lumiverse-primary) 45%, transparent),
+              0 3px 0 color-mix(in srgb, var(--lumiverse-primary) 14%, transparent);
+  position: relative;
+}
+.panelhead h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  color: var(--lumiverse-primary);
+}
+.panelcount {
+  font-family: var(--lumiverse-font-family);
+  font-size: 0.78rem;
+  letter-spacing: 0;
+  color: var(--lumiverse-text-hint);
+}
+.panelcount:not(:empty)::before { content: "· "; }
+
+.panelmore { flex: none; width: 28px; height: 28px; }
+
+/* ---- the ⋯ menu ---- */
+
+.moremenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 12rem;
+  padding: 0.3rem;
+  display: grid;
+  gap: 1px;
+  background: var(--lumiverse-bg-elevated);
+  border-radius: var(--lumiverse-radius);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 38%, transparent),
+    0 14px 30px rgba(0, 0, 0, 0.6);
+  animation: moreIn 0.12s ease-out;
+}
+@keyframes moreIn { from { opacity: 0; transform: translateY(-4px); } }
+
+/* The buttons keep their own ids and handlers; only their shape changes. */
+.moremenu .morerow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  height: auto;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--lumiverse-radius-sm);
+  text-align: left;
+  font-size: 0.88rem;
+  color: var(--lumiverse-text);
+}
+.moremenu .morerow:hover { background: color-mix(in srgb, var(--lumiverse-primary) 12%, transparent); }
+.moremenu .morerow svg { width: 17px; height: 17px; flex: none; }
+/* A file input dressed as a row keeps its label text and loses its box. */
+.moremenu label.morerow { border: 0; background: none; margin: 0; }
+
+/* ---- the bar that only exists while you are choosing ---- */
+
+.selbar {
+  position: sticky;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.6rem -0.9rem -0.9rem;
+  padding: 0.55rem 0.9rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 96%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 -1px 0 color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+  animation: selIn 0.16s ease-out;
+}
+@keyframes selIn { from { opacity: 0; transform: translateY(6px); } }
+/* Nothing chosen, nothing shown. The count unhides itself the moment picking
+   starts, which is exactly when this should appear. */
+.selbar:has(> :not([hidden])) { display: flex; }
+.selbar .selcount { flex: 1; font-size: 0.85rem; color: var(--lumiverse-text-muted); }
+
+/* ---- a phone has no hover, so the tabs say what they are ---- */
+
+@media (max-width: 700px) {
+  .tablabel { opacity: 0.55; font-size: 0.6rem; }
+  .tabs button.on .tablabel { opacity: 1; }
+  .tabs button { padding: 0.6rem 0.1rem 0.45rem; font-size: 0.62rem; }
+  .tabs button[data-tab="presets"], .tabs button[data-tab="look"] { margin-left: 9px; }
+  .tabs button[data-tab="presets"]::before, .tabs button[data-tab="look"]::before { left: -5px; }
+}
+
+/* ---- rows that let the name be the loudest thing ----------------------------
+   Four buttons at rest on every row is four things competing with the one
+   thing you are actually scanning for. On a pointer they wait for the row;
+   on a touchscreen there is no hover to wait for, so they stay — the row is
+   the target either way. */
+
+/* Keyed off the width rather than off `hover`, which is not to be trusted:
+   emulators and hybrids answer it however they like, and getting it wrong on a
+   phone means the buttons are gone with no hover to bring them back. Above the
+   drawer's own breakpoint there is a pointer; below it there is not. */
+@media (min-width: 701px) {
+  .list .rowtools { opacity: 0; transition: opacity .14s ease; }
+  .rowwrap:hover .rowtools,
+  .rowwrap:focus-within .rowtools,
+  .list > .item:hover .rowtools,
+  .list > .item:focus-within .rowtools { opacity: 1; }
+}
+
+/* The quiet alternatives under an emphasised action. */
+.quietrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  justify-content: center;
+  margin-top: 0.45rem;
+}
+.quietrow .linkish { width: auto; margin: 0; font-size: 0.84rem; }
+.filebtn.solid, .solid.wide { width: 100%; }
+
+/* Bigger portraits in fewer, roomier rows. The panel was more than half empty
+   and the rows were small things adrift in it, which reads as unfinished; a
+   list of faces you can actually see reads as considered. */
+.panel .list > .rowwrap > .item.withface,
+.panel .list > .item.withface { padding: 0.62rem 0; gap: 0.85rem; }
+.panel .list .item.withface > .medallion { width: 52px; height: 52px; }
+.panel .list .item.withface .meta { display: grid; gap: 0.1rem; }
+.panel .list .item.withface .meta .t { line-height: 1.2; }
