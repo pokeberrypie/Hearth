@@ -313,7 +313,8 @@
         <svg class="filigree tr" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
         <svg class="filigree bl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
         <svg class="filigree br" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
-        <div class="quickrow">
+        <div class="tray" id="tray">
+          <div class="quickrow">
           <button type="button" class="ico" id="continueBtn" title="Continue" aria-label="Continue">
             <svg viewBox="0 0 24 24"><path d="M4 6l7 6-7 6zM13 6l7 6-7 6z"/></svg>
           </button>
@@ -329,9 +330,7 @@
           <button type="button" class="ico" id="guideBtn" title="Guide this reply" aria-label="Guide this reply">
             <svg viewBox="0 0 24 24"><path d="M5 19L16 8"/><path d="M15 4.5l1.2 2.3 2.3 1.2-2.3 1.2L15 11.5l-1.2-2.3L11.5 8l2.3-1.2z"/><path d="M19.5 13l.7 1.4 1.4.7-1.4.7-.7 1.4-.7-1.4-1.4-.7 1.4-.7z"/></svg>
           </button>
-          <button type="button" class="ico danger" id="stopBtn" title="Stop" aria-label="Stop" hidden>
-            <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
-          </button>
+          </div>
         </div>
         <div class="guiderow" id="guideRow" hidden>
           <input id="guide" type="text" placeholder="Steer what happens next — e.g. she refuses, and the room goes quiet" autocomplete="off">
@@ -353,6 +352,15 @@
             <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
           </button>
         </div>
+        <!-- The plus opens the tray above; stop takes its place while a reply
+             is coming in, because that is the only thing you want from this
+             corner mid-stream. -->
+        <button type="button" class="plus" id="plusBtn" title="More" aria-label="More actions" aria-expanded="false">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button type="button" class="plus danger" id="stopBtn" title="Stop" aria-label="Stop" hidden>
+          <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+        </button>
         <textarea id="input" rows="1" placeholder="Write, or send empty to stay silent…" autocomplete="off"></textarea>
         <!-- Send rides the middle of the right edge, not the corner. The
              filigree's weight is all at the corner diagonal; along the edges it

@@ -1653,7 +1653,7 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
   position: relative;
   max-width: var(--measure);
   margin: 0 auto;
-  padding: 0.7rem 3.6rem 0.8rem 1.7rem;
+  padding: 0.7rem 3.6rem 0.8rem 3.6rem;
   background: color-mix(in srgb, var(--lumiverse-bg-elevated) 88%, transparent);
   -webkit-backdrop-filter: blur(var(--plate-blur));
           backdrop-filter: blur(var(--plate-blur));
@@ -1661,6 +1661,56 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
   border-radius: calc(var(--lumiverse-radius) * 1.3);
 }
 .inputbox:focus-within { border-color: var(--lumiverse-border-hover); }
+
+/* The tray. Five discs is not much, but at rest it is still five things
+   between you and the one thing you came to do, which is write. So they fold
+   into the plus and the writing line is on its own until you ask.
+
+   Collapsed with grid rather than max-height: a guessed max-height either
+   clips the row when it wraps or leaves the easing limping to a stop against
+   a number nothing reaches. 0fr to 1fr measures itself. */
+.tray {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* The row's own padding sits outside the collapsed track and would leave a
+     6px ledge under the writing line at rest, so the tray clips as well. */
+  overflow: hidden;
+  transition: grid-template-rows .28s cubic-bezier(.3, .9, .3, 1);
+}
+.composer.trayout .tray { grid-template-rows: 1fr; }
+.tray > .quickrow { overflow: hidden; min-height: 0; }
+
+/* The plus and the stop share one slot, the mirror of send's. */
+.plus {
+  position: absolute;
+  left: 0.7rem;
+  top: 50%;
+  margin-top: -20px;
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  padding: 0;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+  color: var(--lumiverse-primary);
+  cursor: pointer;
+  transition: border-color .18s, color .18s;
+}
+.plus svg { width: 20px; height: 20px; stroke-width: 1.6; transition: transform .3s cubic-bezier(.3, .9, .3, 1); }
+.plus:hover { border-color: var(--lumiverse-primary); }
+/* Open, it is the same stroke turned into a close. */
+.composer.trayout .plus svg { transform: rotate(45deg); }
+.composer.trayout .plus { border-color: var(--lumiverse-primary); color: var(--lumiverse-primary-hover); }
+
+.plus.danger { color: var(--lumiverse-danger); border-color: color-mix(in srgb, var(--lumiverse-danger) 45%, transparent); }
+.plus.danger:hover { border-color: var(--lumiverse-danger); }
+.plus.danger svg { fill: currentColor; }
+/* One slot, one occupant: while a reply is streaming, stop has it. */
+.inputbox:has(#stopBtn:not([hidden])) #plusBtn { visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tray { transition: none; }
+}
 
 /* The row above the writing line: round medallions with a gilt hairline, the
    same discs the guide bar's actions already use and the same vocabulary as
@@ -1673,13 +1723,18 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 .quickrow {
   display: flex;
   gap: 0.34rem;
-  padding: 0.1rem 0 0.3rem;
+  /* No padding of its own. min-height: 0 collapses a grid item's content but
+     not its padding, so 6px of it survived the fold and left a ledge under
+     the writing line at rest. The breathing room rides on the discs instead,
+     where the collapse can take it with them. */
+  padding: 0;
   overflow: visible;
   flex-wrap: wrap;
 }
 .quickrow .ico {
   /* A disc that a flex row is allowed to shrink stops being a disc. */
   flex: none;
+  margin: 0.1rem 0 0.42rem;
   width: 34px; height: 34px;
   border-radius: 50%;
   border-color: var(--lumiverse-border);

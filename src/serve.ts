@@ -15,6 +15,23 @@ import { app, ensureStarterCharacter } from "./index";
 // certainly ready — never from index.ts's body; see ensureStarterCharacter().
 ensureStarterCharacter();
 
+/**
+ * The app shell must never be served stale. Neither serveStatic sets a
+ * cache-control header, so the browser falls back to heuristic caching and
+ * happily keeps yesterday's app.js — which looks exactly like a change that
+ * did not take. `no-cache` still allows a 304, so this costs a revalidation
+ * against a server on the same machine, not a re-download.
+ */
+app.use("/*", async (c, next) => {
+  await next();
+  if (!c.res.ok) return;
+  // Not the uploads (content-addressed, and big), and not the generation
+  // stream, whose headers are already set and are not ours to touch.
+  if (c.req.path.startsWith("/uploads/")) return;
+  if (c.res.headers.get("content-type")?.includes("event-stream")) return;
+  c.res.headers.set("cache-control", "no-cache");
+});
+
 app.use("/uploads/*", serveStatic({ root: process.env.DATA_DIR ?? "./data" }));
 app.use("/*", serveStatic({ root: "./public" }));
 

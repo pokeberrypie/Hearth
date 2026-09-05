@@ -2917,6 +2917,13 @@ function syncGuideActions() {
  * full and the finished reply was saved anyway. The server keeps whatever
  * arrived before the stop and still sends `done`, so the thread stays honest.
  */
+// The tray folds the five actions away so the writing line is on its own
+// until you ask for them. Closed on load, and closed again by Escape.
+$("#plusBtn").onclick = () => {
+  const open = $("#composer").classList.toggle("trayout");
+  $("#plusBtn").setAttribute("aria-expanded", open ? "true" : "false");
+};
+
 $("#stopBtn").onclick = async () => {
   const btn = $("#stopBtn");
   btn.disabled = true;
@@ -7035,6 +7042,8 @@ addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   closeAllMenus();
   closeChain();
+  $("#composer").classList.remove("trayout");
+  $("#plusBtn").setAttribute("aria-expanded", "false");
 });
 
 wirePanelChrome();
