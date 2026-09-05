@@ -829,6 +829,7 @@ const ago = (t) => {
 
 async function showSplash() {
   S.chatId = null;
+  renderTogether?.();
   // The face strip belongs to whichever chat was open — leaving without
   // clearing it left the last group's cast hanging over the splash page.
   S.cast = [];
@@ -884,6 +885,7 @@ async function startChat(character_id) {
 async function openChat(id) {
   const { chat, messages, members } = await api("/chats/" + id);
   S.chatId = id;
+  renderTogether?.();
   S.charName = chat.character_name;
   S.charAvatar = chat.avatar || "";
   // Set from this same response, so the very first render already knows every
@@ -6352,6 +6354,7 @@ function tgLinkFor(share) {
 
 function renderTogether() {
   const shut = $("#tgShut"), live = $("#tgLive");
+  // Absent in guest mode, where the whole drawer is taken away.
   if (!shut || !live) return;
   const on = !!TG.share;
   shut.hidden = on;
@@ -6488,7 +6491,17 @@ async function tgAnswer(evt) {
 }
 
 $("#tgOpen").onclick = async () => {
-  if (!S.chatId) return;
+  /*
+   * Say so rather than doing nothing.
+   *
+   * This used to return silently when no chat was open, and because the panel
+   * only redrew when the drawer opened, the button could sit there looking
+   * perfectly enabled while being inert. A control that is not available has
+   * to look unavailable and, if pressed anyway, has to say why.
+   */
+  if (!S.chatId) {
+    return fail("Open a chat first — a table has to be a table before anyone can sit at it.");
+  }
   const r = await api("/shares", {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ chat_id: S.chatId }),
