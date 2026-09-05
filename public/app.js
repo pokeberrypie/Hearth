@@ -2883,14 +2883,14 @@ $("#guideBtn").onclick = () => {
   $("#guideBtn").classList.toggle("on", !row.hidden);
   if (!row.hidden) { syncGuideActions(); $("#guide").focus(); }
 };
-$("#guideClear").onclick = () => {
+const closeSteer = () => {
   $("#guide").value = "";
   $("#guideRow").hidden = true;
   $("#guideBtn").classList.remove("on");
 };
 $("#guide").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); send(); }
-  if (e.key === "Escape") { e.preventDefault(); $("#guideClear").click(); }
+  if (e.key === "Escape") { e.preventDefault(); closeSteer(); }
 });
 
 // The same direction can be applied three ways, so name all three rather than
@@ -2917,11 +2917,15 @@ function syncGuideActions() {
  * full and the finished reply was saved anyway. The server keeps whatever
  * arrived before the stop and still sends `done`, so the thread stays honest.
  */
-// The tray folds the five actions away so the writing line is on its own
-// until you ask for them. Closed on load, and closed again by Escape.
+// The plus opens the tray. The writing line is on its own until you ask, and
+// what it opens is a card joined to the top of the box rather than a row
+// wedged inside it.
 $("#plusBtn").onclick = () => {
-  const open = $("#composer").classList.toggle("trayout");
+  const c = $("#composer");
+  const open = c.dataset.guided !== "true";
+  c.dataset.guided = open ? "true" : "false";
   $("#plusBtn").setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) syncGuideActions();
 };
 
 $("#stopBtn").onclick = async () => {
@@ -2931,9 +2935,6 @@ $("#stopBtn").onclick = async () => {
   // If the server could not be told, at least stop listening.
   if (r?.error) S.abort?.abort();
 };
-$("#continueBtn").onclick = () => run("continue");
-$("#imperBtn").onclick = () => run("impersonate");
-$("#regenBtn").onclick = () => run("swipe");
 
 // ---- message tools ------------------------------------------------------
 
@@ -7042,7 +7043,7 @@ addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   closeAllMenus();
   closeChain();
-  $("#composer").classList.remove("trayout");
+  $("#composer").dataset.guided = "false";
   $("#plusBtn").setAttribute("aria-expanded", "false");
 });
 
