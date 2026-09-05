@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { ALTER_TABLES, CREATE_CHAT_MEMBERS, CREATE_TABLES, DEFAULTS, KEY_FIELDS } from "./schema";
+import { ALTER_TABLES, CREATE_CHAT_MEMBERS, CREATE_SHARES, CREATE_TABLES, DEFAULTS, KEY_FIELDS } from "./schema";
 
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 mkdirSync(DATA_DIR, { recursive: true });
@@ -18,6 +18,7 @@ for (const stmt of ALTER_TABLES) {
 }
 
 db.exec(CREATE_CHAT_MEMBERS);
+db.exec(CREATE_SHARES);
 
 export const now = () => Date.now();
 export const uid = () => crypto.randomUUID();

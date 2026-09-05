@@ -20,7 +20,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
-import { ALTER_TABLES, CREATE_CHAT_MEMBERS, CREATE_TABLES, DEFAULTS, KEY_FIELDS } from "../../src/schema";
+import { ALTER_TABLES, CREATE_CHAT_MEMBERS, CREATE_SHARES, CREATE_TABLES, DEFAULTS, KEY_FIELDS } from "../../src/schema";
 
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 mkdirSync(DATA_DIR, { recursive: true });
@@ -45,6 +45,7 @@ function load() {
       try { sqldb.run(stmt); } catch {}
     }
     sqldb.run(CREATE_CHAT_MEMBERS);
+    sqldb.run(CREATE_SHARES);
   });
 }
 load();

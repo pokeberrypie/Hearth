@@ -11,6 +11,10 @@ import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinsta
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
 import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
+import {
+  clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
+  tidyPlayerName,
+} from "./share";
 import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normaliseFight, takeTurn,
          startFight, stateOf, type Fight } from "./fight";
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
@@ -36,6 +40,122 @@ mkdirSync(WALLS, { recursive: true });
 
 const app = new Hono();
 const api = new Hono();
+
+// ---- who is asking --------------------------------------------------------
+
+/**
+ * The gate.
+ *
+ * Everything else in Hearth was written for a program with exactly one user,
+ * sitting at the machine it runs on: no accounts, no login, bound to loopback,
+ * the API keys in the same database as the chats. Playing with somebody in
+ * another country means putting that program on the open internet, and this is
+ * the single place where that stops being reckless.
+ *
+ * The rule is short enough to hold in your head, which is the point:
+ *
+ *   - from this machine        -> the host. Everything, exactly as before.
+ *   - a valid player token     -> a guest. Their table, and nothing else.
+ *   - anything else            -> nothing at all.
+ *
+ * One gate rather than a check on each route. Forty routes each remembering to
+ * ask is forty chances to forget, and the failure is silent and total: the
+ * route that forgets is the route that hands a stranger `key_openrouter`.
+ *
+ * The scope lives on the context so routes can read it without repeating the
+ * lookup, but no route is *trusted* to — a guest reaching a route that is not
+ * on the allow list has already been turned away before the route runs.
+ */
+type Caller =
+  | { kind: "host" }
+  | { kind: "guest"; share: any; player: any };
+
+const callerOf = new WeakMap<object, Caller>();
+/** The caller for this request. Routes read it; the gate below sets it. */
+function caller(c: any): Caller {
+  return callerOf.get(c.req.raw) ?? { kind: "host" };
+}
+function guestOf(c: any) {
+  const who = caller(c);
+  return who.kind === "guest" ? who : null;
+}
+
+/** The address the request came from, however the runtime chooses to say it. */
+function remoteAddr(c: any): string {
+  const info = (c.env?.incoming?.socket?.remoteAddress
+    ?? c.env?.server?.requestIP?.(c.req.raw)?.address
+    ?? c.env?.remoteAddr?.hostname
+    ?? "") as string;
+  return String(info ?? "");
+}
+
+/** The player's token, from the cookie the join page set. */
+function playerToken(c: any): string {
+  const raw = c.req.header("cookie") ?? "";
+  for (const part of raw.split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === PLAYER_COOKIE) return decodeURIComponent(v.join("="));
+  }
+  // Falls back to a header, which is what a non-browser client would send.
+  return c.req.header("x-hearth-player") ?? "";
+}
+const PLAYER_COOKIE = "hearth_player";
+
+app.use("/api/*", async (c, next) => {
+  const addr = remoteAddr(c);
+  /*
+   * An empty address means the runtime did not tell us, which happens under
+   * some adapters and in tests. Treated as local, because the alternative is
+   * an app that locks its own owner out on a platform we did not anticipate —
+   * and because binding beyond loopback is itself a deliberate act: the
+   * default is 127.0.0.1 and HOST has to be set by hand to change it.
+   */
+  if (!addr || isLoopback(addr)) {
+    callerOf.set(c.req.raw, { kind: "host" });
+    return next();
+  }
+
+  const token = playerToken(c);
+  const player = token
+    ? (db.query("SELECT * FROM players WHERE token = ?").get(token) as any)
+    : null;
+  const share = player
+    ? (db.query("SELECT * FROM shares WHERE id = ?").get(player.share_id) as any)
+    : null;
+
+  // Compared rather than trusted: the row came back from a lookup on the token
+  // it claims, and this says so out loud where the next person can see it.
+  const ok = !!player && !!share && share.open === 1 && sameToken(player.token, token);
+  if (!ok) return c.json({ error: "Not a seat at this table." }, 403);
+
+  if (!guestMayTouch(c.req.method, c.req.path)) {
+    return c.json({ error: "Guests can see the table, and only the table." }, 403);
+  }
+
+  db.query("UPDATE players SET seen_at = ? WHERE id = ?").run(now(), player.id);
+  callerOf.set(c.req.raw, { kind: "guest", share, player });
+  return next();
+});
+
+/**
+ * The pictures, for people who are actually at a table.
+ *
+ * Avatars have to load for a guest or the chat is a wall of initials, but the
+ * uploads folder is the whole library's worth of them and not just this
+ * chat's. A stranger with the tunnel address and no invitation gets nothing.
+ */
+app.use("/uploads/*", async (c, next) => {
+  const addr = remoteAddr(c);
+  if (!addr || isLoopback(addr)) return next();
+  const token = playerToken(c);
+  const player = token
+    ? (db.query("SELECT * FROM players WHERE token = ?").get(token) as any)
+    : null;
+  if (!player || !sameToken(player.token, token)) {
+    return c.text("Not a seat at this table.", 403);
+  }
+  return next();
+});
 
 // ---- settings -------------------------------------------------------------
 
@@ -779,7 +899,26 @@ api.post("/chats/:id/generate", async (c) => {
         if (!open) return;
         try { controller.enqueue(enc.encode(frame)); } catch { open = false; }
       };
-      const send = (o: unknown) => push(`data: ${JSON.stringify(o)}\n\n`);
+      /*
+       * Every frame goes two places: down this socket to whoever asked, and
+       * out to the table if this chat is open to anybody.
+       *
+       * A tee rather than a refactor. The obvious move is to lift three
+       * hundred lines of generation into something that takes an emitter, and
+       * the obvious move here would be three hundred lines of risk for one
+       * extra call — the frames are already a stream of plain objects, which
+       * is exactly what the other people at the table need to see.
+       *
+       * Guests never call this route. They watch, and their own turns come
+       * back to them the same way the narrator's do.
+       */
+      const openShare = db
+        .query("SELECT * FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1")
+        .get(chatId) as any;
+      const send = (o: unknown) => {
+        push(`data: ${JSON.stringify(o)}\n\n`);
+        if (openShare) publish(openShare.id, "frame", o);
+      };
       // Bun drops an idle socket after idleTimeout seconds. A reasoning model
       // can go quiet for longer than that mid-reply, so a comment frame keeps
       // the connection warm. The client ignores anything that is not `data:`.
@@ -3863,6 +4002,292 @@ api.post("/personas/:id/avatar", async (c) => {
   await writeFile(join(UPLOADS, name), await file.arrayBuffer());
   db.query("UPDATE personas SET avatar = ? WHERE id = ?").run(`/uploads/${name}`, c.req.param("id"));
   return c.json({ url: `/uploads/${name}` });
+});
+
+
+// ---- playing together -----------------------------------------------------
+
+/**
+ * Opening a chat to other people, and sitting at one that has been opened.
+ *
+ * The host's half is ordinary: list, open, close, see who is here, show
+ * somebody the door. It is behind the gate above like everything else, so it
+ * is reachable from this machine and nowhere on earth besides.
+ *
+ * The guest's half is the short list in share.ts and nothing else. Note what
+ * is *not* here: no route to read a setting, list the cast, open another chat,
+ * or start a generation. A guest's turn is written down and announced, and the
+ * host's copy is what answers it — which is right in more than one way, since
+ * it is the host's key that pays for the answer.
+ */
+
+/** The chat a share is for, or nothing, without trusting the caller's word. */
+function shareOf(id: string) {
+  return db.query("SELECT * FROM shares WHERE id = ?").get(id) as any;
+}
+
+function playersAt(shareId: string) {
+  return (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at").all(shareId) as any[])
+    .map(publicPlayer);
+}
+
+api.get("/shares", (c) => {
+  const rows = db.query("SELECT * FROM shares WHERE open = 1 ORDER BY created_at DESC").all() as any[];
+  return c.json(rows.map((r) => ({
+    id: r.id, chat_id: r.chat_id, name: r.name, created_at: r.created_at,
+    // The invitation, spelled out, because the host has to be able to send it.
+    join: `/join/${r.token}`,
+    players: playersAt(r.id),
+  })));
+});
+
+api.post("/shares", async (c) => {
+  const { chat_id = "", name = "" } = await c.req.json().catch(() => ({}));
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(String(chat_id)) as any;
+  if (!chat) return c.json({ error: "Chat not found." }, 404);
+
+  // One open share per chat. Two links to the same table is two ways to
+  // revoke half of it.
+  const already = db.query("SELECT * FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chat.id) as any;
+  if (already) return c.json({ id: already.id, join: `/join/${already.token}`, reused: true });
+
+  const id = uid();
+  db.query("INSERT INTO shares (id, chat_id, token, name, open, created_at) VALUES (?,?,?,?,1,?)")
+    .run(id, chat.id, newToken(), String(name ?? "").slice(0, 80), now());
+  const row = shareOf(id);
+  return c.json({ id, join: `/join/${row.token}`, reused: false });
+});
+
+api.delete("/shares/:id", (c) => {
+  const row = shareOf(c.req.param("id"));
+  if (!row) return c.json({ error: "No such table." }, 404);
+  /*
+   * Closed, not deleted, and the players go with it.
+   *
+   * Closing has to actually turn the token off — a link that keeps working
+   * after you have shut the table is not a link you have shut. The rows stay
+   * so the transcript can still say who wrote what.
+   */
+  db.query("UPDATE shares SET open = 0 WHERE id = ?").run(row.id);
+  publish(row.id, "closed", {});
+  clearRoom(row.id);
+  return c.json({ ok: true });
+});
+
+api.delete("/shares/:id/players/:pid", (c) => {
+  const row = shareOf(c.req.param("id"));
+  if (!row) return c.json({ error: "No such table." }, 404);
+  db.query("DELETE FROM players WHERE id = ? AND share_id = ?").run(c.req.param("pid"), row.id);
+  publish(row.id, "players", { players: playersAt(row.id) });
+  return c.json({ ok: true, players: playersAt(row.id) });
+});
+
+// ---- the guest's half -----------------------------------------------------
+
+/** Everything a guest is allowed to know, in one shape. */
+function tableState(share: any, player: any) {
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(share.chat_id) as any;
+  const msgs = db.query(
+    "SELECT id, role, name, content, created_at FROM messages WHERE chat_id = ? ORDER BY created_at, rowid",
+  ).all(share.chat_id) as any[];
+  return {
+    table: { id: share.id, name: share.name },
+    chat: { id: chat?.id ?? "", title: chat?.title ?? "", mode: getSettings().mode },
+    you: publicPlayer(player),
+    players: playersAt(share.id),
+    messages: msgs,
+    fight: fightIn(share.chat_id),
+  };
+}
+
+api.get("/table/state", (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  return c.json(tableState(g.share, g.player));
+});
+
+api.put("/table/me", async (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const { name } = await c.req.json().catch(() => ({}));
+  const taken = (db.query("SELECT name FROM players WHERE share_id = ? AND id != ?")
+    .all(g.share.id, g.player.id) as any[]).map((r) => r.name);
+  const tidy = tidyPlayerName(name ?? g.player.name, taken);
+  db.query("UPDATE players SET name = ? WHERE id = ?").run(tidy, g.player.id);
+  publish(g.share.id, "players", { players: playersAt(g.share.id) });
+  return c.json({ ok: true, you: { ...publicPlayer(g.player), name: tidy } });
+});
+
+api.get("/table/me", (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  return c.json(publicPlayer(g.player));
+});
+
+api.post("/table/leave", (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  db.query("DELETE FROM players WHERE id = ?").run(g.player.id);
+  publish(g.share.id, "players", { players: playersAt(g.share.id) });
+  return c.json({ ok: true });
+});
+
+/**
+ * A guest's turn.
+ *
+ * Written down and announced, and that is all this route does. It does not
+ * generate: the host's copy hears the announcement and answers, so the reply
+ * is made with the host's provider and the host's key, and a guest cannot
+ * start work on somebody else's account by holding down a button.
+ */
+api.post("/table/say", async (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const { content = "" } = await c.req.json().catch(() => ({}));
+  const text = String(content ?? "").trim();
+  if (!text) return c.json({ error: "Nothing to say." }, 400);
+  if (text.length > 8000) return c.json({ error: "That is longer than a turn." }, 400);
+
+  const id = uid();
+  const at = now();
+  db.query(
+    "INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?,?,?,?,?,?)",
+  ).run(id, g.share.chat_id, "user", g.player.name, text, at);
+  db.query("UPDATE chats SET updated_at = ? WHERE id = ?").run(at, g.share.chat_id);
+
+  const msg = { id, role: "user", name: g.player.name, content: text, created_at: at };
+  publish(g.share.id, "said", { message: msg, by: publicPlayer(g.player) });
+  return c.json({ ok: true, message: msg });
+});
+
+api.post("/table/roll", async (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const { notation = "1d20" } = await c.req.json().catch(() => ({}));
+  const roll = rollDice(String(notation ?? "1d20"));
+  if (!roll) return c.json({ error: "That is not dice." }, 400);
+  logRoll(g.share.chat_id, "dice", roll.notation, describeRoll(roll), roll.total, g.player.name);
+
+  const dice = roll.rolls.reduce((x, y) => x + y, 0);
+  const thrown = {
+    label: roll.notation, total: roll.total, die: dice, modifier: roll.modifier,
+    faces: { min: roll.count, max: roll.count * roll.sides },
+    parts: [
+      { label: `${roll.count}d${roll.sides}`, value: dice },
+      ...(roll.modifier ? [{ label: roll.modifier < 0 ? "penalty" : "bonus", value: roll.modifier }] : []),
+    ],
+  };
+  // Everybody at the table watches the same die land, which is most of the
+  // point of rolling in company.
+  publish(g.share.id, "rolled", { thrown, by: publicPlayer(g.player) });
+  return c.json({ ...thrown, text: describeRoll(roll) });
+});
+
+/**
+ * The table's live feed.
+ *
+ * One socket per person, fed by the room in share.ts. Everything that happens
+ * — a turn, the narrator's reply arriving token by token, a die, somebody
+ * joining or leaving — comes down here, so nobody has to poll and nobody sees
+ * a different version of the evening.
+ */
+api.get("/table/live", (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const share = g.share;
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const enc = new TextEncoder();
+      let alive = true;
+      const push = (s: string) => {
+        if (!alive) return;
+        try { controller.enqueue(enc.encode(s)); } catch { alive = false; }
+      };
+      const emit = (event: string, data: unknown) =>
+        push(`data: ${JSON.stringify({ event, ...(data as object) })}\n\n`);
+
+      emit("hello", tableState(share, g.player));
+      const off = subscribe(share.id, emit);
+      // Same reason as the generation stream: a quiet table must not be
+      // mistaken for a dropped one.
+      const beat = setInterval(() => push(": keep-alive\n\n"), 15_000);
+
+      const stop = () => {
+        alive = false;
+        clearInterval(beat);
+        off();
+        try { controller.close(); } catch {}
+      };
+      c.req.raw.signal?.addEventListener("abort", stop);
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+  });
+});
+
+/**
+ * The door.
+ *
+ * Someone clicks the link you sent them and this is what happens: the
+ * invitation is checked, a seat is made, a token for that seat is set as a
+ * cookie, and they are sent to the app, which sees the cookie and runs as a
+ * guest. No account, no password, no e-mail — the link *is* the credential,
+ * which is why it is 128 bits and why closing the table turns it off.
+ *
+ * Deliberately outside the gate: nobody arriving here has a token yet, so
+ * requiring one would mean nobody could ever get one.
+ *
+ * A cookie rather than a header, because the live feed is an EventSource and
+ * an EventSource cannot send headers. HttpOnly so a stray script on the page
+ * cannot read somebody's seat back out. Not `Secure`, because the same link
+ * has to work over a plain-http LAN as over an https tunnel, and a cookie that
+ * silently fails on half the ways people will use this is worse than one that
+ * rides an already-trusted network.
+ */
+app.get("/join/:token", (c) => {
+  const token = c.req.param("token");
+  const share = db.query("SELECT * FROM shares WHERE token = ? AND open = 1").get(token) as any;
+  if (!share || !sameToken(share.token, token)) {
+    return c.html(
+      `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+      `<title>Hearth</title><style>body{background:#16110e;color:#e6d8bd;font:16px/1.6 Georgia,serif;` +
+      `display:grid;place-items:center;height:100dvh;margin:0;text-align:center;padding:2rem}` +
+      `h1{font-size:1.3rem;font-weight:400;letter-spacing:.05em}p{color:#a8937a;max-width:32ch}</style>` +
+      `<div><h1>That table has closed.</h1><p>Ask whoever invited you for a fresh link — an old one ` +
+      `stops working the moment the table is shut, which is the point of it.</p></div>`,
+      410,
+    );
+  }
+
+  /*
+   * Coming back is not the same as arriving. A link opened twice, or reloaded,
+   * or followed again the next evening should sit you back in the seat you had
+   * rather than filling the table with copies of you.
+   */
+  const existing = playerToken(c);
+  const seated = existing
+    ? (db.query("SELECT * FROM players WHERE token = ? AND share_id = ?").get(existing, share.id) as any)
+    : null;
+
+  let token2 = seated?.token;
+  if (!seated) {
+    const taken = (db.query("SELECT name FROM players WHERE share_id = ?").all(share.id) as any[]).map((r) => r.name);
+    token2 = newToken();
+    db.query(
+      "INSERT INTO players (id, share_id, token, name, persona_id, host, seen_at, created_at) VALUES (?,?,?,?,?,0,?,?)",
+    ).run(uid(), share.id, token2, tidyPlayerName("", taken), null, now(), now());
+    publish(share.id, "players", {
+      players: (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at").all(share.id) as any[])
+        .map(publicPlayer),
+    });
+  }
+
+  c.header("set-cookie",
+    `${PLAYER_COOKIE}=${encodeURIComponent(token2)}; Path=/; Max-Age=${60 * 60 * 24 * 90}; HttpOnly; SameSite=Lax`);
+  return c.redirect("/?at=table", 302);
 });
 
 app.route("/api", api);

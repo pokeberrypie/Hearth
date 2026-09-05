@@ -267,6 +267,52 @@ export const ALTER_TABLES: string[] = [
 /** Group chats. A chat keeps its `character_id` as the one it was started
  *  from, so every existing chat and every query that joins on it still
  *  works; members are additive on top. */
+/**
+ * Playing together, over any distance.
+ *
+ * A share is one chat opened to other people. A player is somebody sitting at
+ * it. Both carry a token, and the difference between them is the whole
+ * security model:
+ *
+ * - the share's token is the invitation. It goes in the link you send, it is
+ *   128 bits of randomness because that link is going across the open
+ *   internet, and it can be revoked by closing the share.
+ * - a player's token is issued once, when they join, and is theirs. It is what
+ *   every later request carries, so revoking one person does not turn out the
+ *   lights for everybody.
+ *
+ * Neither token is a login. Hearth has no accounts and is not growing any.
+ * What they are is a capability: this token may see this chat, act in it, and
+ * nothing else in the library — no keys, no other chats, no settings. That
+ * boundary is enforced in one place (see guestScope in index.ts) rather than
+ * remembered at each route, because a boundary you have to remember is a
+ * boundary you will forget once and only need to forget once.
+ */
+export const CREATE_SHARES = `
+CREATE TABLE IF NOT EXISTS shares (
+  id         TEXT PRIMARY KEY,
+  chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  token      TEXT NOT NULL UNIQUE,
+  name       TEXT NOT NULL DEFAULT '',
+  open       INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS players (
+  id         TEXT PRIMARY KEY,
+  share_id   TEXT NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+  token      TEXT NOT NULL UNIQUE,
+  name       TEXT NOT NULL DEFAULT '',
+  persona_id TEXT,
+  host       INTEGER NOT NULL DEFAULT 0,
+  seen_at    INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_shares_chat ON shares(chat_id);
+CREATE INDEX IF NOT EXISTS idx_players_share ON players(share_id, seen_at);
+`;
+
 export const CREATE_CHAT_MEMBERS = `
 CREATE TABLE IF NOT EXISTS chat_members (
   id           TEXT PRIMARY KEY,
