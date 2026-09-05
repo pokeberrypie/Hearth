@@ -23,6 +23,7 @@ import {
   startingHp,
   STANDARD_ARRAY,
   abilityAsked,
+  askedFor,
   resolveChecks,
   CHECK_BRIEF,
 } from "./tabletop";
@@ -242,6 +243,25 @@ describe("what the narrator just asked you to roll", () => {
     // "See if you can get past them quietly" is a dexterity check that never
     // says the word, which is how a narrator actually writes.
     expect(abilityAsked("Roll stealth.")).toBe("dex");
+  });
+
+  test("the word the narrator used is kept, not just the stat it rolls", () => {
+    // Asked for perception and handed a "Wisdom check", a table looks like a
+    // table with no perception in it.
+    expect(askedFor("Roll perception.")).toEqual({ ability: "wis", word: "perception" });
+    expect(askedFor("Give me an insight check.")).toEqual({ ability: "wis", word: "insight" });
+    expect(askedFor("Make a dexterity check.")).toEqual({ ability: "dex", word: "dexterity" });
+    expect(askedFor("The fire pops.")).toBeNull();
+  });
+
+  test("askedFor and abilityAsked never disagree", () => {
+    for (const line of [
+      "Roll perception.", "Give me an insight check.", "Make a dexterity check.",
+      "An athletics roll, then.", "Try sleight of hand, if you want it unnoticed.",
+      "The fire pops. Marla says nothing.", "",
+    ]) {
+      expect(askedFor(line)?.ability ?? null).toBe(abilityAsked(line));
+    }
     expect(abilityAsked("This will take some persuasion.")).toBe("cha");
     expect(abilityAsked("An athletics roll, then.")).toBe("str");
     expect(abilityAsked("Try sleight of hand, if you want it unnoticed.")).toBe("dex");

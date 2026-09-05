@@ -2578,6 +2578,19 @@ async function run(mode, content = "", forcedGuide = "") {
               // different accounts of the same hit point.
               refreshSheet();
             }
+            /*
+             * And the die, if the narrator threw one.
+             *
+             * A roll it called for itself used to arrive as a finished
+             * sentence with nothing happening, while pressing the die button
+             * beside it threw one you could watch — the same roll off the same
+             * server, told two different ways depending on who asked. The last
+             * one, because a narrator that rolls initiative and then an attack
+             * has ended on the attack.
+             */
+            if (Array.isArray(evt.thrown) && evt.thrown.length) {
+              showDie(evt.thrown[evt.thrown.length - 1]);
+            }
           }
           // Display regex scripts run once, here, rather than on every delta:
           // a pack like DEUS EX MACHINA has fifty of them and re-running the
@@ -2903,8 +2916,9 @@ $("#guide").addEventListener("keydown", (e) => {
 });
 
 // The same direction can be applied three ways, so name all three rather than
-// leaving people to guess that a guide also covers swiping.
-$("#guideSend").onclick = () => send();
+// leaving people to guess that a guide also covers swiping. Sending is not one
+// of them: the arrow on the writing line already sends, and two send buttons
+// on one composer is one too many whichever one you meant.
 $("#guideCont").onclick = () => run("continue");
 $("#guideSwipe").onclick = () => run("swipe");
 $("#guideImper").onclick = () => run("impersonate");
@@ -2916,7 +2930,6 @@ function syncGuideActions() {
   const canFollow = !!last && !last.classList.contains("mine");
   $("#guideCont").disabled = !canFollow;
   $("#guideSwipe").disabled = !canFollow;
-  $("#guideSend").disabled = false;
   $("#guideImper").disabled = false;   // writing your turn is always available
 }
 

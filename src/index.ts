@@ -9,7 +9,7 @@ import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNot
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
 import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinstall";
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
-import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, describeCheck, makeSheet, modifier,
+import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
 import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normaliseFight, takeTurn,
          startFight, stateOf, type Fight } from "./fight";
@@ -845,6 +845,17 @@ api.post("/chats/:id/generate", async (c) => {
          * left to write its own outcome writes the one that suits it, which is
          * the single thing dice exist to prevent.
          */
+        /*
+         * What the narrator threw, in the shape the die on screen reads.
+         *
+         * The resolution happens here and only the finished sentence was sent
+         * on, so a roll the narrator made itself — the commonest kind at a
+         * table, since it is the narrator that calls for them — arrived as
+         * text with nothing happening, while pressing the die button beside it
+         * threw a die you could watch. Same roll, same server, two different
+         * experiences depending on who asked for it.
+         */
+        const thrown: any[] = [];
         {
           const rolled = resolveRolls(full);
           full = rolled.text;
@@ -853,6 +864,15 @@ api.post("/chats/:id/generate", async (c) => {
           // take on faith and most reason to want written down.
           for (const r of rolled.rolls) {
             logRoll(chatId, "dice", r.notation, describeRoll(r), r.total, who?.name ?? "");
+            const dice = r.rolls.reduce((x, y) => x + y, 0);
+            thrown.push({
+              label: r.notation, total: r.total, die: dice, modifier: r.modifier,
+              faces: { min: r.count, max: r.count * r.sides },
+              parts: [
+                { label: `${r.count}d${r.sides}`, value: dice },
+                ...(r.modifier ? [{ label: r.modifier < 0 ? "penalty" : "bonus", value: r.modifier }] : []),
+              ],
+            });
           }
         }
         // And checks, against the sheet of whoever is playing this chat — the
@@ -864,6 +884,15 @@ api.post("/chats/:id/generate", async (c) => {
           for (const ch of checked.checks) {
             logRoll(chatId, "check", `${ABILITY_NAMES[ch.ability]} check`,
                     describeCheck(ch), ch.total, me.name);
+            thrown.push({
+              label: `${ABILITY_NAMES[ch.ability]} check`,
+              total: ch.total, die: ch.die, modifier: ch.modifier,
+              faces: { min: 1, max: 20 },
+              parts: [
+                { label: "d20", value: ch.die },
+                { label: ABILITY_NAMES[ch.ability], value: ch.modifier },
+              ],
+            });
           }
         }
 
@@ -894,7 +923,7 @@ api.post("/chats/:id/generate", async (c) => {
           const joined = (a.prefill ?? "") + full;
           db.query("UPDATE messages SET content = ?, ms = ?, tokens = ? WHERE id = ?")
             .run(joined, ms, tokens, continuingId);
-          send({ done: true, id: continuingId, text: joined, ...stats });
+          send({ done: true, id: continuingId, text: joined, thrown, ...stats });
         } else if (mode === "swipe" && swipeTarget) {
           const list = JSON.parse(swipeTarget.swipes || "[]");
           if (!list.length) list.push(swipeTarget.content);
@@ -902,7 +931,7 @@ api.post("/chats/:id/generate", async (c) => {
           db.query(
             "UPDATE messages SET content = ?, swipes = ?, swipe_index = ?, reasoning = ?, tokens = ?, ms = ? WHERE id = ?",
           ).run(full, JSON.stringify(list), list.length - 1, think, tokens, ms, swipeTarget.id);
-          send({ done: true, id: swipeTarget.id, text: full, swipes: list.length, index: list.length - 1, ...stats });
+          send({ done: true, id: swipeTarget.id, text: full, swipes: list.length, index: list.length - 1, thrown, ...stats });
         } else {
           const id = uid();
           db.query(
@@ -910,7 +939,7 @@ api.post("/chats/:id/generate", async (c) => {
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(id, chatId, "assistant", who.name, full, now(), JSON.stringify([full]), 0,
                 think, tokens, ms, who.id ?? null);
-          send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", ...stats });
+          send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", thrown, ...stats });
         }
       } finally {
         clearInterval(beat);
@@ -1786,13 +1815,6 @@ export function assemble(
     note("Author's notes", noteText);
   }
 
-  if (guide?.trim()) {
-    const subject = mode === "impersonate" ? me.name : char.name;
-    const g = `${guide.trim()}\nFollow this direction when writing ${subject}. Do not mention it or acknowledge it in the text.`;
-    system += `\n\n# Direction for this response only\n${g}`;
-    note("Guidance for this reply", g);
-  }
-
   /**
    * Prompt-side regex scripts, applied per message with its depth from the end
    * of the transcript — the newest is 0. This is the half of the feature that
@@ -1968,6 +1990,31 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     if (last?.role === "user") last.content += `\n\n[${block}]`;
     else messages.push({ role: "user", content: `[${block}]` });
     note("The table", block);
+  }
+
+  /*
+   * The steer, last of all — after the transcript, after the table.
+   *
+   * It used to be appended to the system prompt, which is the tidier place and
+   * the wrong one, for exactly the reason the table's own block had to move: a
+   * preset like DEUS EX MACHINA is fifty thousand characters of formatting
+   * law, and one sentence underneath it is one sentence the model reads once
+   * and then spends the rest of its attention obeying something else. Which is
+   * what "the guided line does not seem to insert anything" looks like from
+   * the outside — it was in the prompt the whole time, in the one place where
+   * a preset could drown it.
+   *
+   * And last full stop, after the table too: a steer is the one instruction
+   * the person is giving by hand, about this reply, right now.
+   */
+  if (guide?.trim()) {
+    const subject = mode === "impersonate" ? me.name : char.name;
+    const g = `${guide.trim()}\nFollow this direction when writing ${subject}. Do not mention it or acknowledge it in the text.`;
+    const lastMsg = messages[messages.length - 1];
+    const block = `[Direction for this response only:\n${g}]`;
+    if (lastMsg?.role === "user") lastMsg.content += `\n\n${block}`;
+    else messages.push({ role: "user", content: block });
+    note("Guidance for this reply", g);
   }
 
   if (staged) note("Your message", staged);
@@ -3072,8 +3119,15 @@ api.post("/chats/:id/roll", async (c) => {
     ability = modifier(sheet.abilities.str) >= modifier(sheet.abilities.dex) ? "str" : "dex";
     label = "Attack";
   } else if (sheet) {
-    ability = abilityAsked(last?.content ?? "");
-    if (ability) label = `${ABILITY_NAMES[ability]} check`;
+    // Named with the word the narrator used. Asked for perception and handed
+    // a "Wisdom check", a table looks like a table with no perception in it —
+    // the roll was always right, only its name was the stat's rather than the
+    // skill's.
+    const asked = askedFor(last?.content ?? "");
+    ability = asked?.ability ?? null;
+    if (asked) {
+      label = `${asked.word.replace(/\b\w/g, (ch) => ch.toUpperCase())} check`;
+    }
   }
 
   // No sheet, or nothing asked for: a die is still a die.

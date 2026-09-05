@@ -342,6 +342,38 @@ export const SKILL_ABILITY: Record<string, Ability> = {
 const ASKING = "roll|make|give me|take|attempt|try|test";
 const ASKED = "check|checks|roll|rolls|save|saves|test";
 
+/**
+ * The same question, answered with the word that was actually used.
+ *
+ * A narrator asking for perception is asking for a wisdom roll, but "Wisdom
+ * check" is not what it asked for, and a table where you are told to roll
+ * perception and handed a wisdom check looks like a table with no perception
+ * in it. So the matched word is kept alongside the stat it rolls.
+ */
+export function askedFor(text: string): { ability: Ability; word: string } | null {
+  const hay = String(text ?? "").toLowerCase();
+  let found: { ability: Ability; word: string } | null = null;
+  let at = -1;
+
+  const consider = (word: string, ability: Ability) => {
+    const w = word.replace(/ /g, "\\s+");
+    for (const source of [
+      `\\b(?:${ASKING})\\b[^.?!\\n]{0,24}?\\b${w}\\b`,
+      `\\b${w}\\b\\s+(?:${ASKED})\\b`,
+    ]) {
+      const re = new RegExp(source, "g");
+      for (let m = re.exec(hay); m; m = re.exec(hay)) {
+        const where = m.index + m[0].length;
+        if (where > at) { at = where; found = { ability, word }; }
+      }
+    }
+  };
+
+  for (const [word, ability] of Object.entries(ABILITY_WORDS)) consider(word, ability);
+  for (const [skill, ability] of Object.entries(SKILL_ABILITY)) consider(skill, ability);
+  return found;
+}
+
 export function abilityAsked(text: string): Ability | null {
   const hay = String(text ?? "").toLowerCase();
   let found: Ability | null = null;

@@ -223,9 +223,28 @@ describe("assemble — modes", () => {
     expect(a.system.startsWith("You are writing for Wren in a roleplay with Akira.")).toBe(true);
   });
 
+  const lastTurn = (a: ReturnType<typeof assemble>) =>
+    a.messages[a.messages.length - 1]?.content ?? "";
+
   test("a guide is aimed at whoever is being written for", () => {
-    expect(assemble(chat, "reply", "Be brief.").system).toContain("when writing Akira");
-    expect(assemble(chat, "impersonate", "Be brief.").system).toContain("when writing Wren");
+    expect(lastTurn(assemble(chat, "reply", "Be brief."))).toContain("when writing Akira");
+    expect(lastTurn(assemble(chat, "impersonate", "Be brief."))).toContain("when writing Wren");
+  });
+
+  test("a guide lands after the transcript, not in the system prompt", () => {
+    // In the system block a fifty-thousand-character preset simply drowns it;
+    // it has to be the last thing said, because it is about this reply.
+    const a = assemble(chat, "reply", "Be brief.");
+    expect(a.system).not.toContain("Direction for this response only");
+    expect(lastTurn(a)).toContain("Direction for this response only");
+  });
+
+  test("no guide adds no turn", () => {
+    const withGuide = assemble(chat, "reply", "Be brief.").messages.length;
+    const without = assemble(chat, "reply", "").messages.length;
+    expect(without).toBeLessThanOrEqual(withGuide);
+    expect(assemble(chat, "reply", "   ").messages.map((m) => m.content).join("\n"))
+      .not.toContain("Direction for this response only");
   });
 
   test("a staged message is threaded through as the newest user turn", () => {
@@ -389,8 +408,11 @@ describe("assemble — preset prompt blocks", () => {
   });
 
   test("the guide still lands after the blocks", () => {
+    // Not merely after them in the system prompt — past the transcript
+    // entirely, which is the only place a block that long cannot bury it.
     const a = assemble(preset([{ name: "B", role: "system", content: "block text" }]), "reply", "Be brief.");
-    expect(a.system.indexOf("# B")).toBeLessThan(a.system.indexOf("Direction for this response only"));
+    expect(a.system).toContain("# B");
+    expect(a.messages[a.messages.length - 1].content).toContain("Direction for this response only");
   });
 
   test("card instructions still land after a chat block", () => {
