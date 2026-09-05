@@ -57,8 +57,14 @@
         </g>
         <!-- The face you read the number off, sunk into the metal. -->
         <polygon class="diefaceplate" points="100,56 141,128 59,128" fill="url(#dieFace)"/>
+        <!-- The number, in the SVG rather than layered over it, sitting on the
+             triangle's centroid: (100 + 141 + 59)/3, (56 + 128 + 128)/3. A
+             percentage from the top of the die was a guess, and it was 48px
+             low — the visual middle of an upward triangle is a third up from
+             its base, not the middle of its bounding box. -->
+        <text class="dienum" x="100" y="104" text-anchor="middle"
+              dominant-baseline="central">—</text>
       </svg>
-      <span class="dienum">—</span>
     </div>
     <div class="dielabel"></div>
     <div class="diebreak"></div>

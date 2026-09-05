@@ -4657,15 +4657,13 @@ body[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate {
 .diefaceplate { stroke: #f4dcae; stroke-width: 1.6; stroke-linejoin: round; }
 
 .dienum {
-  position: absolute;
-  /* The readable face is the lower triangle, not the middle of the solid. */
-  top: 56%;
+  /* An SVG text node now, so it is measured in the die's own units and cannot
+     drift from the face it sits on however the die is sized. */
   font-family: var(--lumiverse-font-heading);
-  font-size: clamp(1.7rem, 7vw, 2.6rem);
-  line-height: 1;
-  color: #f4dcae;
-  text-shadow: 0 0 18px rgba(200, 153, 79, 0.55);
+  font-size: 32px;
+  fill: #f4dcae;
   font-variant-numeric: tabular-nums;
+  filter: drop-shadow(0 0 6px rgba(200, 153, 79, 0.6));
 }
 
 /* The throw: a tumble that decelerates onto the face, then one settle-bounce.
