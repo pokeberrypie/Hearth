@@ -3889,8 +3889,8 @@ const wide = () => matchMedia("(min-width: 900px)").matches;
 const panelShowing = () =>
   wide() ? !document.body.classList.contains("tucked") : $("#drawer").classList.contains("open");
 const retractPanel = () => {
-  // The lit link means "this one is up", so once nothing is up nothing is lit.
-  for (const x of document.querySelectorAll(".chainlink")) x.classList.remove("on");
+  // A lit link means "this one is up", so once nothing is up nothing is lit.
+  for (const x of document.querySelectorAll(".chainlink, .raillink")) x.classList.remove("on");
   if (!wide()) return closeDrawer();
   document.body.classList.add("tucked");
 };
@@ -3942,14 +3942,21 @@ $("#menuBtn").onclick = (e) => {
 };
 $("#chainVeil").onclick = closeChain;
 
-document.querySelectorAll(".chainlink").forEach((b) => {
-  b.onclick = () => {
-    document.querySelectorAll(".chainlink").forEach((x) => x.classList.toggle("on", x === b));
-    document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== b.dataset.tab));
-    closeChain();
-    showPanel();
-  };
-});
+/**
+ * One place decides which of the seven is up, because two things now point at
+ * them: the chain you summon and the rail down the panel's inner edge. They
+ * have to agree, and the way to make sure they agree is to have one of them.
+ */
+function pickPanel(tab) {
+  for (const x of document.querySelectorAll(".chainlink, .raillink"))
+    x.classList.toggle("on", x.dataset.tab === tab);
+  for (const p of document.querySelectorAll("[data-panel]"))
+    p.hidden = p.dataset.panel !== tab;
+  closeChain();
+  showPanel();
+}
+for (const b of document.querySelectorAll(".chainlink, .raillink"))
+  b.onclick = () => pickPanel(b.dataset.tab);
 
 async function refreshChats() {
   const chats = await api("/chats");

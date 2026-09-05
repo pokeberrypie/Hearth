@@ -418,472 +418,489 @@
 
 
   <aside class="panelbar" id="drawer">
+      <!-- While a panel is up, the seven stay to hand as a thin strip down its
+           inner edge — so clicking through them is one poke rather than the
+           chain again each time. Icons only: the panel's own header says
+           which one you are in, so a second label would only repeat it. -->
+      <nav class="panelrail" aria-label="Panels">
+        <button class="raillink" data-tab="cast" title="Cast" aria-label="Cast"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.1"/><path d="M3 19c0-3.1 2.7-4.8 6-4.8s6 1.7 6 4.8"/><path d="M16.2 5.4a3.1 3.1 0 0 1 0 5.5"/><path d="M17.4 14.6c2.2.6 3.6 2.1 3.6 4.4"/></svg></button>
+        <button class="raillink" data-tab="you" title="You" aria-label="You"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg></button>
+        <button class="raillink" data-tab="lore" title="Lore" aria-label="Lore"><svg viewBox="0 0 24 24"><path d="M4 5.5A2 2 0 0 1 6 4h5v16H6a2 2 0 0 0-2 1.5z"/><path d="M20 5.5A2 2 0 0 0 18 4h-5v16h5a2 2 0 0 1 2 1.5z"/><path d="M11 7.5h-4M11 11h-4"/></svg></button>
+        <span class="railcut"></span>
+        <button class="raillink" data-tab="presets" title="Presets" aria-label="Presets"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="18" cy="12" r="2.1"/><circle cx="19.5" cy="18" r="2.1"/></svg></button>
+        <button class="raillink" data-tab="regex" title="Regex" aria-label="Regex"><svg viewBox="0 0 24 24"><path d="M8 5.5 5 12l3 6.5"/><path d="m16 5.5 3 6.5-3 6.5"/><path d="M13.4 9.2 10.6 15"/></svg></button>
+        <span class="railcut"></span>
+        <button class="raillink" data-tab="look" title="Look" aria-label="Look"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.9-.8 1.9-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.8" cy="11.2" r="1.1"/><circle cx="11" cy="7.4" r="1.1"/><circle cx="15.4" cy="9.2" r="1.1"/></svg></button>
+        <button class="raillink" data-tab="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 14.4a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.5 1z"/></svg></button>
+      </nav>
+      <div class="panelbody">
 
-    <section data-panel="cast" class="panel" hidden>
-      <header class="panelhead">
-        <h2>Cast<span class="panelcount" data-count-for="castList"></span></h2>
-        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
-                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <div class="moremenu" hidden></div>
-      </header>
-      <!-- Only in tabletop mode, and only once the game has met somebody. The
-           narrator writes these itself, mid-sentence; nobody types them. -->
-      <div id="worldSection" hidden>
-        <h3>The scene</h3>
-        <div id="worldBody"></div>
-      </div>
-
-      <div class="searchrow">
-        <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-        <input type="search" id="castSearch" placeholder="Search your cast" autocomplete="off" aria-label="Search characters">
-      </div>
-      <div class="listbar">
-        <button class="ico" id="newGroupBtn" title="New group chat" aria-label="Start a new group chat"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg></button>
-        <button class="ico" id="castSelect" title="Select several" aria-label="Select several characters"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
-        <button class="ico" id="castAll" title="Select all, and start picking" aria-label="Select all characters"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
-        <span class="grow"></span>
-        <span class="selcount" id="castCount" hidden></span>
-        <button class="ico" id="castGroup" title="Start a group chat" aria-label="Start a group chat with the selected characters" hidden><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg></button>
-        <button class="ico danger" id="castDelete" title="Delete selected" aria-label="Delete selected characters" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
-      </div>
-      <div id="castList" class="list"></div>
-      <!-- One emphasised action, and the rarer two quiet underneath it. Three
-           full-width buttons of identical weight is three things with no
-           answer to "which one did I want". -->
-      <label class="filebtn solid">Import character cards
-        <input type="file" id="cardFile" accept=".png,.json" multiple hidden>
-      </label>
-      <p class="hint" id="importHint">PNG cards or .json, several at once.</p>
-      <div class="quietrow">
-        <button class="linkish" id="newCharBtn">Write one by hand</button>
-        <!-- Tabletop only: the table starts empty and fills up one invitation
-             at a time, rather than opening onto everybody you have ever made. -->
-        <button class="linkish" id="bringOverBtn" hidden>Bring someone over</button>
-      </div>
-    </section>
-
-    <section data-panel="you" class="panel" hidden>
-      <header class="panelhead">
-        <h2>You<span class="panelcount" data-count-for="personaList"></span></h2>
-        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
-                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <div class="moremenu" hidden></div>
-      </header>
-      <!-- Only in tabletop mode. A sheet belongs to whoever you are playing,
-           so it lives with the personas rather than in a room of its own. -->
-      <div id="sheetSection" hidden>
-        <h3>Your character sheet</h3>
-        <div id="sheetBody"></div>
-      </div>
-
-      <h3>Personas</h3>
-      <div class="listbar">
-        <button class="ico" id="personaSelect" title="Select several" aria-label="Select several personas"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
-        <button class="ico" id="personaAll" title="Select all, and start picking" aria-label="Select all personas"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
-        <span class="grow"></span>
-        <span class="selcount" id="personaCount" hidden></span>
-        <button class="ico danger" id="personaDelete" title="Delete selected" aria-label="Delete selected personas" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
-      </div>
-      <div id="personaList" class="list"></div>
-      <p class="hint">The active persona is who the character is talking to. It fills {{user}} in cards and prompts.</p>
-      <button class="solid wide" id="newPersonaBtn">New persona</button>
-      <div class="quietrow">
-        <!-- Tabletop only. Who you are at the table is not necessarily who you
-             are in your stories, so the table starts with nobody. -->
-        <button class="linkish tableonly" id="bringMeBtn">Bring one of yours over</button>
-      </div>
-      <label class="filebtn">Import from SillyTavern
-        <input type="file" id="personaImport" accept=".json" hidden>
-      </label>
-      <p class="hint" id="personaImportHint">Point this at your SillyTavern <code>settings.json</code> and it will pull in every persona and description.</p>
-      <label class="filebtn">Import persona files
-        <input type="file" id="personaFiles" accept=".json" multiple hidden>
-      </label>
-    </section>
-
-    <section data-panel="lore" class="panel" hidden>
-      <header class="panelhead">
-        <h2>Lorebooks<span class="panelcount" data-count-for="loreList"></span></h2>
-        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
-                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <div class="moremenu" hidden></div>
-      </header>
-      <div id="loreActive" class="loreactive"></div>
-      <div class="searchrow">
-        <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-        <input type="search" id="loreSearch" placeholder="Search lorebooks" autocomplete="off" aria-label="Search lorebooks">
-      </div>
-      <div class="listbar">
-        <button class="ico" id="loreImportBtn" title="Import a lorebook" aria-label="Import a lorebook"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
-        <button class="ico" id="loreSelect" title="Select several" aria-label="Select several lorebooks"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
-        <button class="ico" id="loreAll" title="Select all, and start picking" aria-label="Select all lorebooks"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
-        <span class="grow"></span>
-        <span class="selcount" id="loreCount" hidden></span>
-        <button class="ico" id="loreView" title="Show them as a list" aria-label="Show them as a list"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-        <button class="ico danger" id="loreDelete" title="Delete selected" aria-label="Delete selected lorebooks" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
-      </div>
-      <!-- The same books twice: standing on a shelf, which is how you find one
-           you half remember, and as a list, which is where the wiring is. -->
-      <div id="loreShelf" class="shelf"></div>
-      <!-- The book you took down: what it is, what it is wired to, and the
-           three things you can do with it. -->
-      <div id="loreDetail" class="pulled" hidden></div>
-      <div id="loreList" class="list"></div>
-      <button class="solid wide" id="newBookBtn">New lorebook</button>
-      <div class="quietrow">
-        <!-- Tabletop only. A world you built for a story is not automatically
-             the world the game is set in. -->
-        <button class="linkish tableonly" id="bringBookBtn">Bring one to the table</button>
-      </div>
-        <input type="file" id="loreImport" accept=".json" multiple hidden>
-
-      <details class="fold">
-        <summary><span>How lore fires</span></summary>
-        <div class="foldbody">
-          <label>Messages scanned <span class="v" id="v_scan"></span>
-            <input type="range" id="lore_scan_depth" min="1" max="30" step="1">
-          </label>
-          <label>Text budget <span class="v" id="v_budget"></span>
-            <input type="range" id="lore_budget" min="500" max="30000" step="500">
-          </label>
-          <label>Notes taken every <span class="v" id="v_autolore"></span>
-            <input type="range" id="auto_lore_every" min="0" max="100" step="1">
-          </label>
-          <label id="autoLoreScopeRow">Each note covers
-            <select id="auto_lore_scope">
-              <option value="since">Everything since the last note</option>
-              <option value="window">Only the most recent messages</option>
-            </select>
-          </label>
+      <section data-panel="cast" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Cast<span class="panelcount" data-count-for="castList"></span></h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <!-- Only in tabletop mode, and only once the game has met somebody. The
+             narrator writes these itself, mid-sentence; nobody types them. -->
+        <div id="worldSection" hidden>
+          <h3>The scene</h3>
+          <div id="worldBody"></div>
         </div>
-      </details>
-    </section>
 
-    <section data-panel="look" class="panel" hidden>
-      <header class="panelhead">
-        <h2>Look</h2>
-        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
-                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <div class="moremenu" hidden></div>
-      </header>
-      <details class="fold" id="wallFold">
-        <summary><span>Wallpaper</span><span class="count" id="wallCount"></span></summary>
-        <div class="foldbody">
-          <div class="searchrow">
-            <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-            <input type="search" id="wallSearch" placeholder="Filter wallpapers" autocomplete="off" aria-label="Filter wallpapers">
-          </div>
-          <div class="listbar">
-            <button class="ico" id="wallSelect" title="Select several" aria-label="Select several wallpapers"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
-            <button class="ico" id="wallAll" title="Select all, and start picking" aria-label="Select all wallpapers"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
-            <span class="grow"></span>
-            <span class="selcount" id="wallSelCount" hidden></span>
-            <button class="ico danger" id="wallDelete" title="Delete selected" aria-label="Delete selected wallpapers" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
-          </div>
-          <div id="wallGrid" class="wallgrid"></div>
-          <label class="filebtn">Upload an image
-            <input type="file" id="wallFile" accept="image/*" hidden>
-          </label>
-          <button class="ghost wide" id="wallClear">Use no wallpaper</button>
-        </div>
-      </details>
-
-      <h3>Messages</h3>
-      <div class="styles">
-        <button type="button" data-style="banner">Banner</button>
-        <button type="button" data-style="portrait">Portrait</button>
-        <button type="button" data-style="page">Page</button>
-      </div>
-      <label id="bannerRow">Portrait width <span class="v" id="v_banner"></span>
-        <input type="range" id="banner_width" min="90" max="280" step="5">
-      </label>
-      <label id="avatarRow">Face size <span class="v" id="v_avatar"></span>
-        <input type="range" id="avatar_size" min="36" max="88" step="2">
-      </label>
-
-      <label class="check"><input type="checkbox" id="bleed"> Fade portraits into the page</label>
-      <label id="fadeRow">Fade begins at <span class="v" id="v_fade"></span>
-        <input type="range" id="fade_start" min="10" max="100" step="5">
-      </label>
-      <label class="check"><input type="checkbox" id="show_stats"> Show tokens and timing on messages</label>
-      <label class="check"><input type="checkbox" id="show_cutoff"> Mark where the conversation stops being sent</label>
-      <label class="check"><input type="checkbox" id="sound"> A quill scratching as a reply is written</label>
-
-      <details class="cssbox">
-        <summary>Custom CSS</summary>
-        <textarea id="custom_css" rows="8" spellcheck="false" autocomplete="off"
-                  placeholder="/* Anything here is added to the stylesheet, last, so it wins.
-   .plate { border-radius: 0 } */"></textarea>
-      </details>
-
-      <label id="tuckRow">Portrait tuck <span class="v" id="v_tuck"></span>
-        <input type="range" id="tuck" min="0" max="0.34" step="0.01">
-      </label>
-      <label>Message blur <span class="v" id="v_blur"></span>
-        <input type="range" id="plate_blur" min="0" max="30" step="1">
-      </label>
-      <label>Message solidity <span class="v" id="v_solid"></span>
-        <input type="range" id="plate_opacity" min="0.2" max="1" step="0.02">
-      </label>
-
-      <h3>Depth</h3>
-      <label>Overlay darkness <span class="v" id="v_overlay"></span>
-        <input type="range" id="overlay_opacity" min="0" max="1" step="0.02">
-      </label>
-      <label>Hearth glow <span class="v" id="v_glow"></span>
-        <input type="range" id="glow_opacity" min="0" max="0.6" step="0.01">
-      </label>
-      <label>Text size <span class="v" id="v_font"></span>
-        <input type="range" id="font_scale" min="0.8" max="1.4" step="0.02">
-      </label>
-      <label>Reading width <span class="v" id="v_measure"></span>
-        <input type="range" id="measure" min="16" max="72" step="1">
-      </label>
-      <label>Corner softness <span class="v" id="v_radius"></span>
-        <input type="range" id="radius" min="0" max="22" step="1">
-      </label>
-
-      <h3>Colours</h3>
-      <div id="swatches"></div>
-      <button class="ghost wide" id="themeReset">Reset to the default theme</button>
-      <button class="ghost wide" id="themeCopy">Copy this theme as CSS</button>
-      <p class="hint" id="themeHint"></p>
-    </section>
-
-    <!-- Was a page inside Settings. It is a daily-use surface, not configuration. -->
-    <section data-panel="presets" class="panel" hidden>
-      <header class="panelhead">
-        <h2>Presets<span class="panelcount" data-count-for="presetList"></span></h2>
-        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
-                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <div class="moremenu" hidden></div>
-      </header>
-      <p class="hint" id="samplingSource"></p>
-
-      <label>Reply length <span class="v" id="v_max_tokens"></span>
-        <input type="range" id="max_tokens" min="128" max="32000" step="1">
-      </label>
-      <label>Conversation sent <span class="v" id="v_context_tokens"></span>
-        <input type="range" id="context_tokens" min="1000" max="200000" step="500">
-      </label>
-      <p class="hint">Counted in tokens, not messages.</p>
-
-      <div class="row">
-        <label>Temperature<input id="temperature" type="number" step="0.05" min="0" max="2"></label>
-        <label>Top P<input id="top_p" type="number" step="0.01" min="0" max="1"></label>
-      </div>
-      <div class="row">
-        <label>Min P<input id="min_p" type="number" step="0.01" min="0" max="1"></label>
-        <label>Repetition<input id="repetition_penalty" type="number" step="0.01" min="0.5" max="2"></label>
-      </div>
-      <div class="row">
-        <label>Frequency<input id="frequency_penalty" type="number" step="0.05" min="-2" max="2"></label>
-        <label>Presence<input id="presence_penalty" type="number" step="0.05" min="-2" max="2"></label>
-      </div>
-
-      <label class="check"><input type="checkbox" id="stream"> Stream the reply as it is written</label>
-
-      <label>Thinking
-        <select id="reasoning_effort">
-          <option value="">Let the model decide</option>
-          <option value="off">No thinking</option>
-          <option value="minimal">Minimal</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-      </label>
-      <p class="hint">Reasoning models only. Anthropic bills thinking on top of the reply.</p>
-
-      <button class="ghost wide" id="saveSampling">Save settings</button>
-      <p class="hint" id="samplingHint"></p>
-
-      <h3>Preset</h3>
-      <label>Active preset
-        <select id="presetPick"></select>
-      </label>
-      <div id="presetCard" class="presetcard"></div>
-
-      <details class="fold">
-        <summary><span>Manage presets</span></summary>
-        <div class="foldbody">
-          <div class="searchrow">
-            <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-            <input type="search" id="presetSearch" placeholder="Search presets" autocomplete="off" aria-label="Search presets">
-          </div>
-          <div class="listbar">
-            <button class="ico" id="presetImportBtn" title="Import presets" aria-label="Import SillyTavern presets"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
-            <button class="ico" id="presetSelect" title="Select several" aria-label="Select several presets"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
-            <button class="ico" id="presetAll" title="Select all, and start picking" aria-label="Select all presets"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
-            <span class="grow"></span>
-            <span class="selcount" id="presetCount" hidden></span>
-            <button class="ico danger" id="presetDelete" title="Delete selected" aria-label="Delete selected presets" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
-          </div>
-          <p class="hint" id="presetTableNote" hidden>The table is running its own preset, so
-            whichever of these is active is not being used right now. Behaviour has the
-            switch.</p>
-          <div id="presetList" class="list"></div>
-          <button class="ghost wide" id="savePresetBtn">Save these values as a new preset</button>
-            <input type="file" id="presetImport" accept=".json" multiple hidden>
-        </div>
-      </details>
-    </section>
-
-    <!-- Likewise: something you reach for while writing, not while setting up. -->
-    <section data-panel="regex" class="panel" hidden>
-      <header class="panelhead">
-        <h2>Scripts<span class="panelcount" data-count-for="regexList"></span></h2>
-        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
-                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <div class="moremenu" hidden></div>
-      </header>
-      <p class="hint">Find-and-replace over message text. <em>shown</em> changes what you read, <em>sent</em> changes what the model gets.</p>
-      <div class="searchrow">
-        <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-        <input type="search" id="regexSearch" placeholder="Search scripts" autocomplete="off" aria-label="Search regex scripts">
-      </div>
-      <div class="listbar">
-        <button class="ico" id="regexImportBtn" title="Import regex scripts" aria-label="Import regex scripts"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
-        <button class="ico" id="regexSelect" title="Select several" aria-label="Select several scripts"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
-        <button class="ico" id="regexAll" title="Select all, and start picking" aria-label="Select all scripts"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
-        <span class="grow"></span>
-        <span class="selcount" id="regexCount" hidden></span>
-        <button class="ico danger" id="regexDelete" title="Delete selected" aria-label="Delete selected scripts" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
-      </div>
-      <div id="regexList" class="list"></div>
-        <input type="file" id="regexImport" accept=".json" multiple hidden>
-      <p class="hint" id="regexHint">A regex export, or a preset — its scripts come across either way.</p>
-    </section>
-    <section data-panel="settings" class="panel" hidden>
-      <header class="panelhead">
-        <h2>Settings</h2>
-        <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
-                title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <div class="moremenu" hidden></div>
-      </header>
-      <div data-view="menu">
-        <button class="navcard" id="modeCard">
-          <span class="t" id="modeCardTitle">Tabletop mode</span>
-          <span class="s" id="modeCardSub">Sheets, classes and a narrator who rolls</span>
-        </button>
-        <button class="navcard" data-go="connection">
-          <span class="t">Connection</span><span class="s">Provider, API keys, model</span>
-        </button>
-        <button class="navcard" data-go="extensions">
-          <span class="t">Extensions</span><span class="s">Other people's code, in the page and around the prompt</span>
-        </button>
-        <button class="navcard" data-go="data">
-          <span class="t">Import and data</span><span class="s">SillyTavern backups and settings</span>
-        </button>
-
-        <h3>Behaviour</h3>
-        <label class="check"><input type="checkbox" id="dice_enabled"> Let every character roll dice</label>
-        <p class="hint" id="diceHint"></p>
-        <!-- Tabletop only. A story chat's swipes are drafts; a game's are a
-             way of not having rolled. -->
-        <label id="tableSwipeRow" hidden>Swipes at the table
-          <select id="tabletop_swipes">
-            <option value="0">None — what happened, happened</option>
-            <option value="3">Three</option>
-            <option value="5">Five</option>
-            <option value="10">Ten</option>
-          </select>
-        </label>
-        <p class="hint" id="tableSwipeHint" hidden>Kept low on purpose: rerolling until it goes
-          your way is the same as not rolling. A few are allowed so a bad reply from your
-          provider is fixable.</p>
-        <label class="check" id="tablePresetRow" hidden><input type="checkbox" id="tabletop_preset">
-          Use the table's own preset</label>
-        <p class="hint" id="tablePresetHint" hidden>A roleplay preset is an opinion about writing
-          a beautiful scene, which is the wrong opinion for a game. The table brings its own —
-          short turns, real consequences, and nothing spoken on your behalf. Your sampling and
-          context settings are left alone. Turn this off to use whichever of your presets is
-          active instead.</p>
-        <label class="check" id="tableEditRow" hidden><input type="checkbox" id="tabletop_edits">
-          Let turns be rewritten or removed</label>
-        <p class="hint" id="tableEditHint" hidden>Off at the table, so what happened happened.
-          Deleting is covered too — a line you can remove is a line you can rewrite in two
-          steps. Turn it on if you would rather keep the pencil.</p>
-        <label class="check"><input type="checkbox" id="confirm_deletes"> Ask before deleting anything</label>
-        <p class="hint">Nothing here can be undone; keep a copy of your data folder either way.</p>
-      </div>
-
-      <div data-view="connection" hidden>
-        <button class="backlink" data-back>Settings</button>
-        <label>Provider<select id="provider"></select></label>
-        <label>API key<input id="api_key" type="password" autocomplete="off"></label>
-        <p class="hint" id="keyHint"></p>
-        <label>Model
-          <button type="button" class="picker" id="modelBtn">
-            <span id="modelLabel">Choose a model</span>
-            <span class="pickerprice" id="modelPrice"></span>
-          </button>
-        </label>
-        <button class="ghost wide" id="testBtn">Test connection</button>
-        <p class="hint" id="testHint"></p>
-        <button class="ghost wide" id="saveSettings">Save settings</button>
-        <p class="hint" id="saveHint"></p>
-      </div>
-
-
-
-      <div data-view="extensions" hidden>
-        <button class="backlink" data-back>Settings</button>
-        <p class="hint">Two halves, both optional. The <em>page</em> half draws and reacts;
-          the <em>server</em> half rewrites the prompt going out and the reply coming back.</p>
-        <div class="installrow">
-          <input type="text" id="extUrl" placeholder="github.com/owner/repo" autocomplete="off"
-                 spellcheck="false" aria-label="Repository address">
-          <button class="solid" id="extInstall">Install</button>
+        <div class="searchrow">
+          <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+          <input type="search" id="castSearch" placeholder="Search your cast" autocomplete="off" aria-label="Search characters">
         </div>
         <div class="listbar">
-          <button class="ico" id="extAdd" title="Write a new extension" aria-label="Write a new extension"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-          <button class="ico" id="extImportBtn" title="Import an extension" aria-label="Import an extension"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+          <button class="ico" id="newGroupBtn" title="New group chat" aria-label="Start a new group chat"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg></button>
+          <button class="ico" id="castSelect" title="Select several" aria-label="Select several characters"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+          <button class="ico" id="castAll" title="Select all, and start picking" aria-label="Select all characters"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
           <span class="grow"></span>
+          <span class="selcount" id="castCount" hidden></span>
+          <button class="ico" id="castGroup" title="Start a group chat" aria-label="Start a group chat with the selected characters" hidden><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg></button>
+          <button class="ico danger" id="castDelete" title="Delete selected" aria-label="Delete selected characters" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
         </div>
-        <div id="extList" class="list"></div>
-        <input type="file" id="extImport" accept=".json" multiple hidden>
-        <p class="hint danger-hint">An extension runs with Hearth's own powers — there is no sandbox.
-          Install one the way you would run any other program: because you trust where it came from.</p>
-      </div>
-
-      <div data-view="data" hidden>
-        <button class="backlink" data-back>Settings</button>
-
-        <h3>Bring in your SillyTavern library</h3>
-        <button class="ghost wide" id="browseBtn">Find my SillyTavern folder</button>
-        <p class="hint">Read straight off the disk. Characters, personas, lorebooks, presets, chats and backgrounds.</p>
-
-        <div class="progress" id="backupProgress" hidden>
-          <div class="track"><div class="fill" id="backupFill"></div></div>
-          <div class="progmeta">
-            <span id="backupStage">Working…</span>
-            <span id="backupPct">0%</span>
-          </div>
-        </div>
-        <p class="hint" id="backupHint"></p>
-
-        <label class="filebtn">Or pick files by hand
-          <input type="file" id="looseImport" accept=".zip,.json,.png,.jpg,.jpeg,.webp,.jsonl" multiple hidden>
+        <div id="castList" class="list"></div>
+        <!-- One emphasised action, and the rarer two quiet underneath it. Three
+             full-width buttons of identical weight is three things with no
+             answer to "which one did I want". -->
+        <label class="filebtn solid">Import character cards
+          <input type="file" id="cardFile" accept=".png,.json" multiple hidden>
         </label>
-        <p class="hint">A zip, a folder, or loose files &mdash; include your User Avatars pictures for persona faces.</p>
+        <p class="hint" id="importHint">PNG cards or .json, several at once.</p>
+        <div class="quietrow">
+          <button class="linkish" id="newCharBtn">Write one by hand</button>
+          <!-- Tabletop only: the table starts empty and fills up one invitation
+               at a time, rather than opening onto everybody you have ever made. -->
+          <button class="linkish" id="bringOverBtn" hidden>Bring someone over</button>
+        </div>
+      </section>
 
-        <h3>Your own backup</h3>
-        <button class="ghost wide" id="exportBtn">Download everything as a zip</button>
-        <p class="hint">The database, your settings and every picture.</p>
+      <section data-panel="you" class="panel" hidden>
+        <header class="panelhead">
+          <h2>You<span class="panelcount" data-count-for="personaList"></span></h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <!-- Only in tabletop mode. A sheet belongs to whoever you are playing,
+             so it lives with the personas rather than in a room of its own. -->
+        <div id="sheetSection" hidden>
+          <h3>Your character sheet</h3>
+          <div id="sheetBody"></div>
+        </div>
 
-        <h3>Recently deleted</h3>
-        <div id="binList" class="list"></div>
-        <button class="linkish danger" id="binPurge" hidden>Empty the bin permanently</button>
+        <h3>Personas</h3>
+        <div class="listbar">
+          <button class="ico" id="personaSelect" title="Select several" aria-label="Select several personas"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+          <button class="ico" id="personaAll" title="Select all, and start picking" aria-label="Select all personas"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+          <span class="grow"></span>
+          <span class="selcount" id="personaCount" hidden></span>
+          <button class="ico danger" id="personaDelete" title="Delete selected" aria-label="Delete selected personas" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+        </div>
+        <div id="personaList" class="list"></div>
+        <p class="hint">The active persona is who the character is talking to. It fills {{user}} in cards and prompts.</p>
+        <button class="solid wide" id="newPersonaBtn">New persona</button>
+        <div class="quietrow">
+          <!-- Tabletop only. Who you are at the table is not necessarily who you
+               are in your stories, so the table starts with nobody. -->
+          <button class="linkish tableonly" id="bringMeBtn">Bring one of yours over</button>
+        </div>
+        <label class="filebtn">Import from SillyTavern
+          <input type="file" id="personaImport" accept=".json" hidden>
+        </label>
+        <p class="hint" id="personaImportHint">Point this at your SillyTavern <code>settings.json</code> and it will pull in every persona and description.</p>
+        <label class="filebtn">Import persona files
+          <input type="file" id="personaFiles" accept=".json" multiple hidden>
+        </label>
+      </section>
 
-        <h3>Start over</h3>
-        <button class="ghost wide danger" id="wipeBtn">Delete all my data</button>
-        <p class="hint">Everything, bin included. Your API keys and appearance settings stay.</p>
-        <p class="hint" id="wipeHint"></p>
+      <section data-panel="lore" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Lorebooks<span class="panelcount" data-count-for="loreList"></span></h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <div id="loreActive" class="loreactive"></div>
+        <div class="searchrow">
+          <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+          <input type="search" id="loreSearch" placeholder="Search lorebooks" autocomplete="off" aria-label="Search lorebooks">
+        </div>
+        <div class="listbar">
+          <button class="ico" id="loreImportBtn" title="Import a lorebook" aria-label="Import a lorebook"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+          <button class="ico" id="loreSelect" title="Select several" aria-label="Select several lorebooks"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+          <button class="ico" id="loreAll" title="Select all, and start picking" aria-label="Select all lorebooks"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+          <span class="grow"></span>
+          <span class="selcount" id="loreCount" hidden></span>
+          <button class="ico" id="loreView" title="Show them as a list" aria-label="Show them as a list"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+          <button class="ico danger" id="loreDelete" title="Delete selected" aria-label="Delete selected lorebooks" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+        </div>
+        <!-- The same books twice: standing on a shelf, which is how you find one
+             you half remember, and as a list, which is where the wiring is. -->
+        <div id="loreShelf" class="shelf"></div>
+        <!-- The book you took down: what it is, what it is wired to, and the
+             three things you can do with it. -->
+        <div id="loreDetail" class="pulled" hidden></div>
+        <div id="loreList" class="list"></div>
+        <button class="solid wide" id="newBookBtn">New lorebook</button>
+        <div class="quietrow">
+          <!-- Tabletop only. A world you built for a story is not automatically
+               the world the game is set in. -->
+          <button class="linkish tableonly" id="bringBookBtn">Bring one to the table</button>
+        </div>
+          <input type="file" id="loreImport" accept=".json" multiple hidden>
+
+        <details class="fold">
+          <summary><span>How lore fires</span></summary>
+          <div class="foldbody">
+            <label>Messages scanned <span class="v" id="v_scan"></span>
+              <input type="range" id="lore_scan_depth" min="1" max="30" step="1">
+            </label>
+            <label>Text budget <span class="v" id="v_budget"></span>
+              <input type="range" id="lore_budget" min="500" max="30000" step="500">
+            </label>
+            <label>Notes taken every <span class="v" id="v_autolore"></span>
+              <input type="range" id="auto_lore_every" min="0" max="100" step="1">
+            </label>
+            <label id="autoLoreScopeRow">Each note covers
+              <select id="auto_lore_scope">
+                <option value="since">Everything since the last note</option>
+                <option value="window">Only the most recent messages</option>
+              </select>
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <section data-panel="look" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Look</h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <details class="fold" id="wallFold">
+          <summary><span>Wallpaper</span><span class="count" id="wallCount"></span></summary>
+          <div class="foldbody">
+            <div class="searchrow">
+              <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+              <input type="search" id="wallSearch" placeholder="Filter wallpapers" autocomplete="off" aria-label="Filter wallpapers">
+            </div>
+            <div class="listbar">
+              <button class="ico" id="wallSelect" title="Select several" aria-label="Select several wallpapers"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+              <button class="ico" id="wallAll" title="Select all, and start picking" aria-label="Select all wallpapers"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+              <span class="grow"></span>
+              <span class="selcount" id="wallSelCount" hidden></span>
+              <button class="ico danger" id="wallDelete" title="Delete selected" aria-label="Delete selected wallpapers" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+            </div>
+            <div id="wallGrid" class="wallgrid"></div>
+            <label class="filebtn">Upload an image
+              <input type="file" id="wallFile" accept="image/*" hidden>
+            </label>
+            <button class="ghost wide" id="wallClear">Use no wallpaper</button>
+          </div>
+        </details>
+
+        <h3>Messages</h3>
+        <div class="styles">
+          <button type="button" data-style="banner">Banner</button>
+          <button type="button" data-style="portrait">Portrait</button>
+          <button type="button" data-style="page">Page</button>
+        </div>
+        <label id="bannerRow">Portrait width <span class="v" id="v_banner"></span>
+          <input type="range" id="banner_width" min="90" max="280" step="5">
+        </label>
+        <label id="avatarRow">Face size <span class="v" id="v_avatar"></span>
+          <input type="range" id="avatar_size" min="36" max="88" step="2">
+        </label>
+
+        <label class="check"><input type="checkbox" id="bleed"> Fade portraits into the page</label>
+        <label id="fadeRow">Fade begins at <span class="v" id="v_fade"></span>
+          <input type="range" id="fade_start" min="10" max="100" step="5">
+        </label>
+        <label class="check"><input type="checkbox" id="show_stats"> Show tokens and timing on messages</label>
+        <label class="check"><input type="checkbox" id="show_cutoff"> Mark where the conversation stops being sent</label>
+        <label class="check"><input type="checkbox" id="sound"> A quill scratching as a reply is written</label>
+
+        <details class="cssbox">
+          <summary>Custom CSS</summary>
+          <textarea id="custom_css" rows="8" spellcheck="false" autocomplete="off"
+                    placeholder="/* Anything here is added to the stylesheet, last, so it wins.
+     .plate { border-radius: 0 } */"></textarea>
+        </details>
+
+        <label id="tuckRow">Portrait tuck <span class="v" id="v_tuck"></span>
+          <input type="range" id="tuck" min="0" max="0.34" step="0.01">
+        </label>
+        <label>Message blur <span class="v" id="v_blur"></span>
+          <input type="range" id="plate_blur" min="0" max="30" step="1">
+        </label>
+        <label>Message solidity <span class="v" id="v_solid"></span>
+          <input type="range" id="plate_opacity" min="0.2" max="1" step="0.02">
+        </label>
+
+        <h3>Depth</h3>
+        <label>Overlay darkness <span class="v" id="v_overlay"></span>
+          <input type="range" id="overlay_opacity" min="0" max="1" step="0.02">
+        </label>
+        <label>Hearth glow <span class="v" id="v_glow"></span>
+          <input type="range" id="glow_opacity" min="0" max="0.6" step="0.01">
+        </label>
+        <label>Text size <span class="v" id="v_font"></span>
+          <input type="range" id="font_scale" min="0.8" max="1.4" step="0.02">
+        </label>
+        <label>Reading width <span class="v" id="v_measure"></span>
+          <input type="range" id="measure" min="16" max="72" step="1">
+        </label>
+        <label>Corner softness <span class="v" id="v_radius"></span>
+          <input type="range" id="radius" min="0" max="22" step="1">
+        </label>
+
+        <h3>Colours</h3>
+        <div id="swatches"></div>
+        <button class="ghost wide" id="themeReset">Reset to the default theme</button>
+        <button class="ghost wide" id="themeCopy">Copy this theme as CSS</button>
+        <p class="hint" id="themeHint"></p>
+      </section>
+
+      <!-- Was a page inside Settings. It is a daily-use surface, not configuration. -->
+      <section data-panel="presets" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Presets<span class="panelcount" data-count-for="presetList"></span></h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <p class="hint" id="samplingSource"></p>
+
+        <label>Reply length <span class="v" id="v_max_tokens"></span>
+          <input type="range" id="max_tokens" min="128" max="32000" step="1">
+        </label>
+        <label>Conversation sent <span class="v" id="v_context_tokens"></span>
+          <input type="range" id="context_tokens" min="1000" max="200000" step="500">
+        </label>
+        <p class="hint">Counted in tokens, not messages.</p>
+
+        <div class="row">
+          <label>Temperature<input id="temperature" type="number" step="0.05" min="0" max="2"></label>
+          <label>Top P<input id="top_p" type="number" step="0.01" min="0" max="1"></label>
+        </div>
+        <div class="row">
+          <label>Min P<input id="min_p" type="number" step="0.01" min="0" max="1"></label>
+          <label>Repetition<input id="repetition_penalty" type="number" step="0.01" min="0.5" max="2"></label>
+        </div>
+        <div class="row">
+          <label>Frequency<input id="frequency_penalty" type="number" step="0.05" min="-2" max="2"></label>
+          <label>Presence<input id="presence_penalty" type="number" step="0.05" min="-2" max="2"></label>
+        </div>
+
+        <label class="check"><input type="checkbox" id="stream"> Stream the reply as it is written</label>
+
+        <label>Thinking
+          <select id="reasoning_effort">
+            <option value="">Let the model decide</option>
+            <option value="off">No thinking</option>
+            <option value="minimal">Minimal</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <p class="hint">Reasoning models only. Anthropic bills thinking on top of the reply.</p>
+
+        <button class="ghost wide" id="saveSampling">Save settings</button>
+        <p class="hint" id="samplingHint"></p>
+
+        <h3>Preset</h3>
+        <label>Active preset
+          <select id="presetPick"></select>
+        </label>
+        <div id="presetCard" class="presetcard"></div>
+
+        <details class="fold">
+          <summary><span>Manage presets</span></summary>
+          <div class="foldbody">
+            <div class="searchrow">
+              <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+              <input type="search" id="presetSearch" placeholder="Search presets" autocomplete="off" aria-label="Search presets">
+            </div>
+            <div class="listbar">
+              <button class="ico" id="presetImportBtn" title="Import presets" aria-label="Import SillyTavern presets"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+              <button class="ico" id="presetSelect" title="Select several" aria-label="Select several presets"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+              <button class="ico" id="presetAll" title="Select all, and start picking" aria-label="Select all presets"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+              <span class="grow"></span>
+              <span class="selcount" id="presetCount" hidden></span>
+              <button class="ico danger" id="presetDelete" title="Delete selected" aria-label="Delete selected presets" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+            </div>
+            <p class="hint" id="presetTableNote" hidden>The table is running its own preset, so
+              whichever of these is active is not being used right now. Behaviour has the
+              switch.</p>
+            <div id="presetList" class="list"></div>
+            <button class="ghost wide" id="savePresetBtn">Save these values as a new preset</button>
+              <input type="file" id="presetImport" accept=".json" multiple hidden>
+          </div>
+        </details>
+      </section>
+
+      <!-- Likewise: something you reach for while writing, not while setting up. -->
+      <section data-panel="regex" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Scripts<span class="panelcount" data-count-for="regexList"></span></h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <p class="hint">Find-and-replace over message text. <em>shown</em> changes what you read, <em>sent</em> changes what the model gets.</p>
+        <div class="searchrow">
+          <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+          <input type="search" id="regexSearch" placeholder="Search scripts" autocomplete="off" aria-label="Search regex scripts">
+        </div>
+        <div class="listbar">
+          <button class="ico" id="regexImportBtn" title="Import regex scripts" aria-label="Import regex scripts"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+          <button class="ico" id="regexSelect" title="Select several" aria-label="Select several scripts"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+          <button class="ico" id="regexAll" title="Select all, and start picking" aria-label="Select all scripts"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+          <span class="grow"></span>
+          <span class="selcount" id="regexCount" hidden></span>
+          <button class="ico danger" id="regexDelete" title="Delete selected" aria-label="Delete selected scripts" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+        </div>
+        <div id="regexList" class="list"></div>
+          <input type="file" id="regexImport" accept=".json" multiple hidden>
+        <p class="hint" id="regexHint">A regex export, or a preset — its scripts come across either way.</p>
+      </section>
+      <section data-panel="settings" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Settings</h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <div data-view="menu">
+          <button class="navcard" id="modeCard">
+            <span class="t" id="modeCardTitle">Tabletop mode</span>
+            <span class="s" id="modeCardSub">Sheets, classes and a narrator who rolls</span>
+          </button>
+          <button class="navcard" data-go="connection">
+            <span class="t">Connection</span><span class="s">Provider, API keys, model</span>
+          </button>
+          <button class="navcard" data-go="extensions">
+            <span class="t">Extensions</span><span class="s">Other people's code, in the page and around the prompt</span>
+          </button>
+          <button class="navcard" data-go="data">
+            <span class="t">Import and data</span><span class="s">SillyTavern backups and settings</span>
+          </button>
+
+          <h3>Behaviour</h3>
+          <label class="check"><input type="checkbox" id="dice_enabled"> Let every character roll dice</label>
+          <p class="hint" id="diceHint"></p>
+          <!-- Tabletop only. A story chat's swipes are drafts; a game's are a
+               way of not having rolled. -->
+          <label id="tableSwipeRow" hidden>Swipes at the table
+            <select id="tabletop_swipes">
+              <option value="0">None — what happened, happened</option>
+              <option value="3">Three</option>
+              <option value="5">Five</option>
+              <option value="10">Ten</option>
+            </select>
+          </label>
+          <p class="hint" id="tableSwipeHint" hidden>Kept low on purpose: rerolling until it goes
+            your way is the same as not rolling. A few are allowed so a bad reply from your
+            provider is fixable.</p>
+          <label class="check" id="tablePresetRow" hidden><input type="checkbox" id="tabletop_preset">
+            Use the table's own preset</label>
+          <p class="hint" id="tablePresetHint" hidden>A roleplay preset is an opinion about writing
+            a beautiful scene, which is the wrong opinion for a game. The table brings its own —
+            short turns, real consequences, and nothing spoken on your behalf. Your sampling and
+            context settings are left alone. Turn this off to use whichever of your presets is
+            active instead.</p>
+          <label class="check" id="tableEditRow" hidden><input type="checkbox" id="tabletop_edits">
+            Let turns be rewritten or removed</label>
+          <p class="hint" id="tableEditHint" hidden>Off at the table, so what happened happened.
+            Deleting is covered too — a line you can remove is a line you can rewrite in two
+            steps. Turn it on if you would rather keep the pencil.</p>
+          <label class="check"><input type="checkbox" id="confirm_deletes"> Ask before deleting anything</label>
+          <p class="hint">Nothing here can be undone; keep a copy of your data folder either way.</p>
+        </div>
+
+        <div data-view="connection" hidden>
+          <button class="backlink" data-back>Settings</button>
+          <label>Provider<select id="provider"></select></label>
+          <label>API key<input id="api_key" type="password" autocomplete="off"></label>
+          <p class="hint" id="keyHint"></p>
+          <label>Model
+            <button type="button" class="picker" id="modelBtn">
+              <span id="modelLabel">Choose a model</span>
+              <span class="pickerprice" id="modelPrice"></span>
+            </button>
+          </label>
+          <button class="ghost wide" id="testBtn">Test connection</button>
+          <p class="hint" id="testHint"></p>
+          <button class="ghost wide" id="saveSettings">Save settings</button>
+          <p class="hint" id="saveHint"></p>
+        </div>
+
+
+
+        <div data-view="extensions" hidden>
+          <button class="backlink" data-back>Settings</button>
+          <p class="hint">Two halves, both optional. The <em>page</em> half draws and reacts;
+            the <em>server</em> half rewrites the prompt going out and the reply coming back.</p>
+          <div class="installrow">
+            <input type="text" id="extUrl" placeholder="github.com/owner/repo" autocomplete="off"
+                   spellcheck="false" aria-label="Repository address">
+            <button class="solid" id="extInstall">Install</button>
+          </div>
+          <div class="listbar">
+            <button class="ico" id="extAdd" title="Write a new extension" aria-label="Write a new extension"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="ico" id="extImportBtn" title="Import an extension" aria-label="Import an extension"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+            <span class="grow"></span>
+          </div>
+          <div id="extList" class="list"></div>
+          <input type="file" id="extImport" accept=".json" multiple hidden>
+          <p class="hint danger-hint">An extension runs with Hearth's own powers — there is no sandbox.
+            Install one the way you would run any other program: because you trust where it came from.</p>
+        </div>
+
+        <div data-view="data" hidden>
+          <button class="backlink" data-back>Settings</button>
+
+          <h3>Bring in your SillyTavern library</h3>
+          <button class="ghost wide" id="browseBtn">Find my SillyTavern folder</button>
+          <p class="hint">Read straight off the disk. Characters, personas, lorebooks, presets, chats and backgrounds.</p>
+
+          <div class="progress" id="backupProgress" hidden>
+            <div class="track"><div class="fill" id="backupFill"></div></div>
+            <div class="progmeta">
+              <span id="backupStage">Working…</span>
+              <span id="backupPct">0%</span>
+            </div>
+          </div>
+          <p class="hint" id="backupHint"></p>
+
+          <label class="filebtn">Or pick files by hand
+            <input type="file" id="looseImport" accept=".zip,.json,.png,.jpg,.jpeg,.webp,.jsonl" multiple hidden>
+          </label>
+          <p class="hint">A zip, a folder, or loose files &mdash; include your User Avatars pictures for persona faces.</p>
+
+          <h3>Your own backup</h3>
+          <button class="ghost wide" id="exportBtn">Download everything as a zip</button>
+          <p class="hint">The database, your settings and every picture.</p>
+
+          <h3>Recently deleted</h3>
+          <div id="binList" class="list"></div>
+          <button class="linkish danger" id="binPurge" hidden>Empty the bin permanently</button>
+
+          <h3>Start over</h3>
+          <button class="ghost wide danger" id="wipeBtn">Delete all my data</button>
+          <p class="hint">Everything, bin included. Your API keys and appearance settings stay.</p>
+          <p class="hint" id="wipeHint"></p>
+
+        </div>
+      </section>
 
       </div>
-    </section>
-
   </aside>
 
 </div>
