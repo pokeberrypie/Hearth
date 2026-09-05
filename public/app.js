@@ -6332,7 +6332,7 @@ $("#themeCopy").onclick = async () => {
  * it is the thing everyone else is looking at. The guest's view is the same
  * app with the drawer taken away; there is no second client to keep in step.
  */
-const TG = { share: null, feed: null, answering: false, door: null };
+const TG = { share: null, feed: null, answering: false, door: null, chats: [] };
 
 /**
  * The address to put in front of the link.
@@ -6359,8 +6359,26 @@ function renderTogether() {
   const on = !!TG.share;
   shut.hidden = on;
   live.hidden = !on;
-  $("#tgNoChat").hidden = !!S.chatId;
-  $("#tgOpen").disabled = !S.chatId;
+
+  /*
+   * Pick the chat here rather than requiring you to be sitting in it.
+   *
+   * Opening a table is a thing you decide to do — usually before anybody has
+   * opened anything — and "go and open the chat first, then come back" is a
+   * hoop with nothing on the other side of it. Whatever you are in is
+   * preselected, because that is the likely answer, not the only one.
+   */
+  const which = $("#tgWhich");
+  const chats = TG.chats ?? [];
+  if (which) {
+    const keep = which.value || S.chatId || chats[0]?.id || "";
+    which.innerHTML = chats.map((c) =>
+      `<option value="${esc(c.id)}">${esc(c.title || c.character_name || "Untitled")}</option>`).join("");
+    if (chats.some((c) => c.id === keep)) which.value = keep;
+    which.hidden = chats.length === 0;
+  }
+  $("#tgNoChat").hidden = chats.length > 0;
+  $("#tgOpen").disabled = chats.length === 0;
   if (!on) return;
 
   $("#tgLink").value = tgLinkFor(TG.share);
@@ -6433,8 +6451,12 @@ $("#tgDoor").onclick = async () => {
 };
 
 async function refreshTogether() {
-  const shares = await api("/shares").catch(() => []);
+  const [shares, chats] = await Promise.all([
+    api("/shares").catch(() => []),
+    api("/chats").catch(() => []),
+  ]);
   if (!Array.isArray(shares)) return;
+  TG.chats = Array.isArray(chats) ? chats : [];
   TG.share = shares.find((s) => s.chat_id === S.chatId) ?? shares[0] ?? null;
   if (!TG.door) await refreshDoor();
   renderTogether();
@@ -6499,12 +6521,11 @@ $("#tgOpen").onclick = async () => {
    * perfectly enabled while being inert. A control that is not available has
    * to look unavailable and, if pressed anyway, has to say why.
    */
-  if (!S.chatId) {
-    return fail("Open a chat first — a table has to be a table before anyone can sit at it.");
-  }
+  const chatId = $("#tgWhich")?.value || S.chatId;
+  if (!chatId) return fail("There is no chat to open yet. Start one first.");
   const r = await api("/shares", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: S.chatId }),
+    body: JSON.stringify({ chat_id: chatId }),
   });
   if (r?.error) return fail(r.error);
   await refreshTogether();
