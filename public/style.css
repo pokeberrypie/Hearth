@@ -5444,3 +5444,135 @@ dialog menu button { width: auto; margin: 0; }
 .shelf.selecting .spine:has(.pick:checked) .spinetitle { opacity: 1; }
 /* Room above the books for the seals to sit in. */
 .shelf.selecting { padding-top: 9px; }
+
+/* ---- the command palette ----------------------------------------------------
+   One box to reach everything. A deep app with its depth behind a gear icon is
+   an app most people only ever use the top of; this is the way through without
+   having to know where anything lives. */
+
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  /* High rather than centred: the list grows downwards and a box that grows
+     from the middle of the screen moves what you are already reading. */
+  align-content: start;
+  justify-items: center;
+  padding: 12vh 1rem 1rem;
+  background: rgba(8, 5, 4, 0.62);
+  backdrop-filter: blur(3px);
+  animation: palIn 0.14s ease-out;
+}
+@keyframes palIn { from { opacity: 0; } }
+
+.palbox {
+  width: min(94vw, 40rem);
+  overflow: hidden;
+  background: var(--lumiverse-bg-elevated);
+  border-radius: var(--lumiverse-radius);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 40%, transparent),
+    inset 0 0 0 4px color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, var(--lumiverse-primary) 16%, transparent),
+    0 24px 60px rgba(0, 0, 0, 0.65);
+  animation: palRise 0.2s cubic-bezier(.2, .9, .3, 1);
+}
+@keyframes palRise { from { transform: translateY(-8px); opacity: 0; } }
+
+.palfield {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+}
+.palfield svg {
+  width: 18px; height: 18px; flex: none;
+  fill: none; stroke: var(--lumiverse-text-dim); stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.palfield input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-family: var(--lumiverse-font-family);
+  font-size: 1.05rem;
+  color: var(--lumiverse-text);
+}
+.palfield input:focus { outline: none; }
+.palfield input::placeholder { color: var(--lumiverse-text-hint); }
+
+kbd {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 60%, transparent);
+  box-shadow: inset 0 0 0 1px var(--lumiverse-border);
+  font-family: var(--lumiverse-font-family);
+  font-size: 0.68rem;
+  color: var(--lumiverse-text-dim);
+}
+
+.pallist { max-height: min(52vh, 30rem); overflow-y: auto; padding: 0.35rem; }
+.palempty { padding: 1.2rem; text-align: center; color: var(--lumiverse-text-dim); }
+
+.palrow {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  background: none;
+  border: 0;
+  border-radius: var(--lumiverse-radius-sm);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+/* One highlight, moved by the keyboard, and the mouse moves it rather than
+   drawing a second one — two things that look selected is no things. */
+.palrow.at { background: color-mix(in srgb, var(--lumiverse-primary) 14%, transparent); }
+
+.palicon { flex: none; display: grid; place-items: center; width: 26px; height: 26px; }
+.palicon .medallion { width: 26px; height: 26px; }
+.paltext { flex: 1; min-width: 0; display: grid; }
+.pallabel {
+  font-size: 0.95rem;
+  color: var(--lumiverse-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.palsub {
+  font-size: 0.76rem;
+  color: var(--lumiverse-text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.palrow.at .pallabel { color: var(--lumiverse-primary); }
+.palkind {
+  flex: none;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-hint);
+}
+
+.palfoot {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.45rem 0.9rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--lumiverse-text-hint);
+  box-shadow: 0 -1px 0 var(--lumiverse-border);
+}
+.palfoot .grow { flex: 1; }
+
+/* A phone has no ctrl key, so the box is reached by the search rows in the
+   drawer instead; when it does open, it takes the screen. */
+@media (max-width: 700px) {
+  .palette { padding: 5vh 0.6rem 0.6rem; }
+  .pallist { max-height: 64vh; }
+}

@@ -6375,3 +6375,205 @@ function openTheHearth() {
 }
 
 boot();
+
+/* ---- everything, from one box -----------------------------------------------
+   A deep app with its depth behind a gear icon is an app most people only ever
+   use the top of. Presets as reorderable blocks, regex, extensions, branching,
+   lorebook binding, a tabletop: all of it real, most of it unfindable unless
+   you already knew it was there.
+
+   This is the way through to all of it without knowing where any of it lives.
+   Ctrl+K, type, enter. Characters, chats, books, presets, every panel, the
+   handful of things you actually do, and — the one nothing else in this space
+   does properly — the text of every message you have ever sent or been sent. */
+
+const PAL_LIMIT = 9;
+let palRows = [];
+let palAt = 0;
+let palSeq = 0;
+
+/**
+ * Subsequence matching, the way every command palette works.
+ *
+ * "swp" finds "Swipes at the table" because the letters appear in order, and a
+ * run of them together scores higher than the same letters scattered. Nobody
+ * types a whole word into one of these; they type the shape of it.
+ */
+function fuzzy(needle, hay) {
+  if (!needle) return 0;
+  const n = needle.toLowerCase(), h = String(hay ?? "").toLowerCase();
+  // A straight substring is always the better answer, and a hit at the start
+  // of a word is what somebody meant when they typed three letters.
+  const direct = h.indexOf(n);
+  if (direct === 0) return 1000;
+  if (direct > 0) return 800 - Math.min(direct, 200) + (/\W/.test(h[direct - 1]) ? 100 : 0);
+
+  let i = 0, score = 0, run = 0;
+  for (const ch of h) {
+    if (ch === n[i]) { i++; run++; score += 10 + run * 6; }
+    else run = 0;
+    if (i === n.length) return score;
+  }
+  return 0;
+}
+
+/** Everything the palette can offer, gathered fresh each time it opens. */
+function palSources() {
+  const rows = [];
+  const add = (kind, label, sub, run, icon) => rows.push({ kind, label, sub, run, icon });
+
+  for (const ch of castCache) {
+    add("Character", ch.name,
+      ch.chats?.length ? `${ch.chats.length} chat${ch.chats.length > 1 ? "s" : ""}` : "no chats yet",
+      () => (ch.chats?.[0] ? openChat(ch.chats[0].id) : startChat(ch.id)),
+      medallion(ch.avatar, ch.name));
+    for (const c of (ch.chats ?? []).slice(0, 6)) {
+      add("Chat", c.title || "Untitled", `${ch.name} · ${c.turns} turns`,
+        () => openChat(c.id), medallion(ch.avatar, ch.name));
+    }
+  }
+  for (const b of books) {
+    add("Lorebook", b.name, `${b.entries.length} entries`, () => openBook(b));
+  }
+  for (const p of presetsCache) {
+    add("Preset", p.name, p.is_active ? "active" : "switch to this",
+      async () => { await api(`/presets/${p.id}/activate`, { method: "POST" }); refreshPresets(); });
+  }
+  for (const [tab, name] of [
+    ["cast", "Cast"], ["you", "You and your personas"], ["lore", "Lorebooks"],
+    ["presets", "Presets and sampling"], ["regex", "Regex scripts"],
+    ["look", "Look and theme"], ["settings", "Settings"],
+  ]) {
+    add("Go to", name, "panel", () => {
+      openDrawer?.();
+      document.querySelector(`.tabs button[data-tab="${tab}"]`)?.click();
+    });
+  }
+  add("Do", "New chat with…", "pick a character", () => {
+    openDrawer?.();
+    document.querySelector('.tabs button[data-tab="cast"]')?.click();
+  });
+  add("Do", "Roll dice", "the composer's die", () => $("#diceBtn")?.click());
+  add("Do", document.body.dataset.mode === "tabletop" ? "Leave tabletop mode" : "Enter tabletop mode",
+    "the door", () => setMode(document.body.dataset.mode === "tabletop" ? "story" : "tabletop"));
+  add("Do", "The story tree", "where this chat forked", () => showTree?.());
+  return rows;
+}
+
+function palDraw() {
+  const list = $("#palList");
+  $("#palCount").textContent = palRows.length ? `${palRows.length} found` : "";
+  if (!palRows.length) {
+    list.innerHTML = `<p class="palempty">Nothing matches that.</p>`;
+    return;
+  }
+  list.innerHTML = palRows.map((r, i) => `
+    <button class="palrow${i === palAt ? " at" : ""}" data-i="${i}" role="option"
+            aria-selected="${i === palAt}">
+      <span class="palicon">${r.icon ?? ""}</span>
+      <span class="paltext">
+        <span class="pallabel">${esc(r.label)}</span>
+        ${r.sub ? `<span class="palsub">${esc(r.sub)}</span>` : ""}
+      </span>
+      <span class="palkind">${esc(r.kind)}</span>
+    </button>`).join("");
+  for (const b of list.children) {
+    if (!b.dataset) continue;
+    b.onmousemove = () => { if (palAt !== +b.dataset.i) { palAt = +b.dataset.i; palDraw(); } };
+    b.onclick = () => palRun(+b.dataset.i);
+  }
+  list.children[palAt]?.scrollIntoView({ block: "nearest" });
+}
+
+async function palSearch(q) {
+  const mine = ++palSeq;
+  /*
+   * An empty box offers what you would actually want next, not the alphabet.
+   *
+   * Ranking nothing against nothing sorted the whole library by name and
+   * filled the list with everybody whose name begins with A, which is a worse
+   * answer than showing nothing at all. Where you were, and the handful of
+   * things there are to do.
+   */
+  const all = palSources();
+  const local = q
+    ? all
+        .map((r) => ({ r, score: fuzzy(q, r.label + " " + (r.sub ?? "")) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, PAL_LIMIT)
+        .map((x) => x.r)
+    : [
+        ...all.filter((r) => r.kind === "Chat").slice(0, 4),
+        ...all.filter((r) => r.kind === "Do"),
+      ].slice(0, PAL_LIMIT);
+
+  palRows = local;
+  palAt = 0;
+  palDraw();
+
+  /*
+   * And what you actually said, which is the part no other frontend does.
+   *
+   * Fetched rather than filtered, because it is the whole library and there
+   * are far too many messages to hold in the page. Sequence-guarded: typing
+   * is faster than a round trip and the answer to "hel" must not land on top
+   * of the answer to "hello".
+   */
+  if (q.length < 2) return;
+  let hits = [];
+  try { hits = await api(`/search?q=${encodeURIComponent(q)}`); } catch { return; }
+  if (mine !== palSeq || !Array.isArray(hits)) return;
+
+  for (const h of hits.slice(0, 6)) {
+    palRows.push({
+      kind: "Said", label: h.snippet,
+      sub: `${h.character_name}${h.title ? ` · ${h.title}` : ""} · ${ago(h.created_at)}`,
+      icon: medallion(h.avatar, h.character_name),
+      run: () => openChat(h.chat_id),
+    });
+  }
+  palDraw();
+}
+
+function palRun(i) {
+  const row = palRows[i];
+  if (!row) return;
+  closePalette();
+  row.run();
+}
+
+function openPalette() {
+  const el = $("#palette");
+  if (!el || !el.hidden) return;
+  el.hidden = false;
+  $("#palInput").value = "";
+  palSearch("");
+  $("#palInput").focus();
+}
+
+function closePalette() {
+  const el = $("#palette");
+  if (el) el.hidden = true;
+}
+
+$("#palInput").oninput = (e) => palSearch(e.target.value.trim());
+$("#palette").onclick = (e) => { if (e.target.id === "palette") closePalette(); };
+
+$("#palInput").onkeydown = (e) => {
+  if (e.key === "Escape") { closePalette(); return; }
+  if (e.key === "Enter") { e.preventDefault(); palRun(palAt); return; }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!palRows.length) return;
+    palAt = (palAt + (e.key === "ArrowDown" ? 1 : -1) + palRows.length) % palRows.length;
+    palDraw();
+  }
+};
+
+addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    $("#palette").hidden ? openPalette() : closePalette();
+  }
+});

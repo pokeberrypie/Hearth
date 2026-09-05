@@ -1129,6 +1129,62 @@ api.post("/import/characters", async (c) => {
 });
 
 /** Recent characters for the splash page, each with their latest chat. */
+/**
+ * Search across every message you have ever written or been sent.
+ *
+ * There is a lot in a library like this and no way at all to get back to a
+ * scene you half remember. SQLite does the whole thing with a LIKE and an
+ * index it already has on chat_id, and at this size that is instant — a
+ * full-text index would be faster and is not worth the migration until
+ * somebody notices.
+ *
+ * Filtered by world like every other list, since a search that returns a
+ * story chat while you are sitting at the table is the same intrusion the
+ * separate libraries exist to prevent.
+ */
+api.get("/search", (c) => {
+  const q = String(c.req.query("q") ?? "").trim();
+  if (q.length < 2) return c.json([]);
+  // LIKE's own wildcards are not the user's to type by accident.
+  const needle = `%${q.replace(/[\\%_]/g, (ch) => "\\" + ch)}%`;
+  const rows = db.query(
+    `SELECT messages.id, messages.chat_id, messages.role, messages.content, messages.created_at,
+            chats.title, characters.name AS character_name, characters.avatar
+       FROM messages
+       JOIN chats ON chats.id = messages.chat_id
+       JOIN characters ON characters.id = chats.character_id
+      WHERE messages.content LIKE ? ESCAPE '\\'
+        AND chats.deleted_at IS NULL AND characters.deleted_at IS NULL
+        AND ${worldWhere()}
+      ORDER BY messages.created_at DESC
+      LIMIT 40`,
+  ).all(needle) as any[];
+
+  /*
+   * A snippet centred on the hit, so the result says why it matched.
+   *
+   * Flattened first. A reply is prose with paragraphs, XML blocks and markdown
+   * in it, and a hundred and sixty raw characters of that is three ragged
+   * lines in a list built for one.
+   */
+  const at = (text: string) => {
+    const flat = String(text ?? "")
+      .replace(/<[^>]{1,80}>/g, " ")
+      .replace(/[*_`#]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const i = flat.toLowerCase().indexOf(q.toLowerCase());
+    if (i < 0) return flat.slice(0, 120);
+    const from = Math.max(0, i - 40);
+    return (from ? "…" : "") + flat.slice(from, from + 130).trim() + "…";
+  };
+  return c.json(rows.map((r) => ({
+    id: r.id, chat_id: r.chat_id, role: r.role, created_at: r.created_at,
+    title: r.title, character_name: r.character_name, avatar: r.avatar,
+    snippet: at(String(r.content ?? "")),
+  })));
+});
+
 api.get("/recent", (c) =>
   c.json(
     db
