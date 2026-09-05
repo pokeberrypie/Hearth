@@ -293,7 +293,8 @@ api.put("/chats/:id", async (c) => {
   const cur = db.query("SELECT * FROM chats WHERE id = ?").get(c.req.param("id")) as any;
   if (!cur) return c.json({ error: "Chat not found." }, 404);
   db.query(
-    "UPDATE chats SET title = ?, author_note = ?, note_depth = ?, wallpaper = ?, persona_id = ?, scenario = ? WHERE id = ?",
+    `UPDATE chats SET title = ?, author_note = ?, note_depth = ?, wallpaper = ?,
+                      persona_id = ?, scenario = ?, accent = ?, ambience = ? WHERE id = ?`,
   ).run(
     (b.title ?? cur.title).trim() || cur.title,
     b.author_note ?? cur.author_note,
@@ -301,6 +302,12 @@ api.put("/chats/:id", async (c) => {
     b.wallpaper !== undefined ? String(b.wallpaper) : cur.wallpaper,
     b.persona_id !== undefined ? (b.persona_id || null) : cur.persona_id,
     b.scenario !== undefined ? String(b.scenario) : cur.scenario,
+    // A hex colour or nothing; anything else is not a colour and would go
+    // straight into a stylesheet.
+    b.accent !== undefined
+      ? (/^#[0-9a-f]{6}$/i.test(String(b.accent)) ? String(b.accent) : "")
+      : cur.accent,
+    b.ambience !== undefined ? String(b.ambience).slice(0, 20) : cur.ambience,
     cur.id,
   );
   return c.json({ ok: true });

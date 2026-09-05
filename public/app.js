@@ -835,6 +835,7 @@ async function showSplash() {
   $("#splash").hidden = false;
   chatMeta = null;
   applyChatWallpaper();
+  applyChatRoom();
   renderLoreList();
   setMsgSelect(false);
 
@@ -881,6 +882,7 @@ async function openChat(id) {
   S.speaker = null;
   chatMeta = chat;
   applyChatWallpaper();
+  applyChatRoom();
   renderLoreList();
   renderRoom();
   $("#chatMenuBtn").hidden = false;
@@ -3604,13 +3606,47 @@ async function openScene() {
     applyChatWallpaper();
   };
 
+  const ACCENTS = [
+    ["", "Default"], ["#c8994f", "Gold"], ["#a8674f", "Rust"], ["#7fa46a", "Moss"],
+    ["#6a8fb0", "Slate blue"], ["#a06fa0", "Heather"], ["#b0a06a", "Brass"],
+    ["#8a8f96", "Ash"], ["#c06a72", "Wine"],
+  ];
+  const acc = $("#sceneAccents");
+  acc.innerHTML = ACCENTS.map(([hex, name]) =>
+    `<button class="accentdot${(chatMeta.accent || "") === hex ? " on" : ""}" data-accent="${hex}"` +
+    ` title="${name}" aria-label="${name}"` +
+    (hex ? ` style="--dot:${hex}"` : ` data-none="1"`) + `></button>`).join("");
+  acc.onclick = (e) => {
+    const b = e.target.closest("[data-accent]");
+    if (!b) return;
+    chatMeta.accent = b.dataset.accent;
+    acc.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    applyChatRoom();
+  };
+
+  const amb = $("#sceneAmbience");
+  const cells = [["", "Silence", "no sound at all"],
+    ...Object.entries(AMBIENCE).map(([k, v]) => [k, v.label, v.hint])];
+  amb.innerHTML = cells.map(([k, label, hint]) =>
+    `<button class="ambcell${(chatMeta.ambience || "") === k ? " on" : ""}" data-amb="${k}">` +
+    `<span class="ambname">${esc(label)}</span><span class="ambhint">${esc(hint)}</span></button>`).join("");
+  amb.onclick = (e) => {
+    const b = e.target.closest("[data-amb]");
+    if (!b) return;
+    chatMeta.ambience = b.dataset.amb;
+    amb.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    // Straight from the press, which is the only moment a browser will let
+    // anything start making a noise — and it doubles as a preview.
+    ambience.play(chatMeta.ambience);
+  };
+
   $("#sceneDialog").showModal();
 }
 
 $("#sceneCancel").onclick = async () => {
   $("#sceneDialog").close();
   const fresh = await api("/chats/" + S.chatId);   // discard unsaved fiddling
-  if (fresh.chat) { chatMeta = fresh.chat; applyChatWallpaper(); }
+  if (fresh.chat) { chatMeta = fresh.chat; applyChatWallpaper(); applyChatRoom(); }
 };
 
 $("#sceneSave").onclick = async () => {
@@ -6645,3 +6681,202 @@ async function openRollLog() {
 }
 
 $("#rollClose").onclick = () => $("#rollDialog").close();
+
+/* ---- what the room sounds like ----------------------------------------------
+   Rain, wind, a fire, the sea, a room full of people. All of it made here out
+   of filtered noise rather than shipped as audio files — the same trick the
+   quill uses, and the reason this costs nothing to download and belongs to
+   nobody. A loop of real rain is a licence and four megabytes; this is thirty
+   lines and it never repeats, because there is no loop to repeat.
+
+   Off unless asked for, per chat, and it only ever starts from a press —
+   browsers refuse to make noise otherwise, and they are right to. */
+
+const AMBIENCE = {
+  rain:   { label: "Rain",          hint: "steady, close, on a roof" },
+  wind:   { label: "Wind",          hint: "open country, moving" },
+  fire:   { label: "A fire",        hint: "low, with the odd crack" },
+  sea:    { label: "The sea",       hint: "long, slow, further off" },
+  room:   { label: "A room of people", hint: "murmur, no words in it" },
+};
+
+const ambience = (() => {
+  let ctx = null, noise = null, out = null, chain = null, timer = 0;
+  let playing = "";
+
+  /** Two seconds of noise, looped. Long enough that the ear finds no seam. */
+  function makeNoise(context) {
+    const buf = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
+    const d = buf.getChannelData(0);
+    // Brown-ish rather than white: white noise is a hiss, and everything here
+    // is meant to be weather rather than a broken television.
+    let last = 0;
+    for (let i = 0; i < d.length; i++) {
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.02 * w) / 1.02;
+      d[i] = last * 3.5;
+    }
+    return buf;
+  }
+
+  /** A slow wander, so nothing sits perfectly still. */
+  function drift(param, low, high, seconds) {
+    const lfo = ctx.createOscillator();
+    const depth = ctx.createGain();
+    lfo.frequency.value = 1 / seconds;
+    depth.gain.value = (high - low) / 2;
+    param.value = (high + low) / 2;
+    lfo.connect(depth).connect(param);
+    lfo.start();
+    return lfo;
+  }
+
+  function build(kind) {
+    const nodes = [];
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+
+    if (kind === "rain") {
+      filter.type = "highpass"; filter.frequency.value = 900;
+      const shelf = ctx.createBiquadFilter();
+      shelf.type = "lowpass"; shelf.frequency.value = 6000;
+      gain.gain.value = 0.34;
+      noise.connect(filter).connect(shelf).connect(gain);
+      nodes.push(drift(gain.gain, 0.26, 0.38, 11));
+    } else if (kind === "wind") {
+      filter.type = "bandpass"; filter.Q.value = 0.7;
+      gain.gain.value = 0.5;
+      noise.connect(filter).connect(gain);
+      nodes.push(drift(filter.frequency, 260, 900, 17));
+      nodes.push(drift(gain.gain, 0.22, 0.6, 9));
+    } else if (kind === "fire") {
+      filter.type = "lowpass"; filter.frequency.value = 420;
+      gain.gain.value = 0.6;
+      noise.connect(filter).connect(gain);
+      nodes.push(drift(gain.gain, 0.42, 0.7, 5));
+      // And the crackle, which is the whole difference between a fire and a
+      // rumble: short bright bursts at uneven intervals.
+      const crack = () => {
+        if (!ctx || playing !== "fire") return;
+        const b = ctx.createBufferSource();
+        b.buffer = noise.buffer;
+        b.loop = true;
+        const hp = ctx.createBiquadFilter();
+        hp.type = "highpass"; hp.frequency.value = 1800;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.25 + Math.random() * 0.3, ctx.currentTime + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.07 + Math.random() * 0.08);
+        b.connect(hp).connect(g).connect(out);
+        b.start();
+        b.stop(ctx.currentTime + 0.3);
+        timer = setTimeout(crack, 180 + Math.random() * 1400);
+      };
+      timer = setTimeout(crack, 400);
+    } else if (kind === "sea") {
+      filter.type = "lowpass"; filter.Q.value = 1.2;
+      gain.gain.value = 0.5;
+      noise.connect(filter).connect(gain);
+      // Long and slow. A wave is about nine seconds and that is most of why
+      // the sea sounds like the sea rather than like wind.
+      nodes.push(drift(filter.frequency, 260, 1400, 9));
+      nodes.push(drift(gain.gain, 0.14, 0.62, 9));
+    } else {
+      // A room of people: the shape of speech with none of the words, which is
+      // what a crowd actually sounds like from across it.
+      filter.type = "bandpass"; filter.frequency.value = 500; filter.Q.value = 1.4;
+      gain.gain.value = 0.42;
+      noise.connect(filter).connect(gain);
+      nodes.push(drift(filter.frequency, 380, 780, 4.5));
+      nodes.push(drift(gain.gain, 0.3, 0.5, 3.1));
+    }
+
+    gain.connect(out);
+    return { nodes, gain, filter };
+  }
+
+  function stop() {
+    playing = "";
+    if (timer) { clearTimeout(timer); timer = 0; }
+    if (chain) {
+      for (const n of chain.nodes) { try { n.stop(); } catch {} }
+      try { chain.gain.disconnect(); } catch {}
+      chain = null;
+    }
+    if (noise) { try { noise.stop(); } catch {} noise = null; }
+  }
+
+  return {
+    /** What is playing, so the picker can show it. */
+    get current() { return playing; },
+
+    /**
+     * Start, stop, or change. Called from a press, which is the only way a
+     * browser will let anything make a sound.
+     */
+    play(kind) {
+      if (!AMBIENCE[kind]) { stop(); return; }
+      if (playing === kind) return;
+      stop();
+      if (!ctx) {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        out = ctx.createGain();
+        out.gain.value = 0.5;
+        out.connect(ctx.destination);
+      }
+      ctx.resume?.();
+      noise = ctx.createBufferSource();
+      noise.buffer = makeNoise(ctx);
+      noise.loop = true;
+      playing = kind;
+      chain = build(kind);
+      noise.start();
+      // Faded in, because a room that starts at full volume is a jump scare.
+      out.gain.cancelScheduledValues(ctx.currentTime);
+      out.gain.setValueAtTime(0.0001, ctx.currentTime);
+      out.gain.exponentialRampToValueAtTime(0.5, ctx.currentTime + 1.4);
+    },
+
+    stop,
+    /** True once a press has woken the audio context; see applyChatRoom. */
+    get awake() { return !!ctx && ctx.state === "running"; },
+  };
+})();
+
+/**
+ * The room this chat is in: its gilt, and what it sounds like.
+ *
+ * Both are per-chat and both fall back to nothing, which is what every chat
+ * that existed before this wants. The colour is set on the root so every gold
+ * thing in the app follows it at once — the ornament, the plates, the dice —
+ * rather than being applied in eighty places that would fall out of step.
+ *
+ * The sound is only ever *resumed*, never started, unless it was you who
+ * pressed something. A browser will not make a noise on a page load and it is
+ * right not to; opening a chat is not consent to be made to hear rain.
+ */
+function applyChatRoom() {
+  const r = document.documentElement.style;
+  const accent = chatMeta?.accent || "";
+  if (accent) {
+    r.setProperty("--lumiverse-primary", accent);
+    // The two shades that hang off it, so hovers and muted text stay related
+    // to the colour rather than to the gold they used to be.
+    r.setProperty("--lumiverse-primary-hover",
+      `color-mix(in srgb, ${accent} 78%, white)`);
+    r.setProperty("--lumiverse-primary-muted",
+      `color-mix(in srgb, ${accent} 68%, black)`);
+  } else {
+    for (const k of ["--lumiverse-primary", "--lumiverse-primary-hover", "--lumiverse-primary-muted"]) {
+      r.removeProperty(k);
+    }
+    applyTheme?.();
+  }
+
+  const want = chatMeta?.ambience || "";
+  if (!want) { ambience.stop(); return; }
+  // Already awake means a press happened at some point in this session, so
+  // carrying the sound from chat to chat is a continuation rather than a
+  // surprise. Otherwise it waits for the Scene dialog.
+  if (ambience.awake) ambience.play(want);
+}

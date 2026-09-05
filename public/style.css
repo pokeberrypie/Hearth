@@ -5631,3 +5631,53 @@ kbd {
   color: var(--hearth-hurt);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hearth-hurt) 60%, transparent);
 }
+
+/* ---- a room of its own ---- */
+
+.accentgrid { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 0.4rem; }
+.accentdot {
+  width: 30px; height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--dot, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 2px 5px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+}
+/* "Default" has no colour of its own, so it is drawn as an absence rather
+   than as a swatch that looks like a very dark choice. */
+.accentdot[data-none] {
+  background:
+    linear-gradient(135deg, transparent 46%, var(--lumiverse-text-dim) 46%,
+                    var(--lumiverse-text-dim) 54%, transparent 54%),
+    var(--lumiverse-bg-deep);
+}
+.accentdot:hover { transform: translateY(-2px); }
+.accentdot.on {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+              0 0 0 2px var(--lumiverse-bg-elevated),
+              0 0 0 4px var(--lumiverse-primary);
+}
+
+.ambgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.4rem; }
+.ambcell {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 50%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--lumiverse-radius);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ambcell:hover { border-left-color: var(--lumiverse-primary); }
+.ambcell.on {
+  border-left-color: var(--lumiverse-primary);
+  background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent);
+}
+.ambname { font-family: var(--lumiverse-font-display); font-size: 0.92rem; color: var(--lumiverse-text); }
+.ambhint { font-size: 0.74rem; color: var(--lumiverse-text-dim); }

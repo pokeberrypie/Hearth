@@ -255,6 +255,13 @@ export const ALTER_TABLES: string[] = [
   // src/campaigns.ts.
   "ALTER TABLE chats ADD COLUMN campaign TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE chats ADD COLUMN campaign_asked INTEGER NOT NULL DEFAULT 0",
+
+  // A room of its own. The wallpaper was already per-chat; these are the rest
+  // of what makes one story feel unlike the next — the colour everything gilt
+  // is drawn in, and what the room sounds like. Both empty means "follow the
+  // global look", which is what every chat that already exists wants.
+  "ALTER TABLE chats ADD COLUMN accent TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE chats ADD COLUMN ambience TEXT NOT NULL DEFAULT ''",
 ];
 
 /** Group chats. A chat keeps its `character_id` as the one it was started
