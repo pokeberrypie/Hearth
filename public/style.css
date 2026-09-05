@@ -1626,7 +1626,14 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
                     color-mix(in srgb, var(--lumiverse-primary) 22%, var(--lumiverse-bg-deep)),
                     color-mix(in srgb, var(--lumiverse-primary) 7%, var(--lumiverse-bg-deep)));
 
-  --hc-radius: calc(var(--lumiverse-radius) * 1.4);
+  /* Roundness is user-set and runs to 22, which on a 66px box is a pill: the
+     ends stop being corners, the corner ornament has nothing to sit in, and
+     the arc sweeps across the plus and the die on its way past. A corner is
+     only a corner while it is small against the thing it turns, so the box
+     takes the setting up to a third of its own height and no further. Every
+     value below that is honoured exactly, and the ornament follows it. */
+  --hc-h:      66px;
+  --hc-radius: min(calc(var(--lumiverse-radius) * 1.4), calc(var(--hc-h) / 3));
   --hc-pad-y:  20px;
   --hc-side:   46px;   /* send */
   --hc-ctl:    40px;   /* plus, die */
@@ -1692,8 +1699,6 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 /* While the tray is out the two are one object, not two boxes touching. */
 .hc-box:focus-within { border-color: var(--hc-gold-line); }
 .hearth-composer[data-guided="true"] .hc-box { border-top-left-radius: 0; border-top-right-radius: 0; }
-.hearth-composer[data-guided="true"] .hc-box .filigree.tl,
-.hearth-composer[data-guided="true"] .hc-box .filigree.tr { opacity: 0; }
 
 .hc-input {
   flex: 1 1 100%;
@@ -1748,14 +1753,85 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 .hc-steer-field:focus { border: 0; outline: none; }
 .hc-steer-field::placeholder { color: var(--hc-ink-dim); font-style: italic; }
 
-/* ---- the filigree, at the spec's inset ---- */
+/* ---- the corners ----
+   Each corner is a bracket that runs along the two edges and turns with them,
+   a scroll curling off the upright, and a bud.
 
-.hc-box .filigree { width: 26px; height: 26px; opacity: 1; color: var(--lumiverse-primary-muted); }
-.hc-box .filigree.tl { top: 4px;    left: 4px; }
-.hc-box .filigree.tr { top: 4px;    right: 4px; }
-.hc-box .filigree.bl { bottom: 4px; left: 4px; }
-.hc-box .filigree.br { bottom: 4px; right: 4px; }
-.hc-box:focus-within .filigree { opacity: 1; }
+   Two rules hold this together, and both exist because I broke them once.
+
+   The bracket is not a path. A path carries the corner radius it was drawn
+   with, so at 26px the spec's turns at 7.5px — the box's curve at exactly one
+   roundness setting, and roundness is user-set here and runs 0 to 22. At every
+   other value a drawn bracket is the wrong shape, not merely in the wrong
+   place, and no inset or scale rescues it. So it is built from the radius: two
+   borders on a corner-radiused box, inset 5px, radius R - 5. A curve inset by
+   d from a corner of radius R has radius R - d, so this is concentric with the
+   border by construction, at every value, including 0.
+
+   And the corner is described ONCE, in its top-left form, then rotated into
+   the other three. Positioning each of the four by hand means four chances to
+   put the scroll on the wrong axis or the inset on the wrong edge, which is
+   what happened: the radii all matched and the thing was still crooked,
+   because matching radii is not symmetry. A rigid rotation cannot be
+   asymmetric. */
+
+.hc-box {
+  --hc-fil-in: 5px;                                        /* the bracket line */
+  --hc-arc: max(0px, calc(var(--hc-radius) - var(--hc-fil-in)));
+  /* Where the scroll starts: far enough down the upright to clear the arc.
+     The spec's own 4px is what this gives at the radius it was drawn at. */
+  --hc-far: max(2px, calc(var(--hc-radius) - 10px));
+  --hc-corner: calc(var(--hc-radius) + 30px);
+}
+
+.hc-corner {
+  position: absolute;
+  width: var(--hc-corner);
+  height: var(--hc-corner);
+  pointer-events: none;
+  color: var(--lumiverse-primary-muted);
+  transition: opacity .18s;
+}
+
+/* The square is anchored at its own corner of the box, so flipping it about
+   its centre carries the drawing's corner onto the box's.
+
+   Mirrored, not rotated. Rotation gives four-fold symmetry — a pinwheel — so
+   the scroll runs down the left edge at one corner and along the top at the
+   next, and the two top corners do not answer each other. A framed box wants
+   mirror symmetry, which is also what every other filigree in here uses. */
+.hc-corner--tl { top: -1px;    left: -1px; }
+.hc-corner--tr { top: -1px;    right: -1px;  transform: scaleX(-1); }
+.hc-corner--bl { bottom: -1px; left: -1px;   transform: scaleY(-1); }
+.hc-corner--br { bottom: -1px; right: -1px;  transform: scale(-1); }
+
+/* --- everything below is the top-left corner, and only the top-left --- */
+
+/* The bracket: the two sides that meet here, so the legs stop and the long
+   edges stay open. */
+.hc-corner::before {
+  content: "";
+  position: absolute;
+  inset: var(--hc-fil-in);
+  border: 0 solid currentColor;
+  border-top-width: 1px;
+  border-left-width: 1px;
+  border-top-left-radius: var(--hc-arc);
+}
+
+/* The scroll, seated on the upright wherever the arc leaves off. */
+.hc-curl {
+  position: absolute;
+  top: var(--hc-far);
+  left: 4px;
+  width: 26px;
+  height: 26px;
+  color: inherit;
+}
+
+/* Squared off against the card above, so the top two step aside. */
+.hearth-composer[data-guided="true"] .hc-corner--tl,
+.hearth-composer[data-guided="true"] .hc-corner--tr { opacity: 0; }
 
 /* ---- round controls ---- */
 
@@ -1835,7 +1911,7 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 .hc-send:disabled:hover { border-color: var(--hc-gold-line); }
 
 @media (min-width: 900px) {
-  .hearth-composer { --hc-pad-y: 22px; --hc-side: 48px; --hc-ctl: 42px; }
+  .hearth-composer { --hc-h: 70px; --hc-pad-y: 22px; --hc-side: 48px; --hc-ctl: 42px; }
   .hc-box  { min-height: 70px; padding-left: 112px; padding-right: 78px; }
   .hc-input { font-size: max(16px, 1.12rem); }
   .hc-plus { left: 16px; }

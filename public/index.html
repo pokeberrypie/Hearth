@@ -342,10 +342,10 @@
       </div>
 
       <div class="hc-box inputbox">
-        <svg class="filigree tl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
-        <svg class="filigree tr" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
-        <svg class="filigree bl" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
-        <svg class="filigree br" viewBox="0 0 56 56" aria-hidden="true" focusable="false"><use href="#filigree-corner"/></svg>
+        <span class="hc-corner hc-corner--tl" aria-hidden="true"><svg class="hc-curl" viewBox="0 0 26 26"><use href="#hc-curl"/></svg></span>
+        <span class="hc-corner hc-corner--tr" aria-hidden="true"><svg class="hc-curl" viewBox="0 0 26 26"><use href="#hc-curl"/></svg></span>
+        <span class="hc-corner hc-corner--bl" aria-hidden="true"><svg class="hc-curl" viewBox="0 0 26 26"><use href="#hc-curl"/></svg></span>
+        <span class="hc-corner hc-corner--br" aria-hidden="true"><svg class="hc-curl" viewBox="0 0 26 26"><use href="#hc-curl"/></svg></span>
         <!-- The plus opens the tray; stop takes its slot while a reply is
              coming in, because that is the only thing you want from this
              corner mid-stream. -->
@@ -1406,12 +1406,13 @@
       <circle cx="234" cy="8" r="2.2" fill="currentColor" stroke="none"/>
     </g>
   </symbol>
-  <symbol id="filigree-corner" viewBox="0 0 56 56">
+  <symbol id="hc-curl" viewBox="0 0 26 26">
+    <path d="M1 17c5.5 0 9.5-4 9.5-9.5C10.5 4.5 12.5 3 15 3c2 0 3.5 1.3 3.5 3.2 0 1.8-1.4 3-3 3"
+          fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+    <circle cx="15.2" cy="9.4" r="1.1" fill="currentColor"/>
+  </symbol>
+  <symbol id="filigree-vine" viewBox="0 0 56 56">
     <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-      <!-- The frame the vine grows along. -->
-      <path d="M56 3H20C10.6 3 3 10.6 3 20v36" stroke-width="1.3"/>
-      <path d="M56 8.5H21.5C14 8.5 8.5 14 8.5 21.5V56" stroke-width="0.7" opacity=".38"/>
-
       <!-- Main vine: a long S off the corner, turning into a scroll at each
            end. Everything else hangs off this one line. -->
       <path d="M49 13C38 13.5 32.5 19 29 26c-3.5 7-9 12.5-17 13.5" stroke-width="1.15"/>
@@ -1436,6 +1437,17 @@
       <circle cx="52.5" cy="4.5" r="1.5" fill="currentColor" stroke="none" opacity=".7"/>
       <circle cx="4.5" cy="52.5" r="1.5" fill="currentColor" stroke="none" opacity=".7"/>
     </g>
+  </symbol>
+
+  <!-- The whole ornament, frame and vine, for everything that is not the
+       writing box. The box draws its own frame instead: a fixed drawing can
+       only carry one corner radius, and roundness is user-set. -->
+  <symbol id="filigree-corner" viewBox="0 0 56 56">
+    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M56 3H20C10.6 3 3 10.6 3 20v36" stroke-width="1.3"/>
+      <path d="M56 8.5H21.5C14 8.5 8.5 14 8.5 21.5V56" stroke-width="0.7" opacity=".38"/>
+    </g>
+    <use href="#filigree-vine"/>
   </symbol>
 </svg>
 </body>
