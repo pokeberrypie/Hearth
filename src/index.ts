@@ -2755,13 +2755,24 @@ api.post("/lorebooks", async (c) => {
 });
 
 /** Every book that is not on this shelf, for the picker that moves them. */
-api.get("/lorebooks/elsewhere", (c) =>
-  c.json(db.query(
-    `SELECT id, name FROM lorebooks
+api.get("/lorebooks/elsewhere", (c) => {
+  const rows = db.query(
+    `SELECT id, name, entries FROM lorebooks
      WHERE deleted_at IS NULL AND NOT ${worldWhere("lorebooks")}
      ORDER BY name COLLATE NOCASE`,
-  ).all()),
-);
+  ).all() as any[];
+  /*
+   * How much is in each, which the picker that starts a campaign from a book
+   * needs in order not to offer an empty one. Counted rather than sent whole:
+   * this is a list for choosing from, and a shelf of long books would be a
+   * megabyte of entries nobody is going to read here.
+   */
+  return c.json(rows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    entry_count: readEntries(b).length,
+  })));
+});
 
 /** Bringing one to the table, or sending it home. Same rules as everything else. */
 api.put("/lorebooks/:id/world", async (c) => {

@@ -4515,12 +4515,34 @@ $("#camp_beast").onkeydown = (e) => {
 async function fillCampaignBooks() {
   const wrap = $("#campFromBook"), sel = $("#campBook");
   if (!wrap || !sel) return;
-  let books = [];
-  try { books = await api("/lorebooks"); } catch { books = []; }
-  const usable = (books ?? []).filter((b) => (b.entry_count ?? b.entries?.length ?? 0) > 0);
+
+  /*
+   * Every book, not only the ones already at the table.
+   *
+   * The table is a separate room and things come over when you ask — but this
+   * picker only listed what had already come over, and a new table has nothing
+   * in it. So the one feature whose entire purpose is "start a game inside a
+   * world you have already written" was offering a choice between the two or
+   * three note-books the table had written for itself, and hiding altogether
+   * when there were none. Which reads exactly like the feature being missing.
+   *
+   * Choosing a book here IS the asking, so anything from elsewhere is brought
+   * over on the way through.
+   */
+  const [here, away] = await Promise.all([
+    api("/lorebooks").catch(() => []),
+    api("/lorebooks/elsewhere").catch(() => []),
+  ]);
+  const count = (b) => b.entry_count ?? b.entries?.length ?? 0;
+  const usable = [
+    ...(here ?? []).filter((b) => count(b) > 0).map((b) => ({ ...b, away: false })),
+    ...(away ?? []).filter((b) => count(b) > 0).map((b) => ({ ...b, away: true })),
+  ];
+
   wrap.hidden = usable.length === 0;
   sel.innerHTML = usable.map((b) =>
-    `<option value="${esc(b.id)}">${esc(b.name || "Untitled")}</option>`).join("");
+    `<option value="${esc(b.id)}" data-away="${b.away ? "1" : ""}">` +
+    `${esc(b.name || "Untitled")}${b.away ? " — not at the table yet" : ""}</option>`).join("");
 }
 
 /**
@@ -4537,8 +4559,22 @@ async function fillCampaignBooks() {
  * the game rather than after.
  */
 $("#campBookGo").onclick = async () => {
-  const id = $("#campBook")?.value;
+  const sel = $("#campBook");
+  const id = sel?.value;
   if (!id) return;
+
+  /*
+   * A book from the other room comes over first, because the game about to be
+   * written binds itself to it — a campaign bound to a book the table cannot
+   * see is a campaign with no world in its context.
+   */
+  if (sel.selectedOptions?.[0]?.dataset.away) {
+    await api(`/lorebooks/${id}/world`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ at: "here" }),
+    }).catch(() => null);
+    refreshLore?.();
+  }
 
   await openStorybook(chatMeta);
   const fields = ["#camp_title", "#camp_premise", "#camp_theme", "#camp_opening"];

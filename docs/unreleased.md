@@ -37,6 +37,22 @@ empty box stops being the hardest part of the program.
 
 New setting keys: `guided_persona`, `guided_character`.
 
+### "From a memory book" could not see your memory books
+
+The table is a separate world and things come over when you ask — but the
+picker that starts a campaign from a book only listed books already at the
+table, and a new table has none. So the one feature whose whole purpose is
+"start a game inside a world you have already written" offered a choice
+between the note-books the table had written for itself, and hid altogether
+when there were none. It read exactly like the feature being missing.
+
+It lists every book now, marks the ones not at the table yet, and brings the
+chosen one over on the way through — choosing it *is* the asking. The book
+ends up in both worlds, so it stays on the story shelf too.
+
+`/api/lorebooks/elsewhere` now reports `entry_count`, so an empty book is not
+offered from either side.
+
 ---
 
 ## Cutting the release
