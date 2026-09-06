@@ -165,8 +165,21 @@ export function buildMessages(
     };
   });
 
-  // Both APIs want the turn order to start with the user.
-  while (out.length && out[0].role === "assistant") out.shift();
-  if (!out.length) out.push({ role: "user", content: "(begin the scene)" });
+  /*
+   * Both APIs want the turn order to start with the user, and this used to get
+   * there by dropping assistant turns off the front.
+   *
+   * Which quietly threw away the greeting on every single request. A
+   * character's first message is not decoration — it opens the scene, sets the
+   * place, and is where the voice is established — and in an ordinary chat it
+   * is the very first row, so it was the thing being dropped every time.
+   *
+   * Opening with a neutral user turn satisfies both APIs and keeps everything
+   * that was actually written. It only appears when the conversation would
+   * otherwise start on an assistant turn, so a chat that opens with a human
+   * line is untouched.
+   */
+  if (!out.length) return [{ role: "user", content: "(begin the scene)" }];
+  if (out[0].role === "assistant") out.unshift({ role: "user", content: "(begin the scene)" });
   return out;
 }

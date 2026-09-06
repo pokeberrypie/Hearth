@@ -9,7 +9,10 @@
  * The mobile build's `mobile/server/serve.mobile.ts` is the Node equivalent.
  */
 import { serveStatic } from "hono/bun";
-import { app, ensureStarterCharacter, markPublic } from "./index";
+import { app, ensureStarterCharacter, hostKey, markPublic } from "./index";
+import { isLoopback } from "./share";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { provideListener, stopHosting } from "./hosting";
 
 // A brand-new library gets its one character here, where the database is
@@ -43,8 +46,34 @@ const port = Number(process.env.PORT ?? 7870);
 const hostname = process.env.HOST ?? "127.0.0.1";
 
 console.log(`\n  Hearth is lit.  http://localhost:${port}`);
-if (hostname !== "127.0.0.1") {
-  console.log(`  Listening on ${hostname} — anyone on this network can reach it.`);
+
+/*
+ * Bound past loopback: say how to actually get in.
+ *
+ * The gate trusts this machine and nothing else, so a browser on your phone is
+ * a stranger to it — which is right, and which used to mean every endpoint
+ * answered 403 and the app loaded as a shell around nothing, with no hint of
+ * what to do about it. The key below is the way in, and it is printed here
+ * because reading this console means having the machine, which is the only
+ * thing that ought to count as proof.
+ */
+if (!isLoopback(hostname)) {
+  const key = hostKey();
+  const dir = process.env.DATA_DIR ?? "./data";
+  const file = join(dir, "host-key.txt");
+  const link = `http://<this machine>:${port}/host/${key}`;
+  try {
+    mkdirSync(dir, { recursive: true });
+    // Written as well as printed: a service started by systemd has a console
+    // nobody ever sees, and a key you cannot find is a key you route around.
+    writeFileSync(file, `${link}\n`, { mode: 0o600 });
+  } catch { /* printing it is enough */ }
+
+  console.log(`  Listening on ${hostname} — reachable from this network.`);
+  console.log(`\n  To use it from another device, open this once:`);
+  console.log(`    ${link}`);
+  console.log(`  (also written to ${file})`);
+  console.log(`  Anyone else needs an invitation, and gets a seat rather than the keys.`);
 }
 console.log("");
 

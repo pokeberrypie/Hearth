@@ -176,9 +176,27 @@ Config is environment: `PORT` (7870), `DATA_DIR` (`./data`), `HOST`
 ## A note on security
 
 Hearth has **no login**. It binds to loopback, so nothing outside your own
-machine can reach it. If you set `HOST=0.0.0.0` to use it from your phone,
-anyone on that network can then read your chats and spend your API credit — put
-it behind Tailscale rather than opening it to café wifi.
+machine can reach it, and the gate trusts this machine and nothing else.
+
+If you set `HOST=0.0.0.0` to reach it from your phone — running it on a
+headless box, say — the app will load for anyone on that network but every API
+call is refused, because being on the same wifi is not proof of being you. To
+use it yourself, open the link Hearth prints on startup once:
+
+```
+http://<that machine>:7870/host/<key>
+```
+
+It is also written to `data/host-key.txt`. Reading either means you already
+have the machine, which is the only thing that counts as proof here. That one
+visit exchanges the key for a cookie and the device is yours from then on.
+
+Anyone else you want to play with gets an **invitation** instead, which seats
+them at one shared table and grants nothing else — not your library, not your
+settings, not your keys.
+
+For a machine genuinely exposed to the internet, still put it behind Tailscale
+or a tunnel rather than opening a port to café wifi.
 
 API keys are stored **unencrypted** in `data/hearth.db`, and a backup archive
 includes that database. Treat a backup zip as secret.

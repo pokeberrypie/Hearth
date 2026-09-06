@@ -163,17 +163,65 @@ function remoteAddr(c: any): string {
  */
 const BOUND_WIDE = !isLoopback(process.env.HOST ?? "127.0.0.1");
 
+/** One cookie out of a Cookie header, undecoded names and all. */
+function cookie(raw: string, want: string): string {
+  for (const part of String(raw ?? "").split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === want) return decodeURIComponent(v.join("="));
+  }
+  return "";
+}
+
 /** The player's token, from the cookie the join page set. */
 function playerToken(c: any): string {
-  const raw = c.req.header("cookie") ?? "";
-  for (const part of raw.split(";")) {
-    const [k, ...v] = part.trim().split("=");
-    if (k === PLAYER_COOKIE) return decodeURIComponent(v.join("="));
-  }
   // Falls back to a header, which is what a non-browser client would send.
-  return c.req.header("x-hearth-player") ?? "";
+  return cookie(c.req.header("cookie") ?? "", PLAYER_COOKIE)
+    || c.req.header("x-hearth-player") || "";
 }
 const PLAYER_COOKIE = "hearth_player";
+
+/**
+ * The host's own key, for when the host is not sitting at the machine.
+ *
+ * Binding to 0.0.0.0 to reach your own server from your own phone is a
+ * perfectly ordinary thing to want, and until this existed it did not work at
+ * all: the gate trusts loopback, everything else needs an invitation, and an
+ * invitation seats you as a guest who may see one table and nothing else. So
+ * the app loaded and every endpoint answered 403 — a working shell around
+ * nothing, which is exactly what it looked like.
+ *
+ * The answer is not to trust the local network. A network you do not control
+ * is not a credential, and "it is only my wifi" stops being true the moment it
+ * isn't. This is the same thing Jupyter does: a key, printed once where only
+ * somebody with access to the machine can read it, exchanged for a cookie.
+ */
+const HOST_COOKIE = "hearth_host";
+
+function hostToken(c: any): string {
+  return cookie(c.req.header("cookie") ?? "", HOST_COOKIE)
+    || c.req.header("x-hearth-host") || "";
+}
+
+/**
+ * The key, made on first need and kept.
+ *
+ * Stable across restarts, because a key that changes every boot means finding
+ * the console again every time — and a key nobody can find is a key everybody
+ * works around.
+ */
+export function hostKey(): string {
+  const have = (getSettings().host_key ?? "").trim();
+  if (have) return have;
+  const made = newToken();
+  setSettings({ host_key: made });
+  return made;
+}
+
+/** Whether this request carries the host's key. */
+function carriesHostKey(c: any): boolean {
+  const given = hostToken(c);
+  return !!given && sameToken((getSettings().host_key ?? "").trim(), given);
+}
 
 app.use("/api/*", async (c, next) => {
   const addr = remoteAddr(c);
@@ -188,7 +236,7 @@ app.use("/api/*", async (c, next) => {
   const proxied = throughTheDoor.has(c.req.raw)
     || !!c.req.header("x-forwarded-for")
     || !!c.req.header("cf-connecting-ip");
-  if (!proxied && treatAsHost(addr, BOUND_WIDE)) {
+  if ((!proxied && treatAsHost(addr, BOUND_WIDE)) || carriesHostKey(c)) {
     callerOf.set(c.req.raw, { kind: "host" });
     return next();
   }
@@ -227,7 +275,7 @@ app.use("/uploads/*", async (c, next) => {
   const proxied = throughTheDoor.has(c.req.raw)
     || !!c.req.header("x-forwarded-for")
     || !!c.req.header("cf-connecting-ip");
-  if (!proxied && treatAsHost(addr, BOUND_WIDE)) return next();
+  if ((!proxied && treatAsHost(addr, BOUND_WIDE)) || carriesHostKey(c)) return next();
   const token = playerToken(c);
   const player = token
     ? (db.query("SELECT * FROM players WHERE token = ?").get(token) as any)
@@ -243,6 +291,10 @@ app.use("/uploads/*", async (c, next) => {
 api.get("/settings", (c) => {
   const s = { ...getSettings() };
   for (const f of KEY_FIELDS) s[f] = s[f] ? "__saved__" : "";
+  // Not a setting anybody edits, and not one that should ride out in a backup
+  // or sit in a response the page keeps. It is read from the console or the
+  // file beside the database.
+  delete s.host_key;
   /**
    * What sampling will actually use, and where it came from. An active preset
    * overrides these fields, so a Sampling panel showing only the stored
@@ -5098,6 +5150,28 @@ app.get("/join/:token", (c) => {
   c.header("set-cookie",
     `${PLAYER_COOKIE}=${encodeURIComponent(token2)}; Path=/; Max-Age=${60 * 60 * 24 * 90}; HttpOnly; SameSite=Lax`);
   return c.redirect("/?at=table", 302);
+});
+
+/**
+ * Claiming this server as its host, from somewhere that is not this machine.
+ *
+ * The key is printed on the console when Hearth binds to an address other
+ * than loopback, and written beside the database. Both places need access to
+ * the machine already, which is the point: the key says "I am the person who
+ * started this", and nothing on the network can say that for you.
+ *
+ * Exchanged once for a cookie so it stops travelling in URLs — where it would
+ * sit in history, in logs, and in whatever the browser syncs. HttpOnly, so a
+ * bad extension cannot read it back out.
+ */
+app.get("/host/:key", (c) => {
+  const given = String(c.req.param("key") ?? "");
+  if (!sameToken(hostKey(), given)) {
+    return c.text("That is not this hearth's key.", 403);
+  }
+  c.header("set-cookie",
+    `${HOST_COOKIE}=${encodeURIComponent(given)}; Path=/; Max-Age=${60 * 60 * 24 * 365}; HttpOnly; SameSite=Lax`);
+  return c.redirect("/", 302);
 });
 
 app.route("/api", api);

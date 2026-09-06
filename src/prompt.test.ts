@@ -84,15 +84,42 @@ describe("buildMessages", () => {
 
   test("keeps the newest turns that fit the token budget", () => {
     const out = buildMessages(turns("user", "assistant", "user", "assistant"), char, "Wren", 20);
-    expect(out).toHaveLength(2);
-    expect(out[0].content).toBe("user-2");
+    const said = out.map((m) => m.content);
+    // The oldest goes first; the newest is the scene and always survives.
+    expect(said).not.toContain("user-0");
+    expect(out.at(-1)!.content).toBe("assistant-3");
   });
 
-  // Both APIs want the turn order to start with the user.
-  test("drops leading assistant turns after trimming", () => {
+  /*
+   * Both APIs want the turn order to start with the user. This used to be done
+   * by dropping assistant turns off the front, which threw away the greeting on
+   * every request in every ordinary chat — the first message of a character is
+   * the first row, and it is an assistant turn.
+   */
+  test("opens on a user turn without losing what came first", () => {
     const out = buildMessages(turns("user", "assistant", "assistant"), char, "Wren", 20);
-    expect(out.every((m) => m.role)).toBe(true);
     expect(out[0].role).toBe("user");
+    expect(out.every((m) => m.role)).toBe(true);
+  });
+
+  test("the greeting survives, which is the whole point", () => {
+    const greeting = { role: "assistant", content: "You're the one they sent, then." };
+    const out = buildMessages([greeting, { role: "user", content: "I am." }], char, "Wren", 8000);
+    expect(out.map((m) => m.content)).toContain("You're the one they sent, then.");
+    expect(out[0].role).toBe("user");
+    expect(out[0].content).toBe("(begin the scene)");
+  });
+
+  test("a chat that already opens on a human turn is left alone", () => {
+    const out = buildMessages(turns("user", "assistant", "user"), char, "Wren", 8000);
+    expect(out[0].content).toBe("user-0");
+    expect(out).toHaveLength(3);
+  });
+
+  test("a greeting on its own is still sent", () => {
+    const out = buildMessages([{ role: "assistant", content: "The road bends north." }],
+      char, "Wren", 8000);
+    expect(out.map((m) => m.content)).toContain("The road bends north.");
   });
 
   test("an empty history still opens the scene", () => {
@@ -182,6 +209,8 @@ describe("assemble — modes", () => {
     const a = assemble(chat, "reply", "");
     expect(a.prefill).toBeUndefined();
     expect(text(a)).toEqual([
+      "(begin the scene)",
+      "You're late.",
       "The road was flooded.",
       "She took the letter anyway.",
       "What does it say?",
@@ -271,6 +300,8 @@ describe("assemble — author's note depth", () => {
     const a = assemble(seed({ note: "Keep the pace slow.", depth: 2 }), "reply", "");
     expect(a.system).not.toContain("Standing notes");
     expect(text(a)).toEqual([
+      "(begin the scene)",
+      "You're late.",
       "The road was flooded.",
       "She took the letter anyway.",
       "[Keep the pace slow.]",
