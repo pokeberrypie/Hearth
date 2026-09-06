@@ -3137,9 +3137,23 @@ const closeSheet = () => { $("#chatSheet").hidden = true; };
 $("#chatMenuBtn").onclick = openSheet;
 $("#chatSheet").onclick = (e) => { if (e.target.id === "chatSheet") closeSheet(); };
 
-$("#chatSheet").addEventListener("click", async (e) => {
-  const row = e.target.closest("[data-act]");
+/*
+ * The chat menu's actions, wherever they are pressed from.
+ *
+ * Two of them — skipping ahead and throwing in a twist — moved into the tray
+ * above the writing line, because they are things you do to the story while
+ * writing rather than settings you go and find. They are the same actions, so
+ * they go through the same dispatcher rather than a copy of it; a second copy
+ * is how the menu and the tray end up meaning slightly different things.
+ *
+ * Three others left the menu entirely: regenerate, impersonate and continue
+ * were already discs in that tray, and a menu row that duplicates a button
+ * eight pixels away is a menu row that makes the app look bigger than it is.
+ */
+document.addEventListener("click", async (e) => {
+  const row = e.target.closest?.("[data-act]");
   if (!row) return;
+  if (!row.closest("#chatSheet") && !row.closest(".hc-guided")) return;
   closeSheet();
 
   switch (row.dataset.act) {
