@@ -6876,7 +6876,16 @@ function guestWake() {
   if (dead) guestListen();
   guestSync();
 }
-addEventListener("visibilitychange", () => { if (!document.hidden) guestWake(); });
+// On the document, which is where visibilitychange is specified to fire. It
+// does bubble to the window, but relying on that is relying on a detail this
+// does not need to depend on.
+//
+// And on every change, not only on becoming visible. Reconnecting a socket
+// that is already alive costs nothing — guestWake only acts on a dead one —
+// whereas trusting the browser's account of whether it is visible costs the
+// whole feature on the one platform most likely to be wrong about it.
+document.addEventListener("visibilitychange", guestWake);
+addEventListener("focus", guestWake);
 addEventListener("online", guestWake);
 addEventListener("pageshow", guestWake);
 
