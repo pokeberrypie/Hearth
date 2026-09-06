@@ -6511,3 +6511,46 @@ body.guest #guideBtn { display: none !important; }
 .localrow { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.15rem 0 0.6rem; }
 .localrow .ghost.small { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
 #customRow { display: grid; gap: 0.1rem; }
+
+/* ---- the guided description -------------------------------------------------
+ *
+ * Optional scaffolding over the same box people already type into. It has to
+ * read as help rather than as a form you must complete, so the toggle is quiet,
+ * the hints are dim, and nothing here is ever marked required.
+ */
+.guided { display: grid; gap: 0.5rem; }
+
+.guidedbar { display: flex; justify-content: flex-end; margin-top: -0.35rem; }
+.guidedbar .linkish { font-size: 0.78rem; }
+
+.guidedfields { display: grid; gap: 0.9rem; }
+
+.guidedfield { display: grid; gap: 0.2rem; }
+.guidedfield .gk {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.84rem;
+  letter-spacing: 0.05em;
+  color: var(--lumiverse-primary);
+}
+/* The line that does the actual work: what sort of thing goes in this box. */
+.guidedfield .gh {
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--lumiverse-text-dim);
+}
+.guidedfield textarea { margin-top: 0.15rem; }
+
+/* A section somebody added themselves: the same field, with a way back out. */
+.guidedfield .gk { display: flex; align-items: center; gap: 0.4rem; }
+.gdrop {
+  background: none; border: 0; padding: 0 0.15rem; line-height: 1;
+  color: var(--lumiverse-text-dim); cursor: pointer; font-size: 0.95rem;
+}
+.gdrop:hover { color: var(--lumiverse-danger); }
+
+/* Headings found in text that was pasted in, offered as boxes. */
+.guidedspot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.guidedspot .gh { flex: 1 0 100%; }
+
+.guidedadd { display: flex; gap: 0.4rem; align-items: center; }
+.guidedadd input { flex: 1; min-width: 0; }

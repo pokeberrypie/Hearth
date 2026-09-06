@@ -4354,6 +4354,8 @@ function editChar(ch) {
   $("#charDialogTitle").textContent = ch ? "Edit character" : "New character";
   $("#c_name").value = ch?.name ?? "";
   $("#c_description").value = ch?.description ?? "";
+  // Opening this on somebody else must not leave the last one's fields up.
+  $("#c_description").dispatchEvent(new Event("hearth:reset"));
   $("#c_personality").value = ch?.personality ?? "";
   $("#c_scenario").value = ch?.scenario ?? "";
   $("#c_first").value = ch?.first_message ?? "";
@@ -6090,6 +6092,7 @@ function editPersona(p) {
   $("#personaDialogTitle").textContent = p ? "Edit persona" : "New persona";
   $("#p_name").value = p?.name ?? "";
   $("#p_description").value = p?.description ?? "";
+  $("#p_description").dispatchEvent(new Event("hearth:reset"));
   personaFace.reset(p?.avatar ?? "");
   $("#personaDialog").showModal();
 }

@@ -368,6 +368,14 @@ export const DEFAULTS: Record<string, string> = {
   custom_format: "openai",
   // Faces in page mode. Off, so nobody's reading view changes under them.
   page_faces: "0",
+  /*
+   * Sections somebody added to the guided description forms, as a JSON array
+   * of names. Kept here rather than in the browser so they travel with a
+   * backup and are the same on the phone — a form you taught to ask about
+   * "Ego" should not forget on the next device.
+   */
+  guided_persona: "[]",
+  guided_character: "[]",
   tabletop_difficulty: "faircount",
   // The room following the story. Off: it changes what you are looking at.
   scene_follows: "0",
