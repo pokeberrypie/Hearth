@@ -22,7 +22,7 @@ in one file — the server, the runtime and every asset are inside it. Put it on
 your Desktop and double-click. Your library lives in `%LOCALAPPDATA%\Hearth\data`
 either way, so replacing the executable with a newer one keeps everything.
 
-**Android** — download `Hearth.apk` from Releases and install it. It runs its
+**Android** — download the `.apk` from Releases and install it. It runs its
 own copy of the server on the phone, with its own database. No PC has to be on
 and no network is involved.
 
@@ -39,8 +39,8 @@ Then open <http://localhost:7870>.
 
 ## Your first evening
 
-**1. Tell it who to call.** Open the drawer, go to **Settings → Connection**,
-pick a provider and paste a key.
+**1. Tell it who to call.** Open the menu — the three lines, top right — and
+pick **Connection**. Choose a provider and paste a key.
 
 | Provider | A model string looks like |
 |---|---|
@@ -90,11 +90,20 @@ type scale, every colour, and a box to paste your own CSS into.
 **Extensions.** Paste a GitHub address and it is fetched and kept in your
 library — there is no folder to manage, which is what lets a phone install one.
 
+**Playing together, over any distance.** Open a chat to other people and they
+get a link and a seat: their own character, their own sheet, their own dice,
+and the evening happening in front of both of you as it is written. No account,
+nothing to sign up for, and no server of ours in the middle of your conversation
+— there is not going to be one. It works across countries through a Cloudflare
+tunnel opened from a button, and the tunnel is bundled in the installer so
+nobody has to go and fetch it first. A phone can host a game. An invitation is
+one table and nothing else on your machine; see the security note below.
+
 ---
 
 ## Tabletop
 
-There is a door in the settings. Walking through it shuts a pair of them across
+There is a door on the menu. Walking through it shuts a pair of them across
 the screen, changes the sign overhead, and opens on the same app arranged as a
 game.
 
@@ -143,7 +152,7 @@ asks for four hundred words of cinematic prose. Swipes are rationed, three by
 default, because rerolling until it goes your way is the same as not rolling.
 And you cannot rewrite or delete a turn, because a game where the bad outcome
 can be quietly deleted is not a game you can lose. All three are switches in
-Behaviour if you disagree.
+Behavior if you disagree.
 
 ---
 
@@ -152,7 +161,7 @@ Behaviour if you disagree.
 ```
 src/
   index.ts        Routes, the streaming endpoint, and assemble()
-  providers.ts    OpenRouter / NanoGPT / Google / Anthropic
+  providers.ts    OpenRouter / NanoGPT / Google / Anthropic, or any endpoint
   prompt.ts       System prompt pieces, {{char}} and {{user}}
   lore.ts         Lorebook activation
   cards.ts        Character card PNG read and write
@@ -161,6 +170,13 @@ src/
   fight.ts        Initiative, hit points, whose turn it is
   verbs.ts        The marks a narrator writes into its prose
   campaigns.ts    The three, and the one it dreams up
+  share.ts        Invitations, seats, and who may touch what
+  hosting.ts      Answering the network; door.ts opens the tunnel
+  passport.ts     A character carried by the player, not the host
+  kits.ts         Classes and races people write themselves
+  difficulty.ts   How hard the table is
+  scenery.ts      Matching a scene to a wallpaper and a sound
+  avatar.ts       Art packs for the face maker
   *.test.ts       bun test
 public/           The whole frontend: one HTML file, one stylesheet, one script
 mobile/           The Android app. See mobile/README.md.
@@ -212,14 +228,16 @@ because you trust where it came from.
 ```bash
 bun install
 bun run start                        # http://localhost:7870
-bun test                             # 440-odd unit and route tests
+bun test                             # the whole suite
 bun run typecheck
 
 bun run scripts/build-desktop.ts     # -> dist/desktop/Hearth.exe
 bun run scripts/build-installer.ts   # -> dist/HearthSetup.exe
 ```
 
-The installer needs Inno Setup once: `winget install --id JRSoftware.InnoSetup`
+Building the installer — not running it — needs Inno Setup once:
+`winget install --id JRSoftware.InnoSetup`. Nobody downloading `HearthSetup.exe`
+needs it, or anything else; it is a self-contained wizard.
 
 The Android app is its own thing — `mobile/README.md` has it, and the embedded
 Node runtime is checked in, so a clone builds without hunting for anything.
