@@ -6213,3 +6213,18 @@ body.guest #guideBtn { display: none !important; }
 #tableSheet #csReroll,
 #tableSheet .csacts,
 #tableSheet .hprow button { display: none; }
+
+/* A mark the narrator invented that nothing knows how to draw. Kept, because
+   it is what it actually said and hiding it could make a roll disappear —
+   quiet, because it is not for reading. */
+.straymark {
+  font-size: 0.78em;
+  color: var(--lumiverse-text-hint);
+  border: 1px dashed color-mix(in srgb, var(--lumiverse-primary) 22%, transparent);
+  border-radius: 999px;
+  padding: 0 0.5em;
+  margin: 0 0.15em;
+  white-space: nowrap;
+}
+/* The label beside a check's total, so "14" says what it was a check of. */
+.rollnote { font-size: 0.76em; color: var(--lumiverse-text-dim); margin-left: 0.35em; }

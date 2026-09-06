@@ -180,7 +180,8 @@ function plain(text) {
 
 /** Prose, unless it is markup, in which case render it rather than read it. */
 function segment(text) {
-  return verbs(dice(LOOKS_LIKE_MARKUP.test(text) ? sanitise(text) : plain(text)));
+  // Last, so it only ever sees what the named renderers above left behind.
+  return strayMarks(verbs(dice(LOOKS_LIKE_MARKUP.test(text) ? sanitise(text) : plain(text))));
 }
 
 /**
@@ -256,7 +257,46 @@ function verbs(html) {
       `<span class="scenemark"><span class="scenerule"></span>` +
         `<span class="scenewhere over">the fight is over</span>` +
         `<span class="scenerule"></span></span>`,
+    )
+    /*
+     * A check against a sheet, which is a roll and was being shown as text.
+     *
+     * The dice renderer below only knows notation — 2d6+3 — and a check is
+     * written "Dexterity check: 11 +0 = 11", so every ability check in a game
+     * arrived on screen as literal double brackets. It is the same object as a
+     * die roll and gets drawn as one, with the working kept on the title where
+     * a roll you cannot check is a roll somebody could have made up.
+     */
+    .replace(
+      /\[\[([A-Za-z][A-Za-z ]{2,20}?):\s*(-?\d+)\s*([+-]\s*\d+)?\s*=\s*(-?\d+)\s*\]\]/g,
+      (_whole, label, die, mod, total) =>
+        `<span class="roll" title="${label} — ${die}${mod ? ` ${mod}` : ""}">` +
+          `<span class="die">${total}</span>` +
+          `<span class="rollnote">${label}</span>` +
+        `</span>`,
     );
+}
+
+/**
+ * Anything still in double brackets when everything else has had its turn.
+ *
+ * The narrator invents marks. Told about six it will write a seventh — an
+ * [[Attack: 1d20+0]] it never rolled, a bare [[fight:]] with nothing after
+ * it — and whatever is not recognised was being printed as raw brackets in
+ * the middle of the prose. Which is the worst of both: it means nothing to
+ * the reader and it looks broken.
+ *
+ * So the leftovers are drawn quietly rather than shown or thrown away. Kept,
+ * because it is what the narrator actually said and hiding it would make a
+ * roll disappear; quiet, because it is not for reading.
+ */
+function strayMarks(html) {
+  return html.replace(
+    /\[\[([^\]\n]{0,120}?)\]\]/g,
+    (_whole, body) => (body.trim()
+      ? `<span class="straymark" title="the narrator wrote this">${body.trim()}</span>`
+      : ""),
+  );
 }
 
 /**
