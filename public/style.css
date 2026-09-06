@@ -2056,8 +2056,19 @@ body[data-msgstyle="portrait"] .tools button:hover {
 }
 
 /* The plate is the anchor for the corner icons; page style has no plate box,
-   so the tools fall back into the flow there. */
-body[data-msgstyle="page"] .tools { position: static; opacity: 1; padding-left: 0; }
+   so the tools fall back into the flow there.
+ *
+ * With the row layout, which this used to leave out. `display: flex` was set
+ * on the banner and portrait rules only, so in page style the tools reverted
+ * to a block and their four buttons stacked one under another down the left
+ * margin — a column of icons hanging off the bottom of every message. */
+body[data-msgstyle="page"] .tools {
+  position: static;
+  opacity: 1;
+  padding-left: 0;
+  display: flex;
+  gap: 0.15rem;
+}
 
 .ico.on {
   color: var(--lumiverse-primary);

@@ -105,6 +105,20 @@ public class MainActivity extends AppCompatActivity {
           retries = 0;
           Diagnostics.clear(MainActivity.this,
               Diagnostics.STAGE, Diagnostics.NODE_ERROR, Diagnostics.JAVA_CRASH);
+          /*
+           * Forget the loading screen.
+           *
+           * boot.html is a static file with no server behind it, and it sat in
+           * the WebView's history as the entry before the app — so a back
+           * swipe went to it and stayed there, animating a fire for ever with
+           * nothing to advance it. From the outside that is indistinguishable
+           * from the app hanging on startup.
+           *
+           * It is not a page anybody should be able to return to, so once the
+           * real one has landed it stops existing. Called from here because
+           * clearHistory only takes effect after the new page has loaded.
+           */
+          view.clearHistory();
         }
       }
 
@@ -420,14 +434,31 @@ public class MainActivity extends AppCompatActivity {
     if (nodeStarted) RNNodeJsMobileModule.sendToNode(SYSTEM_CHANNEL, "resume");
   }
 
+  /**
+   * Back, asked of the page before it is treated as leaving.
+   *
+   * This used to be webView.goBack(), which had exactly one place to go: the
+   * loading screen the app was started from. Backing out of a chat landed on a
+   * fire animating for ever.
+   *
+   * Hearth is one page and keeps no history of its own, so there is nothing to
+   * step back through — but there is somewhere sensible to go. The page is
+   * asked first: it closes whatever is open, or leaves a chat for the shelf,
+   * and says whether it did anything. Only when it has nothing left to close
+   * does back mean leave.
+   */
   @Override
   public void onBackPressed() {
-    if (webView.canGoBack()) {
-      webView.goBack();
-      return;
-    }
-    // Backing out of a working app is not a crash — say so, or the launcher
-    // would greet the user with a failure report on the way out.
+    if (webView == null) { leave(); return; }
+    webView.evaluateJavascript(
+        "(function(){try{return !!(window.hearthBack&&window.hearthBack())}catch(e){return false}})()",
+        handled -> { if (!"true".equals(handled)) leave(); });
+  }
+
+  /** Backing out of a working app is not a crash — say so, or the launcher
+   *  would greet the user with a failure report on the way out. */
+  @SuppressWarnings("deprecation")
+  private void leave() {
     setResult(RESULT_OK);
     super.onBackPressed();
   }

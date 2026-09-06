@@ -381,6 +381,22 @@ export const currentWorld = () => (getSettings().mode === "tabletop" ? "tabletop
 const worldWhere = (table = "characters") =>
   `(${table}.world = '${currentWorld()}' OR ${table}.world = 'both')`;
 
+/**
+ * One character, whole.
+ *
+ * /cast is a list and deliberately carries only what a list draws — id, name,
+ * avatar, description. The edit dialog was being handed a row from it, so
+ * personality, the scene and the greeting arrived as undefined and showed as
+ * empty boxes; saving then wrote those blanks back over the real ones. The
+ * character kept working until somebody opened it to fix a typo.
+ */
+api.get("/characters/:id", (c) => {
+  const row = db.query(
+    "SELECT * FROM characters WHERE id = ? AND deleted_at IS NULL",
+  ).get(c.req.param("id"));
+  return row ? c.json(row) : c.json({ error: "No such character." }, 404);
+});
+
 api.get("/characters", (c) =>
   c.json(db.query(
     `SELECT * FROM characters WHERE deleted_at IS NULL AND ${worldWhere()}

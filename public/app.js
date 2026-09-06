@@ -4150,6 +4150,32 @@ $("#menuBtn").onclick = (e) => {
 $("#chainVeil").onclick = closeChain;
 
 /**
+ * What the back gesture means, asked of the page.
+ *
+ * The Android shell used to answer back with webView.goBack(), which had
+ * exactly one place to go: the loading screen it started from. Swiping back
+ * out of a chat landed on a fire animating for ever with nothing behind it,
+ * which looked precisely like the app hanging.
+ *
+ * Hearth is one page and keeps no history, so there is nothing to step back
+ * through — but there is somewhere to go. Innermost thing first: close what is
+ * open, then leave the chat for the shelf, and only when there is nothing left
+ * to close does back mean leave. Returns whether it did anything, and the
+ * shell only exits on false.
+ *
+ * Harmless in a browser, where nothing calls it.
+ */
+window.hearthBack = () => {
+  const dialog = document.querySelector("dialog[open]");
+  if (dialog) { dialog.close(); return true; }
+  if (typeof chainOpen === "function" && chainOpen()) { closeChain(); return true; }
+  if (typeof panelShowing === "function" && panelShowing()) { retractPanel(); return true; }
+  // In a chat: the shelf, which is where backing out of one should land.
+  if (S.chatId) { showSplash(); return true; }
+  return false;
+};
+
+/**
  * One place decides which of the seven is up, because two things now point at
  * them: the chain you summon and the rail down the panel's inner edge. They
  * have to agree, and the way to make sure they agree is to have one of them.
@@ -4349,7 +4375,19 @@ function renderCast() {
   });
 }
 
-function editChar(ch) {
+/**
+ * The editor, opened on a character fetched whole.
+ *
+ * Never on the row from the cast list. That list carries what a list draws —
+ * id, name, avatar, description — so opening the editor from it left
+ * personality, the scene and the greeting showing as empty boxes. Which would
+ * have been merely confusing, except that saving writes all five fields: the
+ * blanks went straight back over the real ones. A character was quietly gutted
+ * by somebody opening it to fix a typo, and kept working until they did.
+ */
+async function editChar(ch) {
+  if (ch?.id) ch = await api(`/characters/${ch.id}`).catch(() => ch);
+
   S.editing = ch?.id ?? null;
   $("#charDialogTitle").textContent = ch ? "Edit character" : "New character";
   $("#c_name").value = ch?.name ?? "";
@@ -4960,19 +4998,35 @@ function makeSelectable(listId, prefix, endpoint, refresh, noun) {
     // A spine is its own wrapper; a list row has one around it.
     const wrap = e.target.closest(".rowwrap, .spine");
     if (!wrap || !here.contains(wrap)) return;
-    e.preventDefault();
-    e.stopPropagation();
 
     const all = boxes();
     const box = wrap.querySelector(".pick");
     const i = all.indexOf(box);
 
+    /*
+     * Whether the tap landed on the box itself, which changes everything.
+     *
+     * A checkbox is toggled by the browser *before* the click event is
+     * dispatched, so by the time this runs `checked` already holds the new
+     * value — and toggling it again by hand put it straight back. Tapping the
+     * row worked, because there is no activation there to undo; tapping the
+     * box did nothing at all. With a mouse you hit the row and never notice.
+     * On a phone the box is the obvious thing to aim at, and selection looked
+     * completely broken.
+     *
+     * preventDefault is likewise only for the row: on the box it would cancel
+     * the toggle the browser has already made.
+     */
+    const onBox = e.target === box;
+    const want = onBox ? box.checked : !box.checked;
+    if (!onBox) e.preventDefault();
+    e.stopPropagation();
+
     if (e.shiftKey && anchor >= 0) {
       const [lo, hi] = i < anchor ? [i, anchor] : [anchor, i];
-      const value = !box.checked;
-      for (let k = lo; k <= hi; k++) all[k].checked = value;
+      for (let k = lo; k <= hi; k++) all[k].checked = want;
     } else {
-      box.checked = !box.checked;
+      box.checked = want;
       if (!(e.ctrlKey || e.metaKey)) anchor = i;
     }
     sync();

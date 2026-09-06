@@ -53,6 +53,33 @@ ends up in both worlds, so it stays on the story shelf too.
 `/api/lorebooks/elsewhere` now reports `entry_count`, so an empty book is not
 offered from either side.
 
+### Three from nerb, and one from the back gesture
+
+**Editing an imported character emptied it.** The cast list carries what a
+list draws — id, name, avatar, description — and the edit dialog was handed a
+row from it, so personality, the scene and the greeting showed as blank. The
+reported half. The unreported half is that saving writes all five fields, so
+those blanks went back over the real ones: a character was gutted by somebody
+opening it to fix a typo, and looked fine in the list afterwards. There is a
+`GET /characters/:id` now and the editor fetches whole records.
+
+**Selection did nothing when you tapped the checkbox.** A checkbox is toggled
+by the browser before the click event is dispatched, so the handler's
+`checked = !checked` put it straight back. Tapping the row worked, because
+there is no activation there to undo — which is why it went unnoticed on a
+mouse and looked completely broken on a phone.
+
+**The message buttons stacked vertically in page mode.** `display: flex` was
+set on the banner and portrait rules only, so page style reverted to a block
+and the four icons ran down the left margin of every message.
+
+**Swiping back landed on the loading screen for ever.** `boot.html` is a
+static file with nothing behind it and it sat in the WebView's history as the
+entry before the app, so back went to it and stayed. It is cleared once the
+app has loaded, and back now asks the page: it closes what is open, or leaves
+a chat for the shelf, and only means "leave" when there is nothing left to
+close.
+
 ---
 
 ## Cutting the release
