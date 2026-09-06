@@ -22,7 +22,8 @@ import { relative } from "node:path";
 // resolves to db.mobile.ts instead of the Bun original — done by the bundler
 // (see mobile/build.mjs's esbuild alias), not by anything in this file or in
 // index.ts, so nothing about the desktop build has to know mobile exists.
-import { app, ensureStarterCharacter } from "../../src/index";
+import { app, ensureStarterCharacter, markPublic } from "../../src/index";
+import { provideListener, stopHosting } from "../../src/hosting";
 import { dbReady, flush } from "./db.mobile";
 
 const port = Number(process.env.PORT ?? 7870);
@@ -69,6 +70,29 @@ async function main() {
 
   app.use("/uploads/*", serveStatic({ root: uploads }));
   app.use("/*", serveStatic({ root: "./public" }));
+
+  /*
+   * Hosting, from a phone.
+   *
+   * The private listener below stays on loopback: it is what this app's own
+   * WebView talks to, and nothing else has any business reaching it. Hosting
+   * opens a *second* one on the network, and everything arriving there is
+   * marked public before it reaches the gate — which is how a guest is told
+   * apart from the owner, and why it has to be a different socket rather than
+   * the same one bound wider.
+   *
+   * A phone cannot run cloudflared; Android will not let an app execute a
+   * binary it shipped. It does not need to. Anyone who can already reach the
+   * phone can reach the table — everyone on this Wi-Fi, and everyone on the
+   * VPN if one is running, from anywhere.
+   */
+  provideListener((p, hostname) => {
+    const server = serve({ fetch: (req: Request) => { markPublic(req); return app.fetch(req); },
+                           port: p, hostname });
+    return { close: () => server.close(), port: p };
+  });
+  process.on("SIGTERM", stopHosting);
+  process.on("SIGINT", stopHosting);
 
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, (info) => {
     diagnostics.__hearthStage?.("LISTENING");

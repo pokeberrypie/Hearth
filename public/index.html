@@ -842,6 +842,14 @@
             machine and put the address in the link for you.</p>
           <button class="solid wide" id="tgDoor">Open the door</button>
           <p class="hint" id="tgDoorState">Shut. The link above only works inside this house.</p>
+
+          <!-- The other way to be reachable, and the only one a phone has:
+               answer the network directly. Anyone who can already reach this
+               device can then reach the table — everyone on this Wi-Fi, and
+               everyone on the VPN if one is running, from anywhere. -->
+          <label class="check"><input type="checkbox" id="tgHost">
+            Answer the network directly</label>
+          <p class="hint" id="tgHostState">Off. Nothing outside this device can reach it.</p>
           <details class="fold">
             <summary>Use my own address instead</summary>
             <label>Address

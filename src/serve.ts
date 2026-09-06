@@ -10,6 +10,7 @@
  */
 import { serveStatic } from "hono/bun";
 import { app, ensureStarterCharacter, markPublic } from "./index";
+import { provideListener, stopHosting } from "./hosting";
 
 // A brand-new library gets its one character here, where the database is
 // certainly ready — never from index.ts's body; see ensureStarterCharacter().
@@ -68,14 +69,36 @@ console.log("");
  * tunnel — nothing on the network should be able to knock on it directly.
  */
 const publicPort = Number(process.env.PUBLIC_PORT ?? port + 1);
-Bun.serve({
-  port: publicPort,
-  hostname: "127.0.0.1",
-  idleTimeout: 255,
-  fetch(req, server) {
-    markPublic(req);
-    return app.fetch(req, server);
-  },
+const publicServe = (p: number, hostname: string) =>
+  Bun.serve({
+    port: p,
+    hostname,
+    idleTimeout: 255,
+    fetch(req, server) {
+      markPublic(req);
+      return app.fetch(req, server);
+    },
+  });
+
+/*
+ * The tunnel's own door, always here and always loopback: cloudflared connects
+ * from this machine, and nothing on the network should be able to knock on it
+ * directly.
+ */
+publicServe(publicPort, "127.0.0.1");
+
+/*
+ * And a second one, on the network, for hosting without a tunnel — the same
+ * door a phone opens. Started only when asked, on a port of its own so it
+ * cannot collide with the tunnel's.
+ */
+provideListener((p, hostname) => {
+  // One past the tunnel's, so the two doors never fight over a socket.
+  const server = publicServe(p + 1, hostname);
+  // Bun types the port as possibly absent; the number we asked for is the
+  // one it bound, so fall back to that rather than to nothing.
+  return { close: () => server.stop(true), port: server.port ?? p + 1 };
 });
+for (const sig of ["exit", "SIGINT", "SIGTERM"] as const) process.on(sig, stopHosting);
 
 export default { port, hostname, fetch: app.fetch, idleTimeout: 255 };

@@ -6413,7 +6413,7 @@ $("#tabletop_difficulty")?.addEventListener("change", showDifficultyHint);
  * it is the thing everyone else is looking at. The guest's view is the same
  * app with the drawer taken away; there is no second client to keep in step.
  */
-const TG = { share: null, feed: null, answering: false, pending: false, door: null, chats: [] };
+const TG = { share: null, feed: null, answering: false, pending: false, door: null, host: null, chats: [] };
 
 /**
  * The address to put in front of the link.
@@ -6424,9 +6424,15 @@ const TG = { share: null, feed: null, answering: false, pending: false, door: nu
  * asked for rather than guessed at, remembered, and used when it is there.
  */
 const tgBase = () => {
-  // What you typed wins; otherwise whatever the door is currently giving out.
+  // What you typed wins. Then the tunnel, because its address works from
+  // further away than a network one. Then the device's own address, which is
+  // the only one a phone has.
   const mine = (localStorage.getItem("hearth.tableBase") || "").trim().replace(/\/+$/, "");
-  return mine || (TG.door?.url || "").replace(/\/+$/, "");
+  if (mine) return mine;
+  const tunnel = (TG.door?.url || "").replace(/\/+$/, "");
+  if (tunnel) return tunnel;
+  const net = TG.host?.on ? (TG.host.addresses ?? [])[0] : "";
+  return net ? `http://${net}:${TG.host.port}` : "";
 };
 
 function tgLinkFor(share) {
@@ -6498,6 +6504,56 @@ function renderTogether() {
  * Opening it is a few seconds of waiting on somebody else's network, so the
  * button says so rather than looking broken while it thinks.
  */
+/**
+ * Answering the network directly.
+ *
+ * The tunnel is one way to be reachable and not the only one, and on a phone
+ * it is not available at all — Android will not let an app run a binary it
+ * shipped. But anyone who can already reach this device can reach the table,
+ * so the second listener is enough: everyone on this Wi-Fi, and everyone on
+ * the VPN if one is running, from anywhere.
+ *
+ * The address it offers is the device's own. Whichever of the two is on wins
+ * for the link, tunnel first, because a tunnel address works from further
+ * away than a Wi-Fi one does.
+ */
+function renderHosting() {
+  const box = $("#tgHost"), note = $("#tgHostState");
+  if (!box || !note) return;
+  const h = TG.host;
+  box.checked = !!h?.on;
+  if (h?.trouble) {
+    note.textContent = h.trouble;
+    return;
+  }
+  if (!h?.on) {
+    note.textContent = "Off. Nothing outside this device can reach it.";
+    return;
+  }
+  const where = (h.addresses ?? []);
+  note.textContent = where.length
+    ? `On. Reachable at ${where.map((a) => `${a}:${h.port}`).join(" or ")} — anyone who can `
+      + `reach this device on one of those can sit down.`
+    : "On, but this device has no network address right now, so nobody can reach it yet.";
+}
+
+async function refreshHosting() {
+  TG.host = await api("/hosting").catch(() => null);
+  renderHosting();
+  renderTogether();
+}
+
+$("#tgHost").onchange = async () => {
+  const on = $("#tgHost").checked;
+  $("#tgHostState").textContent = on ? "Opening…" : "Closing…";
+  TG.host = await api("/hosting", {
+    method: "PUT", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ on }),
+  }).catch(() => null);
+  renderHosting();
+  renderTogether();
+};
+
 function renderDoor() {
   const btn = $("#tgDoor"), note = $("#tgDoorState");
   if (!btn || !note) return;
@@ -6540,6 +6596,7 @@ async function refreshTogether() {
   TG.chats = Array.isArray(chats) ? chats : [];
   TG.share = shares.find((s) => s.chat_id === S.chatId) ?? shares[0] ?? null;
   if (!TG.door) await refreshDoor();
+  if (!TG.host) await refreshHosting();
   renderTogether();
   tgListen();
 }

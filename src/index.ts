@@ -15,6 +15,7 @@ import { LEVELS, difficultyForPrompt } from "./difficulty";
 import { bookIsUsable, seedFromBook } from "./frombook";
 import { readPassport, writePassport } from "./passport";
 import { closeDoor, doorState, openDoor } from "./door";
+import { hostingState, setHosting } from "./hosting";
 import {
   clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
   treatAsHost,
@@ -4339,13 +4340,37 @@ api.delete("/shares/:id/players/:pid", (c) => {
  * It takes no command and no arguments. The only thing it can start is the one
  * tunnel it goes looking for, pointed at this server's own port.
  */
+/**
+ * Hosting from this device.
+ *
+ * The tunnel is one way to be reachable and not the only one. A phone cannot
+ * run cloudflared — Android will not let an app execute a binary it shipped —
+ * but it can perfectly well open a second listener on the network, and then
+ * anyone who can already reach the phone can reach the table: everybody on the
+ * same Wi-Fi, and everybody on the VPN if one is running.
+ *
+ * Off unless asked, every time. A device that quietly starts answering a
+ * strange network because this was switched on once is not something to ship,
+ * so the state lives here rather than in a setting that survives a restart.
+ */
+/** The socket guests arrive on, which is never the one the app itself uses. */
+function publicPort(): number {
+  return Number(process.env.PUBLIC_PORT ?? Number(process.env.PORT ?? 7870) + 1);
+}
+
+api.get("/hosting", (c) => c.json(hostingState(publicPort())));
+
+api.put("/hosting", async (c) => {
+  const { on } = await c.req.json().catch(() => ({}));
+  return c.json(setHosting(!!on, publicPort()));
+});
+
 api.get("/door", (c) => c.json(doorState()));
 
 api.post("/door", async (c) => {
   // The public listener, never the ordinary one — see serve.ts. Pointing a
   // tunnel at the ordinary port is exactly the mistake this exists to stop.
-  const port = Number(process.env.PUBLIC_PORT ?? Number(process.env.PORT ?? 7870) + 1);
-  return c.json(await openDoor(port));
+  return c.json(await openDoor(publicPort()));
 });
 
 api.delete("/door", (c) => c.json(closeDoor()));
