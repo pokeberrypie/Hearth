@@ -269,6 +269,9 @@ bun run scripts/build-desktop.ts     # -> dist/desktop/Hearth.exe
 bun run scripts/build-installer.ts   # -> dist/HearthSetup.exe
 ```
 
+`docs/unreleased.md` lists anything sitting on `main` that is not in the newest
+release yet, and how to cut the next one.
+
 Building the installer — not running it — needs Inno Setup once:
 `winget install --id JRSoftware.InnoSetup`. Nobody downloading `HearthSetup.exe`
 needs it, or anything else; it is a self-contained wizard.
