@@ -853,15 +853,6 @@
           <div class="moremenu" hidden></div>
         </header>
 
-        <!-- Being the owner from another device you own, which is a different
-             thing from inviting somebody: a guest gets one table, this gets
-             everything. Kept above the invitation flow and outside it, because
-             it does not need a chat to be open. -->
-        <details class="fold" id="tgSelf">
-          <summary>Use this Hearth from your own phone or laptop</summary>
-          <div id="tgSelfBody"></div>
-        </details>
-
         <!-- Nothing open yet. -->
         <div id="tgShut">
           <p class="hint">Open the chat you are in to other people. They get a link, they
@@ -954,6 +945,19 @@
           <p class="hint" id="testHint"></p>
           <button class="ghost wide" id="saveSettings">Save settings</button>
           <p class="hint" id="saveHint"></p>
+
+          <!--
+            Everything above is outbound: where Hearth goes to find a model.
+            This is the other direction — how a device of yours reaches Hearth.
+
+            Deliberately its own section rather than part of the custom endpoint
+            above it. That one takes the address of a model server; this one
+            hands out a key to the whole app, and two address fields sitting
+            together with only a label between them is how somebody pastes the
+            wrong one somewhere public.
+          -->
+          <h3>Reaching this Hearth</h3>
+          <div id="selfLinkBody"></div>
       </section>
 
       <section data-panel="behavior" class="panel" hidden>

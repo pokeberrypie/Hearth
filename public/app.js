@@ -4183,6 +4183,9 @@ function pickPanel(tab) {
    */
   if (tab === "kinds") refreshKits();
   if (tab === "together") refreshTogether();
+  // Lives in Connection now: it is about reaching this Hearth, which is the
+  // same question as the rest of that panel asked from the other side.
+  if (tab === "connection") paintSelfLinks();
 }
 for (const b of document.querySelectorAll(".chainlink, .raillink"))
   b.onclick = () => pickPanel(b.dataset.tab);
@@ -6814,25 +6817,32 @@ function tgLinkFor(share) {
 /**
  * Being the owner of this Hearth from another device you own.
  *
- * Distinct from inviting somebody, and shown separately: an invitation is a
- * seat at one table, and this is the keys to the house. The key behind it used
- * to live only on the console — which the installed desktop build hides and a
- * phone does not have — so the feature existed and could not be reached.
+ * In Connection, because the rest of that panel is the same question asked
+ * outward — where Hearth goes to find a model — and this is the way back in.
+ * Its own section rather than part of the custom endpoint above it, though:
+ * that field takes the address of a model server and this one hands out a key
+ * to the whole app, and two address fields with a label between them is how
+ * somebody pastes the wrong one somewhere public.
+ *
+ * Distinct from inviting somebody, too. An invitation is a seat at one table;
+ * this is the keys to the house. The key behind it used to live only on the
+ * console — which the installed desktop build hides and a phone does not have
+ * — so the feature existed and could not be reached.
  *
  * Painted from the server rather than assembled here, because which doors are
  * open and on which ports is something only the server knows.
  */
 async function paintSelfLinks() {
-  const box = $("#tgSelfBody");
-  if (!box) return;                       // guest mode has no drawer at all
+  const box = $("#selfLinkBody");
+  if (!box) return;                       // guest mode has no panels at all
   const info = await api("/host-link").catch(() => null);
   if (!info) { box.innerHTML = ""; return; }
 
   if (!info.links.length) {
     box.innerHTML =
       `<p class="hint">This device only answers itself, so there is nothing to open ` +
-      `from elsewhere yet. Turn on <em>Answer the network directly</em> below once a ` +
-      `table is open, or start Hearth with <code>HOST=0.0.0.0</code>.</p>`;
+      `from elsewhere yet. Start Hearth with <code>HOST=0.0.0.0</code>, or turn on ` +
+      `<em>Answer the network directly</em> in Together once a table is open.</p>`;
     return;
   }
 
@@ -6869,8 +6879,7 @@ function renderTogether() {
   const shut = $("#tgShut"), live = $("#tgLive");
   // Absent in guest mode, where the whole drawer is taken away.
   if (!shut || !live) return;
-  // Before the early return below: this does not need a table to be open.
-  paintSelfLinks();
+
   const on = !!TG.share;
   shut.hidden = on;
   live.hidden = !on;
