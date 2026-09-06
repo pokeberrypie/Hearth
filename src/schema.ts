@@ -332,6 +332,8 @@ export const DEFAULTS: Record<string, string> = {
   key_google: "",
   key_anthropic: "",
   tabletop_difficulty: "faircount",
+  // The room following the story. Off: it changes what you are looking at.
+  scene_follows: "0",
   persona_name: "You",
   persona_description: "",
 

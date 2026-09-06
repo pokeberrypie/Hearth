@@ -14,6 +14,7 @@ import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedF
 import { LEVELS, difficultyForPrompt } from "./difficulty";
 import { bookIsUsable, seedFromBook } from "./frombook";
 import { readPassport, writePassport } from "./passport";
+import { soundFor, wallpaperFor } from "./scenery";
 import { closeDoor, doorState, openDoor } from "./door";
 import { hostingState, setHosting } from "./hosting";
 import {
@@ -3055,6 +3056,44 @@ api.post("/campaigns/from-book", async (c) => {
   return c.json({ campaign });
 });
 
+/**
+ * The room follows the story, if you have asked it to.
+ *
+ * When the narrator moves the scene it has just described what the place
+ * sounds and looks like, and nothing was reading that: a game walking from a
+ * tavern into a storm sounded identical in both. This reads it.
+ *
+ * Off unless switched on, and picking only from wallpapers already in your own
+ * folder — it does not fetch one, generate one, or invent one. That limit is
+ * deliberate and not negotiable: nobody's wallpapers get messed with, and a
+ * room that silently redecorates is worse than one that does not, because you
+ * cannot tell whether you did it.
+ *
+ * A weak match changes nothing. See scenery.ts.
+ */
+function readdirSyncSafe(dir: string): string[] {
+  try { return require("node:fs").readdirSync(dir) as string[]; } catch { return []; }
+}
+
+function dressTheScene(chatId: string, where: string) {
+  const s = getSettings();
+  if (s.scene_follows !== "1") return;
+
+  const sound = soundFor(where);
+  if (sound) db.query("UPDATE chats SET ambience = ? WHERE id = ?").run(sound, chatId);
+
+  let files: string[] = [];
+  try {
+    // Only real pictures, and only the ones already here.
+    files = readdirSyncSafe(WALLS).filter((f) => /\.(png|jpe?g|webp|gif|avif)$/i.test(f));
+  } catch { files = []; }
+  const paper = wallpaperFor(where, files);
+  if (paper) {
+    db.query("UPDATE chats SET wallpaper = ? WHERE id = ?")
+      .run(`/uploads/wallpapers/${paper}`, chatId);
+  }
+}
+
 function campaignIn(chatId: string): Campaign | null {
   const row = db.query("SELECT campaign FROM chats WHERE id = ?").get(chatId) as any;
   if (!row?.campaign) return null;
@@ -3315,6 +3354,7 @@ export function applyVerbs(chatId: string, text: string, playerId?: string | nul
     if (intent.kind !== "npc" && intent.kind !== "scene") continue;
     if (intent.kind === "scene") {
       db.query("UPDATE chats SET location = ? WHERE id = ?").run(intent.where, chatId);
+      dressTheScene(chatId, intent.where);
       continue;
     }
     const existing = db.query(
