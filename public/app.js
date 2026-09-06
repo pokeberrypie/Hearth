@@ -6811,10 +6811,66 @@ function tgLinkFor(share) {
   return (tgBase() || location.origin) + share.join;
 }
 
+/**
+ * Being the owner of this Hearth from another device you own.
+ *
+ * Distinct from inviting somebody, and shown separately: an invitation is a
+ * seat at one table, and this is the keys to the house. The key behind it used
+ * to live only on the console — which the installed desktop build hides and a
+ * phone does not have — so the feature existed and could not be reached.
+ *
+ * Painted from the server rather than assembled here, because which doors are
+ * open and on which ports is something only the server knows.
+ */
+async function paintSelfLinks() {
+  const box = $("#tgSelfBody");
+  if (!box) return;                       // guest mode has no drawer at all
+  const info = await api("/host-link").catch(() => null);
+  if (!info) { box.innerHTML = ""; return; }
+
+  if (!info.links.length) {
+    box.innerHTML =
+      `<p class="hint">This device only answers itself, so there is nothing to open ` +
+      `from elsewhere yet. Turn on <em>Answer the network directly</em> below once a ` +
+      `table is open, or start Hearth with <code>HOST=0.0.0.0</code>.</p>`;
+    return;
+  }
+
+  box.innerHTML =
+    `<p class="hint">Open one of these once on the other device. It hands over a key ` +
+    `and that device is yours from then on &mdash; the whole app, not a seat at a ` +
+    `table. Treat it like a password: anyone who opens it becomes you here.</p>`;
+
+  for (const link of info.links) {
+    const row = document.createElement("div");
+    row.className = "linkrow";
+    const field = document.createElement("input");
+    field.type = "text";
+    field.readOnly = true;
+    field.value = link.url;
+    field.setAttribute("aria-label", `Link for ${link.where}`);
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "ico";
+    copy.title = "Copy";
+    copy.setAttribute("aria-label", `Copy the link for ${link.where}`);
+    copy.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/>` +
+      `<path d="M15 6.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1.5"/></svg>`;
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(link.url); toast("Copied."); }
+      catch { field.select(); }
+    };
+    row.append(field, copy);
+    box.append(row);
+  }
+}
+
 function renderTogether() {
   const shut = $("#tgShut"), live = $("#tgLive");
   // Absent in guest mode, where the whole drawer is taken away.
   if (!shut || !live) return;
+  // Before the early return below: this does not need a table to be open.
+  paintSelfLinks();
   const on = !!TG.share;
   shut.hidden = on;
   live.hidden = !on;

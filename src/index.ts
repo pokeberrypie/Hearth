@@ -4808,6 +4808,48 @@ function publicPort(): number {
   return Number(process.env.PUBLIC_PORT ?? Number(process.env.PORT ?? 7870) + 1);
 }
 
+/**
+ * How to be the owner of this Hearth from another device you own.
+ *
+ * The key used to exist only on the console, which is fine for somebody
+ * running it in a terminal and useless everywhere else: the installed desktop
+ * build hides its console outright, and a phone does not have one at all. A
+ * credential you can only read by not using the app is a credential nobody
+ * uses.
+ *
+ * Host-only, because guestMayTouch is an allow-list and this is not on it. So
+ * the only people who can read the key are the ones who already have the
+ * powers it grants — which is the same reason it is safe to print.
+ */
+api.get("/host-link", (c) => {
+  const state = hostingState(publicPort());
+  const key = hostKey();
+  const ownPort = Number(process.env.PORT ?? 7870);
+
+  /*
+   * Two doors can be open, and they are on different ports. The main one when
+   * Hearth was started bound past loopback, and the hosting one when the
+   * network switch is on. Both take the key; neither exists by default.
+   */
+  const links: { where: string; port: number; url: string }[] = [];
+  const add = (port: number) => {
+    for (const where of state.addresses) {
+      const url = `http://${where}:${port}/host/${key}`;
+      if (!links.some((l) => l.url === url)) links.push({ where, port, url });
+    }
+  };
+  if (BOUND_WIDE) add(ownPort);
+  if (state.on && state.port) add(state.port);
+
+  return c.json({
+    key,
+    wide: BOUND_WIDE,
+    hosting: state.on,
+    addresses: state.addresses,
+    links,
+  });
+});
+
 api.get("/hosting", (c) => c.json(hostingState(publicPort())));
 
 api.put("/hosting", async (c) => {

@@ -853,6 +853,15 @@
           <div class="moremenu" hidden></div>
         </header>
 
+        <!-- Being the owner from another device you own, which is a different
+             thing from inviting somebody: a guest gets one table, this gets
+             everything. Kept above the invitation flow and outside it, because
+             it does not need a chat to be open. -->
+        <details class="fold" id="tgSelf">
+          <summary>Use this Hearth from your own phone or laptop</summary>
+          <div id="tgSelfBody"></div>
+        </details>
+
         <!-- Nothing open yet. -->
         <div id="tgShut">
           <p class="hint">Open the chat you are in to other people. They get a link, they

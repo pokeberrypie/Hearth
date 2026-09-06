@@ -143,6 +143,40 @@ describe("claiming it", () => {
   });
 });
 
+describe("reading the link out of the app", () => {
+  test("the host can, because that is the whole point of it existing", async () => {
+    const key = fresh();
+    const res = await ask("/api/host-link", withKey(key));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.key).toBe(key);
+    expect(Array.isArray(body.links)).toBe(true);
+  });
+
+  test("a stranger on the network cannot", async () => {
+    fresh();
+    expect((await ask("/api/host-link")).status).toBe(403);
+  });
+
+  test("and neither can a guest holding a seat", async () => {
+    fresh();
+    const t = Date.now();
+    db.query("INSERT INTO characters (id, name, created_at) VALUES (?,?,?)").run("c9", "GM", t);
+    db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at) VALUES (?,?,?,?,?)")
+      .run("chat9", "c9", "A table", t, t);
+    db.query("INSERT INTO shares (id, chat_id, token, open, created_at) VALUES (?,?,?,?,?)")
+      .run("s9", "chat9", "sharetoken9", 1, t);
+    db.query(
+      "INSERT INTO players (id, share_id, token, name, host, seen_at, created_at) VALUES (?,?,?,?,?,?,?)",
+    ).run("p9", "s9", "playertoken9", "A player", 0, t, t);
+
+    // Handing a guest the host key would turn every invitation into the keys.
+    const res = await ask("/api/host-link", { headers: { cookie: "hearth_player=playertoken9" } });
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain(hostKey());
+  });
+});
+
 describe("what a guest cannot do with it", () => {
   test("holding a seat does not make you the host", async () => {
     const key = fresh();
