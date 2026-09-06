@@ -1,8 +1,9 @@
 # Hearth v0.2.0
 
-49 commits since v0.1.0. The short version: **you can play with people who are
-not in the room**, there is a whole tabletop under the chat, and the app stopped
-hiding half of itself behind a gear icon.
+49 commits since v0.1.0, over two days. The short version: **you can play with
+people who are not in the room**, the tabletop became something you can write
+your own game into, and the app stopped hiding half of itself behind a gear
+icon.
 
 Windows installer, Android APK. Your chats stay on your machine.
 
@@ -31,20 +32,22 @@ multiplayer in this corner of the hobby.
   on your machine. Tested as an attacker rather than as a user, because the
   failure mode is silent.
 
-## The tabletop
+## The tabletop grew a lot
 
-- Character sheets, ability checks, initiative and fights.
-- **Dice the narrator can actually roll.** It writes `[[2d6+3]]`, Hearth
-  settles it before the message is saved, and the number is real rather than
-  something a model that cannot count made up.
+Sheets, fights and the narrator's dice were already in 0.1.0. What is new is
+the half that made it somebody's game rather than one game:
+
 - **Classes and races you write yourself.** The ones that ship are ordinary
   rows: edit them, delete them, export them, import somebody else's. Editing a
   built-in makes it yours.
 - **Three difficulties** — Hearthlight, Fair Count, Hard Winter — which change
   the number a roll has to beat and what failure costs, not an adjective in a
   prompt.
-- **Verbs**: the narrator can ask Hearth to *keep* something, not only settle
-  it — name an NPC, remember a fact, move the scene.
+- **Rolls with a name on them.** `[[Attack: 1d20+3]]` used to survive as an
+  unanswered question; ability checks printed as raw brackets on the page.
+  Both settle properly now, and anything left over is drawn quietly rather than
+  leaking markup.
+- **Dice in story mode too**, not only at the table.
 
 ## Anywhere to talk to
 
