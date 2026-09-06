@@ -4423,28 +4423,43 @@ async function fillCampaignBooks() {
     `<option value="${esc(b.id)}">${esc(b.name || "Untitled")}</option>`).join("");
 }
 
+/**
+ * Writing a game out of a book, on the page where you will read it.
+ *
+ * Reading a book and writing a brief takes a model half a minute, and the
+ * first version of this spent that half minute on the chooser with one line of
+ * hint text changing — which is indistinguishable from nothing happening, and
+ * was reported as the feature not working.
+ *
+ * So it goes to the storybook immediately and fills the page in as the answer
+ * arrives. You are where you were going to end up, you can see it being
+ * written, and the result is there to read over and change before it becomes
+ * the game rather than after.
+ */
 $("#campBookGo").onclick = async () => {
-  const btn = $("#campBookGo"), note = $("#campBookHint");
   const id = $("#campBook")?.value;
   if (!id) return;
-  const said = note.textContent;
-  btn.disabled = true;
-  note.textContent = "Reading the book and writing a game inside it…";
-  let out;
-  try {
-    out = await api("/campaigns/from-book", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ book_id: id, length: "short" }),
-    });
-  } catch (err) {
-    out = { error: err?.message ?? "Could not write from that book." };
-  }
-  btn.disabled = false;
-  note.textContent = said;
+
+  await openStorybook(chatMeta);
+  const fields = ["#camp_title", "#camp_premise", "#camp_theme", "#camp_opening"];
+  for (const f of fields) { $(f).value = ""; $(f).disabled = true; }
+  $("#camp_title").placeholder = "Reading the book…";
+  $("#camp_premise").placeholder = "Writing a game inside it. This takes half a minute.";
+
+  const out = await api("/campaigns/from-book", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ book_id: id, length: "short" }),
+  }).catch((err) => ({ error: err?.message ?? "Could not write from that book." }));
+
+  for (const f of fields) $(f).disabled = false;
+  $("#camp_title").placeholder = "A Debt in Greywater";
+  $("#camp_premise").placeholder =
+    "Where everyone is, what the trouble is, and what nobody is saying.";
+
   if (out?.error) return fail(out.error);
-  // Straight into the storybook with the fields filled in, so it can be read
-  // and changed before it becomes the game rather than after.
-  openStorybook(chatMeta, out.campaign);
+  // Same page, now with the answer on it — rather than a second page appearing
+  // underneath you once you have stopped looking.
+  await openStorybook(chatMeta, out.campaign);
 };
 
 $("#campOwn").onclick = () => openStorybook(chatMeta);

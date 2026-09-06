@@ -96,13 +96,38 @@ export type ResolvedText = { text: string; rolls: Roll[] };
  * all sorts of things in brackets, and eating them would be worse than
  * ignoring them.
  */
+/**
+ * A roll the model gave a name to.
+ *
+ * It writes `[[Attack: 1d20+0]]` as often as it writes `[[1d20+0]]` — a
+ * request with a label on the front — and only the bare form was being
+ * rolled, so the labelled ones survived into the transcript as an unanswered
+ * question. Which is the one thing the bracket protocol exists to prevent: a
+ * roll nobody made, sitting in the story looking like a roll that happened.
+ *
+ * The label is kept, because "Attack" is worth reading, and it is not treated
+ * as notation — a result already has an `=` in it and must not be rolled a
+ * second time on the next pass.
+ */
+const LABELLED = /^([A-Za-z][A-Za-z ']{0,24}):\s*(\d{0,3}d\d{1,3}(?:\s*[+-]\s*\d{1,3})?)$/;
+
 export function resolveRolls(text: string, rng: Rng = Math.random): ResolvedText {
   const rolls: Roll[] = [];
   const out = String(text ?? "").replace(TOKEN, (whole, inner) => {
-    const roll = rollDice(inner, rng);
-    if (!roll) return whole;
-    rolls.push(roll);
-    return `[[${describeRoll(roll)}]]`;
+    const direct = rollDice(inner, rng);
+    if (direct) {
+      rolls.push(direct);
+      return `[[${describeRoll(direct)}]]`;
+    }
+    const named = LABELLED.exec(String(inner).trim());
+    if (named) {
+      const roll = rollDice(named[2], rng);
+      if (roll) {
+        rolls.push(roll);
+        return `[[${named[1]}: ${describeRoll(roll).replace(/^[^:]*:\s*/, "")}]]`;
+      }
+    }
+    return whole;
   });
   return { text: out, rolls };
 }

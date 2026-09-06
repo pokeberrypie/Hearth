@@ -135,3 +135,35 @@ describe("resolving what a model wrote", () => {
     expect(DICE_BRIEF).toContain("Never write the outcome");
   });
 });
+
+describe("a roll the model gave a name to", () => {
+  test("is rolled, and keeps its name", () => {
+    // Seen in real transcripts: the model writes [[Attack: 1d20+0]] as often
+    // as [[1d20+0]], and only the bare form was being rolled — so the named
+    // ones survived as an unanswered question sitting in the story looking
+    // like a roll that had happened.
+    const { text, rolls } = resolveRolls("She swings. [[Attack: 1d20+2]]", () => 0.5);
+    expect(rolls).toHaveLength(1);
+    expect(text).toContain("Attack:");
+    expect(text).not.toMatch(/\[\[Attack: 1d20\+2\]\]/);
+    expect(text).toMatch(/=\s*\d+/);
+  });
+
+  test("a result is not rolled again on the next pass", () => {
+    // Resolution runs over text that may already contain resolved rolls.
+    const once = resolveRolls("[[Attack: 1d20+2]]", () => 0.5).text;
+    const twice = resolveRolls(once, () => 0.9).text;
+    expect(twice).toBe(once);
+  });
+
+  test("a label with no dice after it is left alone", () => {
+    const { text, rolls } = resolveRolls("[[Attack: whenever ready]]", () => 0.5);
+    expect(rolls).toHaveLength(0);
+    expect(text).toBe("[[Attack: whenever ready]]");
+  });
+
+  test("and a bare roll still works", () => {
+    const { rolls } = resolveRolls("[[2d6+1]]", () => 0.5);
+    expect(rolls).toHaveLength(1);
+  });
+});
