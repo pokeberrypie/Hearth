@@ -509,7 +509,7 @@ function sanitise(html) {
 /**
  * One message, rendered. Display scripts run first; if any of them changed the
  * text it is treated as markup and sanitised, otherwise the ordinary escaping
- * path applies and nothing about the app's usual behaviour changes.
+ * path applies and nothing about the app's usual behavior changes.
  */
 function renderBody(text, placement, depth) {
   const raw = String(text ?? "");
@@ -7735,7 +7735,7 @@ function palSources() {
     ["cast", "Cast"], ["you", "You and your personas"], ["lore", "Lorebooks"],
     ["presets", "Presets and sampling"], ["regex", "Regex scripts"],
     ["look", "Look and theme"], ["kinds", "Classes and races"], ["table", "The table"],
-    ["connection", "Connection, keys and model"], ["behaviour", "Behaviour"],
+    ["connection", "Connection, keys and model"], ["behavior", "Behavior"],
     ["data", "Import and export"], ["extensions", "Extensions"],
   ]) {
     add("Go to", name, "panel", () => {

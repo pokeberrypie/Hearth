@@ -257,7 +257,7 @@ const SEEDS: Seed[] = [
       "A mine that closed a generation ago has started paying wages again. " +
       "Nobody knows who is signing for them, the people going down are coming " +
       "back up, and they will not talk about the shift.",
-    opening: "The gate at dawn, a queue, and somebody the player recognises in it.",
+    opening: "The gate at dawn, a queue, and somebody the player recognizes in it.",
     beasts: ["Something the digging woke", "The foreman, who is very reassuring", "Miners on their fourth shift"],
   },
   {

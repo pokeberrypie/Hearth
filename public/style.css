@@ -2086,7 +2086,7 @@ body[data-msgstyle="page"] .tools { position: static; opacity: 1; padding-left: 
 /* ---- settings sections --------------------------------------------------- */
 
 /* Five rooms, each one a card that looks like the others and says which it is
-   at a glance. Behaviour and the table used to be loose controls sitting under
+   at a glance. Behavior and the table used to be loose controls sitting under
    the cards, so the page was half list and half form and the two halves did
    not look related. */
 .navcard {
@@ -5100,7 +5100,7 @@ body[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate {
    button that exists and then fails is worse than one that is not there: the
    point is not to catch anybody, it is to not leave the pencil out at two in
    the morning after a wolf has eaten their rogue. Turn it back on in
-   Behaviour if you would rather have it. */
+   Behavior if you would rather have it. */
 
 body.nopencil .msg .tools [data-edit],
 body.nopencil .msg .tools [data-del],
