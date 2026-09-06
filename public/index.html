@@ -525,19 +525,28 @@
         </div>
         <div id="personaList" class="list"></div>
         <p class="hint">The active persona is who the character is talking to. It fills {{user}} in cards and prompts.</p>
+        <!-- One action of full weight, and the rarer ones out of its way. The
+             foot of this panel used to be four buttons of equal size and two
+             paragraphs of hint: making a persona, bringing one over, and two
+             separate imports, none of them louder than the others. Most days
+             you want the first one. -->
         <button class="solid wide" id="newPersonaBtn">New persona</button>
         <div class="quietrow">
           <!-- Tabletop only. Who you are at the table is not necessarily who you
                are in your stories, so the table starts with nobody. -->
           <button class="linkish tableonly" id="bringMeBtn">Bring one of yours over</button>
         </div>
-        <label class="filebtn">Import from SillyTavern
-          <input type="file" id="personaImport" accept=".json" hidden>
-        </label>
-        <p class="hint" id="personaImportHint">Point this at your SillyTavern <code>settings.json</code> and it will pull in every persona and description.</p>
-        <label class="filebtn">Import persona files
-          <input type="file" id="personaFiles" accept=".json" multiple hidden>
-        </label>
+        <details class="fold">
+          <summary>Import personas</summary>
+          <label class="filebtn">Import persona files
+            <input type="file" id="personaFiles" accept=".json" multiple hidden>
+          </label>
+          <label class="filebtn">From a SillyTavern settings.json
+            <input type="file" id="personaImport" accept=".json" hidden>
+          </label>
+          <p class="hint" id="personaImportHint">Point the second one at your SillyTavern
+            <code>settings.json</code> and it will pull in every persona and description.</p>
+        </details>
       </section>
 
       <section data-panel="lore" class="panel" hidden>
@@ -941,6 +950,14 @@
             <span class="tx"><span class="t" id="modeCardTitle">Tabletop mode</span><span class="s" id="modeCardSub">Sheets, classes and a narrator who rolls</span></span>
           </button>
           <h3>At the table</h3>
+          <!-- Not a slider from easy to hard. What actually differs between a
+               gentle table and a brutal one is what a roll has to beat, what a
+               failed one costs, and whether the world was already moving —
+               so those are the three things each setting states. -->
+          <label>How hard it is
+            <select id="tabletop_difficulty"></select>
+          </label>
+          <p class="hint" id="difficultyHint"></p>
           <!-- A story chat's swipes are drafts; a game's are a way of not
                having rolled. -->
           <label id="tableSwipeRow" hidden>Swipes at the table

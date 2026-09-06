@@ -6336,6 +6336,31 @@ $("#themeCopy").onclick = async () => {
 };
 
 
+/**
+ * The three tables, filled in from the server so the names and the numbers
+ * cannot drift apart from the briefs the narrator is actually given.
+ */
+let DIFFS = null;
+async function loadDifficulties() {
+  const sel = $("#tabletop_difficulty");
+  if (!sel) return;
+  if (!DIFFS) {
+    try { DIFFS = await api("/tabletop/difficulties"); } catch { DIFFS = []; }
+  }
+  const chosen = sel.value;
+  sel.innerHTML = DIFFS.map((d) =>
+    `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
+  if (DIFFS.some((d) => d.id === chosen)) sel.value = chosen;
+  showDifficultyHint();
+}
+function showDifficultyHint() {
+  const sel = $("#tabletop_difficulty"), note = $("#difficultyHint");
+  if (!sel || !note || !DIFFS) return;
+  const d = DIFFS.find((x) => x.id === sel.value);
+  note.textContent = d ? `${d.blurb} An ordinary task asks for ${d.dc}.` : "";
+}
+$("#tabletop_difficulty")?.addEventListener("change", showDifficultyHint);
+
 // ---- playing together ----------------------------------------------------
 
 /**
@@ -7074,7 +7099,8 @@ async function guestRoll(notation) {
 
 async function boot() {
   const steps = [
-    ["settings", loadSettings], ["presets", refreshPresets], ["personas", refreshPersonas],
+    ["difficulties", loadDifficulties], ["settings", loadSettings],
+    ["presets", refreshPresets], ["personas", refreshPersonas],
     // Before the chats, so the first thread drawn already has its scripts.
     ["regex", refreshRegex], ["extensions", loadExtensions], ["extension list", refreshExtensions],
     ["chats", refreshChats], ["cast", refreshCast], ["splash", showSplash],

@@ -11,6 +11,7 @@ import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinsta
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
 import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
+import { LEVELS, difficultyForPrompt } from "./difficulty";
 import { closeDoor, doorState, openDoor } from "./door";
 import {
   clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
@@ -2157,6 +2158,15 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     if (mySheet) table.push(`${sheetForPrompt(me.name, mySheet)}\n\n${CHECK_BRIEF}`);
 
     /*
+     * How hard the table is, next to the sheet the numbers get rolled against.
+     *
+     * Here rather than in the system prompt for the same reason everything
+     * else at the table is: a stated target the narrator can apply the same
+     * way twice is worth more than an adjective it reads once and forgets.
+     */
+    table.push(difficultyForPrompt(s.tabletop_difficulty));
+
+    /*
      * And everybody else at the table, if anybody else is.
      *
      * Without this a shared game is a narrator running a story for one person
@@ -2939,6 +2949,8 @@ function saveSheet(ownerId: string, kind: string, sheet: Sheet) {
 
 /** The classes on offer, for the chooser. */
 api.get("/tabletop/classes", (c) => c.json(CLASSES));
+api.get("/tabletop/difficulties", (c) =>
+  c.json(LEVELS.map(({ id, name, blurb, dc }) => ({ id, name, blurb, dc }))));
 
 /* ---- what the game is about -------------------------------------------------
    Asked once, at the top of a new game, straight after the memory book — see

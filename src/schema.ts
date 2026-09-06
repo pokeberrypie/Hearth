@@ -331,6 +331,7 @@ export const DEFAULTS: Record<string, string> = {
   key_nanogpt: "",
   key_google: "",
   key_anthropic: "",
+  tabletop_difficulty: "faircount",
   persona_name: "You",
   persona_description: "",
 

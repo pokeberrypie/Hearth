@@ -19,8 +19,21 @@
  * that nothing outside the gate can reach anything.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+
+/*
+ * Loaded when the door is opened, never at boot.
+ *
+ * src/index.ts is bundled whole into the Android app, so a top-level import
+ * here becomes a require() that runs the moment the phone's server starts. A
+ * phone cannot host a tunnel and is never going to call this — but a missing
+ * or restricted module would take the entire server down on the way up, which
+ * is a great deal to risk for a feature that platform does not have.
+ */
+type ChildProcess = { killed?: boolean; kill(): void;
+  stdout?: { on(e: string, f: (b: unknown) => void): void };
+  stderr?: { on(e: string, f: (b: unknown) => void): void };
+  on(e: string, f: () => void): void };
 
 /** Where the installer puts it on each platform, plus whatever is on PATH. */
 const CANDIDATES = [
@@ -79,10 +92,11 @@ export async function openDoor(port: number): Promise<DoorState> {
   }
 
   try {
+    const { spawn } = await import("node:child_process");
     child = spawn(bin, ["tunnel", "--url", `http://localhost:${port}`], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-    });
+    }) as unknown as ChildProcess;
   } catch {
     child = null;
     trouble = "cloudflared is not installed.";
