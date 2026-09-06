@@ -4149,6 +4149,17 @@ function pickPanel(tab) {
     p.hidden = p.dataset.panel !== tab;
   closeChain();
   showPanel();
+  /*
+   * And the panel's own contents, which the two ways in did not both know
+   * about: showPanel refreshed the lists and openDrawer refreshed a different
+   * set, so the classes and races were drawn on a wide screen and left empty
+   * on a narrow one — which is to say, empty on a phone.
+   *
+   * Here instead, where the thing that knows which panel you are looking at
+   * is the thing that fills it.
+   */
+  if (tab === "table") refreshKits();
+  if (tab === "together") refreshTogether();
 }
 for (const b of document.querySelectorAll(".chainlink, .raillink"))
   b.onclick = () => pickPanel(b.dataset.tab);
