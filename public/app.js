@@ -2525,6 +2525,20 @@ async function run(mode, content = "", forcedGuide = "") {
 
   const body = target.querySelector(".body");
   body.classList.add("cursor");
+  /*
+   * A die lands once, not forty times.
+   *
+   * Every chunk rewrites this body's innerHTML, which builds a fresh element
+   * for each roll in it and restarts the landing animation from its first
+   * frame — `opacity: 0`, rotated, scaled down. Chunks arrive faster than the
+   * animation is long, so a roll inside a reply being written never got past
+   * about half opacity: it sat there tumbling and faint instead of landing.
+   * Measured at 0.41 to 0.69 through a stream, and 1 only once it stopped.
+   *
+   * So while the words are still arriving the die simply is; the throw plays
+   * when the message settles and the class comes off.
+   */
+  body.classList.add("writing");
   // Asking for a reply is a decision to watch it arrive, so this one wins
   // even if you had scrolled away from the bottom beforehand.
   stick(true);
@@ -2773,6 +2787,8 @@ async function run(mode, content = "", forcedGuide = "") {
     flush();
     clearInterval(tick);
     body.classList.remove("cursor");
+    // Off last, so the final paint is the one the dice land on.
+    body.classList.remove("writing");
     done();
   }
 }
@@ -7546,10 +7562,12 @@ function guestListen() {
       }
       streaming.dataset.raw = (streaming.dataset.raw ?? "") + evt.delta;
       const body = streaming.querySelector(".body");
-      if (body) body.innerHTML = renderBody(streaming.dataset.raw, 2, 0);
+      // Same reason as the host path: this rewrites the whole body per delta.
+      if (body) { body.classList.add("writing"); body.innerHTML = renderBody(streaming.dataset.raw, 2, 0); }
       stick(true);
     }
     if (evt.done) {
+      streaming?.querySelector(".body")?.classList.remove("writing");
       streaming = null;
       // The settled reply, with the brackets already resolved, rather than
       // whatever the model happened to type.

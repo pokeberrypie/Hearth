@@ -139,7 +139,23 @@ export function resolveRolls(text: string, rng: Rng = Math.random): ResolvedText
  * competing with the character card for the model's attention, and the only
  * fact it actually needs is the shape of the token.
  */
+/**
+ * What the narrator is told about dice.
+ *
+ * Both directions, because only telling it one was actively confusing. It was
+ * taught to write `[[2d6]]` and have the answer filled in, and then a player
+ * pressed the die button — which puts the finished roll into their own turn as
+ * `[[1d20: 14]]`. The narrator met its own notation, already answered, with no
+ * account of what that meant, and reasoned out loud about it: "these might be
+ * pre-rolled results I can use, or they may just be test rolls." Then either
+ * ignored the throw or rolled again over the top of it, which is the one thing
+ * a die is supposed to stop happening.
+ */
 export const DICE_BRIEF =
   "When something is uncertain, roll for it: write the dice in double square " +
   "brackets, like [[2d6]] or [[1d20+3]], and the real result will be filled in " +
-  "where you wrote it. Never write the outcome of a roll yourself.";
+  "where you wrote it. Never write the outcome of a roll yourself. " +
+  "A roll that already has a number after the colon — [[1d20: 14]] — is one the " +
+  "player has just thrown. It has happened: say what it means for the story and " +
+  "carry on. Do not roll it again, do not repeat it back, and do not treat it as " +
+  "a question.";

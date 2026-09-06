@@ -134,6 +134,21 @@ describe("resolving what a model wrote", () => {
     expect(DICE_BRIEF).toContain("[[2d6]]");
     expect(DICE_BRIEF).toContain("Never write the outcome");
   });
+
+  /*
+   * And the other direction, which was missing and cost somebody a game.
+   *
+   * Pressing the die button puts the finished roll into the player's own turn,
+   * so the narrator meets its own notation already answered. With nothing said
+   * about that form it reasoned aloud about whether the numbers were real —
+   * "these might be pre-rolled results I can use, or they may just be test
+   * rolls" — and then rolled again over the top of them, which is the one
+   * thing a die is there to prevent.
+   */
+  test("and the roll the player has already thrown", () => {
+    expect(DICE_BRIEF).toContain("[[1d20: 14]]");
+    expect(DICE_BRIEF).toContain("Do not roll it again");
+  });
 });
 
 describe("a roll the model gave a name to", () => {

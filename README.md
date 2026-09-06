@@ -1,30 +1,36 @@
-# Hearth
+<div align="center">
 
-A roleplay frontend that runs on your own machine, and a tabletop that runs on
-the same one. Bun and SQLite on the desktop, a real Node runtime on Android,
-plain HTML in front of both. No build step, no account, no server but yours.
+<img src="docs/art/hearth-wordmark.png" alt="Hearth" width="164">
+
+### A roleplay frontend that runs on your own machine — and a tabletop that runs on the same one
+
+[![Release](https://img.shields.io/github/v/release/pokeberrypie/Hearth?style=flat-square&color=c8994f&labelColor=16110e&label=release)](https://github.com/pokeberrypie/Hearth/releases)
+[![Licence](https://img.shields.io/badge/licence-MIT-c8994f?style=flat-square&labelColor=16110e)](LICENSE)
+[![Windows](https://img.shields.io/badge/Windows-installer-c8994f?style=flat-square&labelColor=16110e)](https://github.com/pokeberrypie/Hearth/releases)
+[![Android](https://img.shields.io/badge/Android-apk-c8994f?style=flat-square&labelColor=16110e)](https://github.com/pokeberrypie/Hearth/releases)
+
+</div>
+
+Bun and SQLite on the desktop, a real Node runtime on Android, plain HTML in
+front of both. No build step, no account, no server but yours.
 
 Your characters, your chats and your API key live in a folder you can copy to a
 USB stick. Nothing leaves the machine except the prompt, and that goes straight
 to whichever provider you chose.
 
----
+<div align="center">◆</div>
 
 ## Getting it
 
-**Windows** — download `HearthSetup.exe` from
-[Releases](https://github.com/pokeberrypie/Hearth/releases) and run it. It asks
-where to put it, makes the shortcuts, and registers an uninstaller with
-Settings → Apps. Uninstalling leaves your chats alone.
+| | | |
+|---|---|---|
+| **Windows** | `HearthSetup.exe` | A wizard. Asks where to put it, makes the shortcuts, registers an uninstaller with Settings → Apps. Uninstalling leaves your chats alone. |
+| **Windows, portable** | `Hearth.exe` | The whole application in one file — server, runtime and every asset inside it. Put it on your Desktop and double-click. Nothing is installed. |
+| **Android** | the `.apk` | Runs its own copy of the server on the phone, with its own database. No PC has to be on and no network is involved. |
 
-If you would rather not install anything, `Hearth.exe` is the whole application
-in one file — the server, the runtime and every asset are inside it. Put it on
-your Desktop and double-click. Your library lives in `%LOCALAPPDATA%\Hearth\data`
-either way, so replacing the executable with a newer one keeps everything.
-
-**Android** — download the `.apk` from Releases and install it. It runs its
-own copy of the server on the phone, with its own database. No PC has to be on
-and no network is involved.
+All from [Releases](https://github.com/pokeberrypie/Hearth/releases). Your
+library lives in `%LOCALAPPDATA%\Hearth\data` whichever you pick, so replacing
+the executable with a newer one keeps everything.
 
 **macOS and Linux**
 
@@ -48,6 +54,7 @@ pick **Connection**. Choose a provider and paste a key.
 | NanoGPT | `deepseek-ai/DeepSeek-V3` |
 | Google AI Studio | `gemini-2.5-pro` |
 | Anthropic | `claude-sonnet-4-5-20250929` |
+| Custom endpoint | anything that speaks OpenAI, Anthropic or responses — including KoboldCpp, Ollama or LM Studio on your own machine |
 
 **2. Say who you are.** **You → New persona.** A name is enough; a couple of
 lines about yourself is better. This is what `{{user}}` means in a card.
@@ -61,6 +68,25 @@ trades, several at once, or **Write one by hand** if you would rather.
 without you.
 
 Everything after that is optional.
+
+---
+
+## Playing together
+
+Open a chat to other people and they get a link and a seat: their own character,
+their own sheet, their own dice, and the evening happening in front of both of
+you as it is written.
+
+No account, nothing to sign up for, and **no server of ours in the middle of
+your conversation** — there is not going to be one. Two houses on the internet
+cannot find each other unaided, so Hearth opens a Cloudflare tunnel straight to
+your machine from a button, and the tunnel is bundled in the installer so
+nobody has to go and fetch it first. On one network it can answer directly
+instead. A phone can host a game.
+
+An invitation is **one table and nothing else on your machine** — not your
+library, not your settings, not your keys. A guest who stays keeps their seat
+and their character between sessions.
 
 ---
 
@@ -85,19 +111,16 @@ SillyTavern's format is read directly.
 **Personas.** Several of you, with faces, and a default per character.
 
 **A room you can decorate.** Wallpapers, four message layouts, portrait sizes,
-type scale, every colour, and a box to paste your own CSS into.
+type scale, every colour, and a box to paste your own CSS into. If you ask, the
+room follows the story: the narrator names a scene and Hearth finds a wallpaper
+and an ambience to match from what you already own.
+
+**A face maker.** Layered and tintable, saving an ordinary picture with the
+recipe kept inside it, so it stays editable wherever it goes. The parts are art
+packs — see the note at the end.
 
 **Extensions.** Paste a GitHub address and it is fetched and kept in your
 library — there is no folder to manage, which is what lets a phone install one.
-
-**Playing together, over any distance.** Open a chat to other people and they
-get a link and a seat: their own character, their own sheet, their own dice,
-and the evening happening in front of both of you as it is written. No account,
-nothing to sign up for, and no server of ours in the middle of your conversation
-— there is not going to be one. It works across countries through a Cloudflare
-tunnel opened from a button, and the tunnel is bundled in the installer so
-nobody has to go and fetch it first. A phone can host a game. An invitation is
-one table and nothing else on your machine; see the security note below.
 
 ---
 
@@ -117,11 +140,20 @@ there is a page where you build your own: the situation, how it should feel, how
 long it should run, which books it draws on, and a list of things that may be
 out there. There is a die on that page if you would rather be handed one, and a
 button that takes a few words — *"haunted lighthouse, nobody believes me"* — and
-writes the rest out properly.
+writes the rest out properly. Point it at a lorebook you already keep and it
+will build the campaign out of what is in there.
 
 **You have a character sheet.** Pick a class and roll for it, or take the even
 spread. Six abilities, hit points, skills, a kit. It sits in the sidebar and
 pulls out full-size, and every ability is a button that rolls it.
+
+**Classes and races are yours to write.** The ones that ship are ordinary rows:
+edit them, delete them, export them, or import somebody else's. Editing one that
+came with Hearth makes it yours and it stays edited.
+
+**How hard it is, is a setting.** Hearthlight, Fair Count or Hard Winter —
+which change the number a roll has to beat and what a failure costs, rather than
+an adjective in a prompt.
 
 **The dice are real.** Press the die and Hearth works out what the moment calls
 for — an attack if you are in a fight, whatever the narrator just asked for
@@ -156,6 +188,42 @@ Behavior if you disagree.
 
 ---
 
+## A note on security
+
+Hearth has **no login**. It binds to loopback, so nothing outside your own
+machine can reach it, and the gate trusts this machine and nothing else.
+
+If you set `HOST=0.0.0.0` to reach it from your phone — running it on a
+headless box, say — the app will load for anyone on that network but every API
+call is refused, because being on the same wifi is not proof of being you. To
+use it yourself, open the link Hearth prints on startup once:
+
+```
+http://<that machine>:7870/host/<key>
+```
+
+It is also written to `data/host-key.txt`, and shown in the app under
+**Connection → Reaching this Hearth**. Reading any of the three means you
+already have the machine, which is the only thing that counts as proof here.
+That one visit exchanges the key for a cookie and the device is yours from then
+on.
+
+Anyone else you want to play with gets an **invitation** instead, which seats
+them at one shared table and grants nothing else — not your library, not your
+settings, not your keys.
+
+For a machine genuinely exposed to the internet, still put it behind Tailscale
+or a tunnel rather than opening a port to café wifi.
+
+API keys are stored **unencrypted** in `data/hearth.db`, and a backup archive
+includes that database. Treat a backup zip as secret.
+
+**An extension runs with Hearth's own powers, in the page and on the server.
+There is no sandbox.** Install one the way you would run any other program:
+because you trust where it came from.
+
+---
+
 ## Where things are
 
 ```
@@ -186,40 +254,6 @@ data/             Created on first run. This is your library — back it up.
 
 Config is environment: `PORT` (7870), `DATA_DIR` (`./data`), `HOST`
 (`127.0.0.1`).
-
----
-
-## A note on security
-
-Hearth has **no login**. It binds to loopback, so nothing outside your own
-machine can reach it, and the gate trusts this machine and nothing else.
-
-If you set `HOST=0.0.0.0` to reach it from your phone — running it on a
-headless box, say — the app will load for anyone on that network but every API
-call is refused, because being on the same wifi is not proof of being you. To
-use it yourself, open the link Hearth prints on startup once:
-
-```
-http://<that machine>:7870/host/<key>
-```
-
-It is also written to `data/host-key.txt`. Reading either means you already
-have the machine, which is the only thing that counts as proof here. That one
-visit exchanges the key for a cookie and the device is yours from then on.
-
-Anyone else you want to play with gets an **invitation** instead, which seats
-them at one shared table and grants nothing else — not your library, not your
-settings, not your keys.
-
-For a machine genuinely exposed to the internet, still put it behind Tailscale
-or a tunnel rather than opening a port to café wifi.
-
-API keys are stored **unencrypted** in `data/hearth.db`, and a backup archive
-includes that database. Treat a backup zip as secret.
-
-**An extension runs with Hearth's own powers, in the page and on the server.
-There is no sandbox.** Install one the way you would run any other program:
-because you trust where it came from.
 
 ---
 
@@ -265,6 +299,7 @@ hearth.on("ready", () => hearth.log("here"));
 hearth.on("message:render", (el, msg) => { /* el is the message element */ });
 hearth.on("send:before", (text) => text.replace(/^\/shrug$/, "¯\_(ツ)_/¯"));
 hearth.addButton("Roll", () => { /* adds a button to the composer */ });
+hearth.addAvatarPart({ layer: "crown", id: "laurel", art: "<path …/>" });
 hearth.css(".plate { border-radius: 0 }");
 ```
 
@@ -282,6 +317,20 @@ ignored. A broken extension costs you that extension, not your chat.
 SillyTavern's `manifest.json` field names are read too, so a repo shaped that
 way arrives named rather than blank — but ST extensions are written against that
 program's internals and will not run here.
+
+---
+
+## Art packs
+
+The face maker draws from packs rather than from anything hard-coded, because
+the ceiling on a thing like that is drawing and not programming. A pack is a
+`manifest.json` and a folder of see-through pictures, all drawn to the same
+head — the maker hands out a template with the eye line, jaw and shoulders on
+it, so parts drawn by different people still fit each other.
+
+What ships built in is the gear: cloaks, pauldrons, horns, wings, backgrounds,
+and a plain head to hang a face on. **Faces and hair come from packs, and the
+first pack has not been drawn yet.**
 
 ---
 

@@ -4417,6 +4417,11 @@ body[data-msgstyle="portrait"] .plate {
   .roll .die { animation: none; }
 }
 
+/* While the reply is still being written the body is rebuilt on every chunk,
+   so the throw would start over each time and the number would never finish
+   arriving. Readable and still until it settles; it lands once, at the end. */
+.body.writing .roll .die { animation: none; }
+
 /* ---- the doors ------------------------------------------------------------
    Changing mode is a change of room, so it is shown as one: two leaves swing
    shut over whatever you were doing, the sign above them changes, and they
