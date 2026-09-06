@@ -4276,6 +4276,7 @@ async function askAboutCampaign(chat) {
 
   $("#campPick").hidden = false;
   $("#campBuild").hidden = true;
+  await fillCampaignBooks();
   const dlg = $("#campaignDialog");
   dlg.showModal();
   return new Promise((resolve) => dlg.addEventListener("close", resolve, { once: true }));
@@ -4363,6 +4364,47 @@ $("#camp_beast").onkeydown = (e) => {
   building.bestiary.push(v);
   e.target.value = "";
   drawBeasts();
+};
+
+/**
+ * Starting a game inside a world you have already written.
+ *
+ * Only offered when there is a book with something in it — an empty picker
+ * beside an empty explanation is worse than no offer at all.
+ */
+async function fillCampaignBooks() {
+  const wrap = $("#campFromBook"), sel = $("#campBook");
+  if (!wrap || !sel) return;
+  let books = [];
+  try { books = await api("/lorebooks"); } catch { books = []; }
+  const usable = (books ?? []).filter((b) => (b.entry_count ?? b.entries?.length ?? 0) > 0);
+  wrap.hidden = usable.length === 0;
+  sel.innerHTML = usable.map((b) =>
+    `<option value="${esc(b.id)}">${esc(b.name || "Untitled")}</option>`).join("");
+}
+
+$("#campBookGo").onclick = async () => {
+  const btn = $("#campBookGo"), note = $("#campBookHint");
+  const id = $("#campBook")?.value;
+  if (!id) return;
+  const said = note.textContent;
+  btn.disabled = true;
+  note.textContent = "Reading the book and writing a game inside it…";
+  let out;
+  try {
+    out = await api("/campaigns/from-book", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ book_id: id, length: "short" }),
+    });
+  } catch (err) {
+    out = { error: err?.message ?? "Could not write from that book." };
+  }
+  btn.disabled = false;
+  note.textContent = said;
+  if (out?.error) return fail(out.error);
+  // Straight into the storybook with the fields filled in, so it can be read
+  // and changed before it becomes the game rather than after.
+  openStorybook(chatMeta, out.campaign);
 };
 
 $("#campOwn").onclick = () => openStorybook(chatMeta);

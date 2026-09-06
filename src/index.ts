@@ -12,6 +12,7 @@ import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
 import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
 import { LEVELS, difficultyForPrompt } from "./difficulty";
+import { bookIsUsable, seedFromBook } from "./frombook";
 import { closeDoor, doorState, openDoor } from "./door";
 import {
   clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
@@ -2999,6 +3000,57 @@ api.post("/campaigns/write", async (c) => {
     return c.json({ error: "The model did not write a campaign. Try saying a little more." }, 502);
   }
   return c.json({ campaign: normaliseCampaign(written) });
+});
+
+/**
+ * A campaign out of a memory book.
+ *
+ * You have already written the world down. Starting a game in it should not
+ * mean typing it all out again in a box, so the book becomes the idea and the
+ * same ghostwriter turns it into a brief — and the book comes with it, bound
+ * to the campaign, because a game set in a world you wrote should have that
+ * world in its context without you going and ticking it.
+ */
+api.post("/campaigns/from-book", async (c) => {
+  const { book_id, length } = await c.req.json().catch(() => ({}));
+  const book = db.query("SELECT * FROM lorebooks WHERE id = ? AND deleted_at IS NULL")
+    .get(String(book_id ?? "")) as any;
+  if (!book) return c.json({ error: "No such lorebook." }, 404);
+
+  let entries: any[] = [];
+  try { entries = JSON.parse(book.entries ?? "[]"); } catch { entries = []; }
+  if (!bookIsUsable(entries)) {
+    return c.json({ error: "That book has nothing written in it yet." }, 400);
+  }
+
+  const idea = seedFromBook(book.name, entries);
+  const s = getSettings();
+  let text = "";
+  try {
+    for await (const chunk of generate({
+      provider: s.provider,
+      apiKey: s[`key_${s.provider}`] ?? "",
+      model: s.model,
+      system: WRITE_SYSTEM,
+      messages: [{ role: "user", content: writePrompt(idea, length) }],
+      sampling: { temperature: 0.95, maxTokens: 600, topP: 1, minP: 0,
+                  repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0,
+                  stream: false, reasoningEffort: "off" },
+    })) {
+      if (chunk.kind === "text") text += chunk.text;
+    }
+  } catch (err: any) {
+    return c.json({ error: err?.message ?? "The model could not be reached." }, 502);
+  }
+
+  const written = parseWritten(text, length);
+  if (!looksWritten(written)) {
+    return c.json({ error: "The model did not write a campaign from that book." }, 502);
+  }
+  // Bound, not merely mentioned: the point of starting here is that the world
+  // is already written and should be in the prompt without being asked for.
+  const campaign = normaliseCampaign({ ...written, books: [book.id] });
+  return c.json({ campaign });
 });
 
 function campaignIn(chatId: string): Campaign | null {

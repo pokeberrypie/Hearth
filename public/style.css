@@ -6175,6 +6175,13 @@ kbd {
 .panel .list > .rowwrap > .item.withface,
 .panel .list > .item.withface { padding: 0.62rem 0; gap: 0.85rem; }
 .panel .list .item.withface > .medallion { width: 52px; height: 52px; }
+/* The active row draws a gold bar down its inside edge, and .item.active gives
+   it the padding to clear it — but that rule is older and less specific than
+   the one above, so on a row with a face the padding went back to nought and
+   the bar was drawn straight through the medallion's own ring. Given back
+   here, where it can win. */
+.panel .list > .item.withface.active,
+.panel .list > .rowwrap > .item.withface.active { padding-left: 0.7rem; }
 .panel .list .item.withface .meta { display: grid; gap: 0.1rem; }
 .panel .list .item.withface .meta .t { line-height: 1.2; }
 

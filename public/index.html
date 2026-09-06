@@ -1155,6 +1155,18 @@
     <p class="hint">Three that are already written, or build your own. You can change any
       of it later from the chat menu.</p>
     <div id="campCards" class="campcards"></div>
+    <!-- Or out of a world you have already written. A lorebook is the setting
+         in pieces; this reads it and writes a game inside it, rather than
+         asking you to describe it all over again in a box. -->
+    <div id="campFromBook" hidden>
+      <h3>From a memory book</h3>
+      <div class="linkrow">
+        <select id="campBook" aria-label="Which memory book"></select>
+        <button type="button" class="ghost" id="campBookGo">Write one</button>
+      </div>
+      <p class="hint" id="campBookHint">It reads the book, writes a game inside it, and binds the
+        book to the campaign so the world is in context without you asking.</p>
+    </div>
     <menu>
       <button type="button" class="ghost" id="campOwn">Build your own</button>
       <button type="button" class="linkish" id="campNone">Nothing set — just begin</button>
