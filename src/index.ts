@@ -2,8 +2,25 @@ import { Hono } from "hono";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS } from "./db";
 import { generate, PROVIDERS } from "./providers";
+
+/**
+ * The connection half of a generate() call, from settings.
+ *
+ * A helper because five call sites were each spelling out which key goes with
+ * which provider, and adding a custom endpoint would have meant teaching all
+ * five about a base address and a wire format. They ask for a connection now
+ * and do not know there is more than one kind.
+ */
+function connectionFrom(s: Record<string, string>, provider = s.provider) {
+  return {
+    provider,
+    apiKey: s[`key_${provider}`] ?? "",
+    baseUrl: s.custom_base ?? "",
+    format: (s.custom_format ?? "openai") as "openai" | "anthropic" | "responses",
+  };
+}
 import { dirname, join } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { buildParts, buildMessages, buildPostHistory, macros, stripSpeakerLabel, type Character } from "./prompt";
 import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNote, NOTE_SYSTEM, type Scope } from "./autolore";
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
@@ -29,6 +46,7 @@ import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
+import { packIsUsable, readPackManifest, slugId } from "./avatar";
 import { listModels } from "./models";
 import { readZip, planBackup, eachZipEntry, type Entry } from "./backup";
 import { listDir, inspect, collect, places, isWanted } from "./localfs";
@@ -267,8 +285,7 @@ api.post("/test", async (c) => {
   try {
     let got = "";
     for await (const d of generate({
-      provider: s.provider,
-      apiKey: s[`key_${s.provider}`] ?? "",
+      ...connectionFrom(s),
       model: s.model,
       system: "Reply with the single word: ready",
       messages: [{ role: "user", content: "ping" }],
@@ -1002,8 +1019,7 @@ api.post("/chats/:id/generate", async (c) => {
       try {
         try {
           for await (const chunk of generate({
-            provider: a.provider,
-            apiKey: s[`key_${a.provider}`] ?? "",
+            ...connectionFrom(s, a.provider),
             model: a.model,
             system: shaped.system,
             messages: shaped.messages,
@@ -1283,6 +1299,148 @@ api.put("/messages/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// ---- avatar packs ---------------------------------------------------------
+/**
+ * The drawn art the face-maker is built out of.
+ *
+ * A pack is a manifest and a folder of transparent pictures, all drawn to the
+ * same landmarks. It is the only part of the avatar feature the server touches:
+ * a made avatar is an ordinary PNG uploaded through the ordinary avatar
+ * endpoint, with its recipe written into the file in the browser. See
+ * src/avatar.ts for why it is arranged that way.
+ *
+ * Arrives either as a zip or as loose files, because "export a folder" and
+ * "zip a folder" are both things people do, and refusing one of them means
+ * explaining which. Loose files carry their relative paths in a parallel field,
+ * since a browser does not send them with the file itself.
+ */
+const PACKS = join(UPLOADS, "avatarpacks");
+
+/** Big enough for a generous pack, small enough that a mistake is not fatal. */
+const PACK_MAX_BYTES = 48 * 1024 * 1024;
+const PACK_MAX_FILES = 600;
+
+function packList() {
+  if (!existsSync(PACKS)) return [];
+  const out: any[] = [];
+  for (const id of readdirSync(PACKS)) {
+    try {
+      const raw = JSON.parse(readFileSync(join(PACKS, id, "manifest.json"), "utf8"));
+      const { pack } = readPackManifest(raw, id);
+      out.push({
+        id,
+        name: pack.name,
+        author: pack.author,
+        parts: pack.parts.map((p) => ({
+          layer: p.layer,
+          id: p.id,
+          name: p.name,
+          tint: p.tint,
+          url: `/uploads/avatarpacks/${id}/${p.file}`,
+        })),
+      });
+    } catch { /* a folder without a readable manifest is not a pack */ }
+  }
+  return out;
+}
+
+api.get("/avatar/packs", (c) => c.json(packList()));
+
+api.post("/avatar/packs", async (c) => {
+  const form = await c.req.formData();
+  const files = form.getAll("files").filter((f): f is File => f instanceof File);
+  if (!files.length) return c.json({ error: "Nothing arrived." }, 400);
+
+  let paths: string[] = [];
+  try { paths = JSON.parse(String(form.get("paths") ?? "[]")); } catch { paths = []; }
+
+  /* Everything, flattened to path -> bytes, whether it came zipped or loose. */
+  const entries = new Map<string, Uint8Array>();
+  let total = 0;
+  const take = (name: string, bytes: Uint8Array) => {
+    total += bytes.length;
+    if (entries.size >= PACK_MAX_FILES || total > PACK_MAX_BYTES) return false;
+    entries.set(String(name).split("\\").join("/").replace(/^\.?\//, ""), bytes);
+    return true;
+  };
+
+  for (const [i, f] of files.entries()) {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    if (/\.zip$/i.test(f.name)) {
+      const { unzipSync } = await import("fflate");
+      let unzipped: Record<string, Uint8Array>;
+      try { unzipped = unzipSync(bytes); }
+      catch { return c.json({ error: "That zip could not be opened." }, 400); }
+      for (const [name, data] of Object.entries(unzipped)) {
+        if (name.endsWith("/")) continue;
+        if (!take(name, data)) return c.json({ error: "That pack is too large." }, 400);
+      }
+    } else if (!take(paths[i] || f.name, bytes)) {
+      return c.json({ error: "That pack is too large." }, 400);
+    }
+  }
+
+  /*
+   * The manifest can be at the root or one folder down, because zipping a
+   * folder puts everything under its name and telling somebody their zip has
+   * one directory too many is a worse experience than looking one level in.
+   */
+  const manifestAt = [...entries.keys()]
+    .filter((k) => k.split("/").pop() === "manifest.json")
+    .sort((a, b) => a.split("/").length - b.split("/").length)[0];
+  if (!manifestAt) return c.json({ error: "No manifest.json in that." }, 400);
+  const root = manifestAt.slice(0, manifestAt.length - "manifest.json".length);
+
+  let raw: any;
+  try { raw = JSON.parse(new TextDecoder().decode(entries.get(manifestAt)!)); }
+  catch { return c.json({ error: "That manifest.json is not readable JSON." }, 400); }
+
+  const { pack, skipped } = readPackManifest(raw, "Pack");
+  if (!packIsUsable(pack)) {
+    return c.json({ error: "Nothing in that manifest described a part we could use." }, 400);
+  }
+
+  /* Every part has to actually have its picture, or the maker offers a blank. */
+  const missing: string[] = [];
+  const kept = pack.parts.filter((p) => {
+    if (entries.has(root + p.file)) return true;
+    missing.push(p.name);
+    return false;
+  });
+  if (!kept.length) {
+    return c.json({ error: "None of the pictures the manifest names were in that." }, 400);
+  }
+
+  /* A new id rather than overwriting, so installing twice never destroys the
+   * copy somebody is already using. */
+  let id = pack.id;
+  for (let n = 2; existsSync(join(PACKS, id)); n++) id = `${pack.id}-${n}`;
+
+  for (const p of kept) {
+    const dest = join(PACKS, id, p.file);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, entries.get(root + p.file)!);
+  }
+  mkdirSync(join(PACKS, id), { recursive: true });
+  writeFileSync(join(PACKS, id, "manifest.json"),
+    JSON.stringify({ ...pack, id, parts: kept }, null, 2));
+
+  return c.json({
+    id,
+    name: pack.name,
+    added: kept.length,
+    skipped: [...skipped, ...missing],
+  });
+});
+
+api.delete("/avatar/packs/:id", (c) => {
+  const id = slugId(c.req.param("id"));
+  const dir = join(PACKS, id);
+  if (!id || !existsSync(dir)) return c.json({ error: "No such pack." }, 404);
+  rmSync(dir, { recursive: true, force: true });
+  return c.json({ ok: true });
+});
+
 // ---- wallpapers -----------------------------------------------------------
 
 api.post("/wallpaper", async (c) => {
@@ -1461,7 +1619,8 @@ api.get("/models", async (c) => {
   const s = getSettings();
   const provider = c.req.query("provider") ?? s.provider;
   try {
-    return c.json({ models: await listModels(provider, s[`key_${provider}`] ?? "") });
+    return c.json({ models: await listModels(provider, s[`key_${provider}`] ?? "",
+      { base: s.custom_base, format: s.custom_format }) });
   } catch (e: any) {
     return c.json({ error: e?.message ?? "Could not list models." }, 400);
   }
@@ -2652,8 +2811,7 @@ async function takeNote(chatId: string) {
 
   let said = "";
   for await (const chunk of generate({
-    provider: s.provider,
-    apiKey: s[`key_${s.provider}`] ?? "",
+    ...connectionFrom(s),
     model: s.model,
     system: NOTE_SYSTEM,
     messages: [{ role: "user", content: notePrompt(picked, speaker?.name ?? "Character") }],
@@ -3157,8 +3315,7 @@ api.post("/campaigns/write", async (c) => {
   let text = "";
   try {
     for await (const chunk of generate({
-      provider: s.provider,
-      apiKey: s[`key_${s.provider}`] ?? "",
+      ...connectionFrom(s),
       model: s.model,
       system: WRITE_SYSTEM,
       messages: [{ role: "user", content: writePrompt(idea, length) }],
@@ -3207,8 +3364,7 @@ api.post("/campaigns/from-book", async (c) => {
   let text = "";
   try {
     for await (const chunk of generate({
-      provider: s.provider,
-      apiKey: s[`key_${s.provider}`] ?? "",
+      ...connectionFrom(s),
       model: s.model,
       system: WRITE_SYSTEM,
       messages: [{ role: "user", content: writePrompt(idea, length) }],

@@ -358,6 +358,14 @@ export const DEFAULTS: Record<string, string> = {
   key_nanogpt: "",
   key_google: "",
   key_anthropic: "",
+  /*
+   * Anywhere this list does not name: a relay, a proxy, or something running
+   * on this machine. The address and the dialect it speaks are settings rather
+   * than code, because the whole point is the ones nobody thought of.
+   */
+  key_custom: "",
+  custom_base: "",
+  custom_format: "openai",
   tabletop_difficulty: "faircount",
   // The room following the story. Off: it changes what you are looking at.
   scene_follows: "0",
@@ -446,4 +454,5 @@ export const DEFAULTS: Record<string, string> = {
   theme_vars: "{}",
 };
 
-export const KEY_FIELDS = ["key_openrouter", "key_nanogpt", "key_google", "key_anthropic"];
+export const KEY_FIELDS = ["key_openrouter", "key_nanogpt", "key_google", "key_anthropic",
+  "key_custom"];

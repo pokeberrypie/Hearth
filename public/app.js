@@ -2287,6 +2287,18 @@ function extApi(name) {
       $(".quickrow").appendChild(b);
       return b;
     },
+    /**
+     * A part for the face maker: a hairstyle, a hat, a set of wings.
+     *
+     * The same path the built-in gear and installed packs take, with no
+     * privileges — an extension cannot replace a part by claiming its id, and
+     * a face already made keeps its picture if the extension goes away.
+     */
+    addAvatarPart(part) {
+      return window.HearthAvatar
+        ? window.HearthAvatar.addPart({ ...part, name: part?.name ?? name })
+        : false;
+    },
     /** Styling, in one element per session rather than one per call. */
     css(text) {
       if (!EXT.styles) {
@@ -2307,6 +2319,7 @@ ${text}`);
 
 async function loadExtensions() {
   EXT.hooks.clear();
+  window.HearthAvatar?.clearAddedParts();
   let list = [];
   try { list = await api("/extensions"); } catch { return; }
   if (!Array.isArray(list)) return;
@@ -6007,6 +6020,19 @@ function faceWell(prefix, endpointFor) {
     paint();
     e.target.value = "";
   };
+  /*
+   * Drawing one lands in exactly the same place an uploaded picture does: a
+   * File held until the record has an id. So nothing below this line, and
+   * nothing on the server, has to know the difference.
+   */
+  $(`#${prefix}_facedraw`).onclick = async () => {
+    const made = await window.HearthAvatarUI?.open(
+      state.file || (state.cleared ? "" : state.url));
+    if (!made) return;
+    state.file = made;
+    state.cleared = false;
+    paint();
+  };
   $(`#${prefix}_faceclear`).onclick = () => {
     state.file = null;
     state.cleared = true;
@@ -7051,7 +7077,7 @@ try { $("#tgBase").value = tgBase(); } catch {}
 // ---- settings -----------------------------------------------------------
 
 const FIELDS = [
-  "provider",
+  "provider", "custom_base", "custom_format",
   "temperature", "max_tokens", "context_tokens",
   "top_p", "min_p", "repetition_penalty", "frequency_penalty", "presence_penalty",
   "stream", "reasoning_effort",
@@ -7157,14 +7183,54 @@ function setModelLabel(id) {
   $("#modelPrice").textContent = "";
 }
 
+/**
+ * Somewhere on this machine, offered as a fill-in rather than as a provider.
+ *
+ * These differ from each other only by port number, which is exactly the kind
+ * of thing nobody should have to go and look up.
+ */
+const LOCAL_PICKS = [
+  ["KoboldCpp", "http://localhost:5001/v1"],
+  ["Ollama", "http://localhost:11434/v1"],
+  ["LM Studio", "http://localhost:1234/v1"],
+  ["llama.cpp", "http://localhost:8080/v1"],
+  ["text-generation-webui", "http://127.0.0.1:5000/v1"],
+];
+
+function paintLocalPicks() {
+  const row = $("#localPicks");
+  if (!row || row.children.length) return;
+  for (const [label, base] of LOCAL_PICKS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ghost small";
+    b.textContent = label;
+    b.onclick = () => {
+      $("#custom_base").value = base;
+      $("#custom_format").value = "openai";
+      allModels = [];
+      saveSettings();
+    };
+    row.append(b);
+  }
+}
+
 function showProvider() {
   const id = $("#provider").value;
   const meta = providerMeta[id];
+  const custom = id === "custom";
+  $("#customRow").hidden = !custom;
+  if (custom) paintLocalPicks();
+
   $("#api_key").value = keys[id] ?? "";
-  $("#api_key").placeholder = `Your ${meta.label} key`;
-  $("#keyHint").innerHTML =
-    `Keys are stored separately per provider. Get one at ` +
-    `<a href="${meta.keyUrl}" target="_blank" rel="noopener">${meta.keyUrl.replace(/^https:\/\//, "")}</a>`;
+  $("#api_key").placeholder = custom ? "Only if it wants one" : `Your ${meta.label} key`;
+  $("#keyHint").innerHTML = custom
+    // A local server almost never has a key, and saying so saves somebody
+    // inventing one to get past a field they think is required.
+    ? `Leave the key empty for anything running on this machine. ` +
+      `The address should end where the paths begin &mdash; usually <code>/v1</code>.`
+    : `Keys are stored separately per provider. Get one at ` +
+      `<a href="${meta.keyUrl}" target="_blank" rel="noopener">${meta.keyUrl.replace(/^https:\/\//, "")}</a>`;
 }
 $("#provider").onchange = () => {
   showProvider();
@@ -7173,6 +7239,9 @@ $("#provider").onchange = () => {
   $("#modelHint").textContent = "";
 };
 $("#api_key").oninput = () => { keys[$("#provider").value] = $("#api_key").value; };
+// A different address is a different catalogue, the same as a different provider.
+$("#custom_base").oninput = () => { allModels = []; $("#modelHint").textContent = ""; };
+$("#custom_format").onchange = () => { allModels = []; saveSettings(); };
 
 /**
  * Reading and writing a settings field without caring what kind of control it

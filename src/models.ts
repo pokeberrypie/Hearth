@@ -37,24 +37,48 @@ function fallbackFor(id: string): [number, number] | null {
 const cache = new Map<string, { at: number; list: ModelInfo[] }>();
 const TTL = 10 * 60 * 1000;
 
-export async function listModels(provider: string, apiKey: string): Promise<ModelInfo[]> {
-  const hit = cache.get(provider);
+export async function listModels(
+  provider: string,
+  apiKey: string,
+  /** For `custom`: where it lives, and which dialect it speaks. */
+  custom?: { base?: string; format?: string },
+): Promise<ModelInfo[]> {
+  /*
+   * The custom endpoint is cached under its own address rather than under the
+   * word "custom", or pointing it somewhere else would keep serving the old
+   * list for an hour.
+   */
+  const cacheKey = provider === "custom" ? `custom:${custom?.base ?? ""}` : provider;
+  const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < TTL) return hit.list;
 
   const p = PROVIDERS[provider as ProviderId];
   if (!p) throw new Error(`Unknown provider "${provider}"`);
   const key = (apiKey ?? "").trim();
 
-  const url = provider === "anthropic" ? `${p.base}/models?limit=1000` : `${p.base}/models`;
-  const headers: Record<string, string> =
-    provider === "anthropic"
-      ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
-      : { authorization: `Bearer ${key}` };
+  const base = provider === "custom"
+    ? String(custom?.base ?? "").trim().replace(/\/+$/, "")
+    : p.base;
+  if (!base) throw new Error("No address saved for the custom endpoint.");
+  const label = provider === "custom" ? "That endpoint" : p.label;
+
+  // Anthropic's own listing is paged; everything else answers /models flat.
+  const wire = provider === "custom" ? (custom?.format ?? "openai") : p.kind;
+  const url = wire === "anthropic" ? `${base}/models?limit=1000` : `${base}/models`;
+  const headers: Record<string, string> = {};
+  if (wire === "anthropic") {
+    if (key) headers["x-api-key"] = key;
+    headers["anthropic-version"] = "2023-06-01";
+  } else if (key) {
+    // Left off entirely when absent: a local server usually has no key, and a
+    // bare `Bearer ` is a different thing from no header at all.
+    headers.authorization = `Bearer ${key}`;
+  }
 
   const res = await fetch(url, { headers });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`${p.label} would not list models (${res.status}). ${body.slice(0, 200)}`);
+    throw new Error(`${label} would not list models (${res.status}). ${body.slice(0, 200)}`);
   }
 
   const json: any = await res.json();
@@ -95,6 +119,6 @@ export async function listModels(provider: string, apiKey: string): Promise<Mode
     return a.id.localeCompare(b.id);
   });
 
-  cache.set(provider, { at: Date.now(), list });
+  cache.set(cacheKey, { at: Date.now(), list });
   return list;
 }

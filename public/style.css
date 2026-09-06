@@ -2622,6 +2622,18 @@ body[data-msgstyle="page"] #thread {
   max-width: calc(var(--measure) + 3.2rem);
 }
 
+/*
+ * No page until something is written on it.
+ *
+ * In this mode the thread is not a container of plates, it IS the plate — so
+ * with nothing in it you get a blank slab of paper hanging above the splash
+ * where the character cards should start. Done here rather than by toggling
+ * `hidden` from showSplash(), because the thread is emptied from several
+ * places and only one of them was the splash; a rule about being empty cannot
+ * fall out of step with the state the way a flag can.
+ */
+body[data-msgstyle="page"] #thread:empty { display: none; }
+
 /* The column is the surface now, so messages just divide inside it. */
 body[data-msgstyle="page"] .msg { padding: 1rem 0 1.1rem; }
 body[data-msgstyle="page"] .msg:first-child { padding-top: 0.2rem; }
@@ -6341,3 +6353,141 @@ body.guest #guideBtn { display: none !important; }
 }
 .pairrow > button { width: 100%; margin: 0; }
 @media (max-width: 380px) { .pairrow { grid-template-columns: 1fr; } }
+
+/* ---- the face maker ---------------------------------------------------------
+ *
+ * Wider than the other dialogs, because the whole point is comparing swatches
+ * against each other and a three-across grid means scrolling to compare two
+ * hairstyles. Still capped at the viewport, and it stacks on a phone.
+ */
+.avdialog { width: min(96vw, 52rem); }
+
+.avmain {
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+  gap: 1.1rem;
+  align-items: start;
+}
+
+.avstage { position: sticky; top: 0; display: grid; gap: 0.6rem; }
+
+/* The preview is round, because that is how a medallion crops it — showing it
+ * square would be lying about what you are choosing. */
+.avpreview {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid var(--lumiverse-border-hover);
+  background: var(--lumiverse-bg-deep);
+}
+.avpreview svg { display: block; width: 100%; height: 100%; }
+
+.avlayers { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.7rem; }
+
+.avlayer {
+  padding: 0.32rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--lumiverse-text-muted);
+  background: var(--lumiverse-bg);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.avlayer:hover { border-color: var(--lumiverse-border-hover); color: var(--lumiverse-text); }
+.avlayer.on {
+  color: var(--lumiverse-bg-deep);
+  background: var(--lumiverse-primary);
+  border-color: var(--lumiverse-primary);
+}
+
+.avchoices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.2rem, 1fr));
+  gap: 0.45rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.avchoice {
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  padding: 0.3rem 0.2rem 0.35rem;
+  background: var(--lumiverse-bg);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  cursor: pointer;
+}
+.avchoice:hover { border-color: var(--lumiverse-border-hover); }
+.avchoice.on { border-color: var(--lumiverse-primary); background: var(--lumiverse-bg-hover); }
+.avchoice svg { display: block; border-radius: 50%; background: var(--lumiverse-bg-deep); }
+
+.avname {
+  font-size: 0.66rem;
+  color: var(--lumiverse-text-dim);
+  text-align: center;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.avchoice.on .avname { color: var(--lumiverse-text); }
+
+.avcolours { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.8rem; }
+
+.avdot {
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 50%;
+  border: 1px solid var(--lumiverse-border-hover);
+  cursor: pointer;
+  position: relative;
+}
+/* The tick is drawn in whichever of light or dark actually shows on the swatch
+ * it sits on, which is why --tick is set per dot rather than in here. */
+.avdot.on::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--tick, #fff);
+}
+
+.avcustom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--lumiverse-text-dim);
+}
+.avcustom input[type="color"] {
+  width: 2.2rem;
+  height: 1.6rem;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--lumiverse-border-hover);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.avpacks { margin-top: 1rem; }
+.avpacks summary { cursor: pointer; color: var(--lumiverse-text-muted); font-size: 0.85rem; }
+.avpackrow { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+
+@media (max-width: 44rem) {
+  .avmain { grid-template-columns: 1fr; }
+  .avstage { position: static; justify-items: center; }
+  .avpreview { width: min(60vw, 13rem); }
+  .avchoices { max-height: none; }
+}
+
+/* The one-click local addresses under the custom endpoint. A row of small
+ * ghosts rather than a select, because they fill a field in rather than
+ * choosing a mode — you can still edit the address afterwards. */
+.localrow { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.15rem 0 0.6rem; }
+.localrow .ghost.small { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+#customRow { display: grid; gap: 0.1rem; }

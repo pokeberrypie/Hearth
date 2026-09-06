@@ -915,6 +915,20 @@
           <div class="moremenu" hidden></div>
         </header>
           <label>Provider<select id="provider"></select></label>
+          <!-- Only for the custom endpoint: where it is, and which dialect it
+               speaks. The two are separate questions because a relay can speak
+               a standard wire without being a standard service. -->
+          <div id="customRow" hidden>
+            <label>Address<input id="custom_base" type="url" autocomplete="off"
+              placeholder="https://example.com/v1" spellcheck="false"></label>
+            <label>Sends as<select id="custom_format">
+              <option value="openai">OpenAI-compatible &mdash; /chat/completions</option>
+              <option value="anthropic">Anthropic messages &mdash; /messages</option>
+              <option value="responses">OpenAI responses &mdash; /responses</option>
+            </select></label>
+            <p class="hint">Running one on this machine? These fill the address in.</p>
+            <div class="localrow" id="localPicks"></div>
+          </div>
           <label>API key<input id="api_key" type="password" autocomplete="off"></label>
           <p class="hint" id="keyHint"></p>
           <label>Model
@@ -1354,6 +1368,7 @@
       </button>
       <div class="faceside">
         <p class="hint" id="c_facehint">Tap the picture to choose a new one.</p>
+        <button type="button" class="linkish" id="c_facedraw">Draw one</button>
         <button type="button" class="linkish danger" id="c_faceclear">Remove picture</button>
       </div>
       <input type="file" id="c_facefile" accept="image/*" hidden>
@@ -1577,6 +1592,7 @@
       </button>
       <div class="faceside">
         <p class="hint" id="p_facehint">Tap the picture to choose a new one.</p>
+        <button type="button" class="linkish" id="p_facedraw">Draw one</button>
         <button type="button" class="linkish danger" id="p_faceclear">Remove picture</button>
       </div>
       <input type="file" id="p_facefile" accept="image/*" hidden>
@@ -1590,6 +1606,48 @@
   </form>
 </dialog>
 
+
+<!-- The face maker. The parts it offers are whatever is registered: the gear
+     that ships with Hearth, any installed pack, and anything an extension
+     added. Nothing in here names a hairstyle. -->
+<dialog id="avatarDialog" class="avdialog">
+  <form method="dialog">
+    <h2>Draw a face</h2>
+    <p class="hint" id="avNote" hidden></p>
+    <div class="avmain">
+      <div class="avstage">
+        <div id="avPreview" class="avpreview"></div>
+        <button type="button" class="ghost wide" id="avRandom">Surprise me</button>
+      </div>
+      <div class="avpick">
+        <div id="avLayers" class="avlayers"></div>
+        <div id="avChoices" class="avchoices"></div>
+        <div id="avColours"></div>
+      </div>
+    </div>
+    <details class="avpacks">
+      <summary>Art packs</summary>
+      <p class="hint">A pack is a <code>manifest.json</code> and a folder of
+        see-through pictures, all drawn to the same head. Add it as a zip or as
+        loose files. The template shows where the eyes, chin and shoulders go —
+        draw to those and your parts fit everybody else&rsquo;s.</p>
+      <div id="avPackList" class="list"></div>
+      <div class="avpackrow">
+        <button type="button" class="ghost" id="avPackAdd">Install a pack</button>
+        <button type="button" class="ghost" id="avTemplate">Drawing template</button>
+      </div>
+      <input type="file" id="avPackFile" accept=".zip,.png,.webp,.svg,.json" multiple hidden>
+    </details>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="save" class="solid">Use this face</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/avatar-parts.js"></script>
+<script src="/avatar.js"></script>
+<script src="/avatar-ui.js"></script>
 <script src="/app.js"></script>
 
 <!-- A Victorian corner spandrel: the rule turning the corner, a volute
