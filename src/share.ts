@@ -111,6 +111,9 @@ const GUEST_ROUTES: { method: string; re: RegExp }[] = [
   { method: "GET",  re: /^\/api\/table\/classes$/ },
   { method: "POST", re: /^\/api\/table\/roll-sheet$/ },
   { method: "PUT",  re: /^\/api\/table\/sheet$/ },
+  // Your character, to carry away or to bring with you.
+  { method: "GET",  re: /^\/api\/table\/passport$/ },
+  { method: "POST", re: /^\/api\/table\/passport$/ },
 ];
 
 /** Whether a guest may make this request at all. */
@@ -227,6 +230,14 @@ export function publicPlayer(p: Player) {
  */
 export function tidyPlayerName(name: unknown, taken: string[] = []): string {
   let n = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+  /*
+   * A name that already carries one of our suffixes loses it first.
+   *
+   * Otherwise they compound: somebody who was "Dan (2)" at one table comes
+   * back with that as their name, finds it taken, and becomes "Dan (2) (2)" —
+   * and worse every time, since the passport they carry away now says so.
+   */
+  n = n.replace(/\s*\(\d+\)$/, "").trim();
   if (!n) n = "A player";
   // Two people called Dan is a real thing and a confusing transcript.
   if (!taken.includes(n)) return n;

@@ -201,4 +201,18 @@ describe("names", () => {
     expect(tidyPlayerName("Dan", ["Dan"])).toBe("Dan (2)");
     expect(tidyPlayerName("Dan", ["Dan", "Dan (2)"])).toBe("Dan (3)");
   });
+
+  test("and the suffix never compounds", () => {
+    // Somebody who was "Dan (2)" at one table carries that away in their
+    // passport. Coming back, the suffix has to be stripped before it is
+    // considered again, or they become "Dan (2) (2)" — and worse every time,
+    // since the passport they leave with now says so too.
+    expect(tidyPlayerName("Dan (2)", [])).toBe("Dan");
+    expect(tidyPlayerName("Dan (2)", ["Dan"])).toBe("Dan (2)");
+    expect(tidyPlayerName("Dan (2) (3)", [])).toBe("Dan (2)");
+  });
+
+  test("a name that is only a number in brackets is still a name", () => {
+    expect(tidyPlayerName("(4)", [])).toBe("A player");
+  });
 });

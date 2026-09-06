@@ -1117,6 +1117,26 @@
   <h3>Your character</h3>
   <div id="tableSheet"></div>
   <button class="solid wide" id="tableMake">Make your character</button>
+
+  <!-- Your character, carried by you rather than kept by whoever is hosting.
+       A seat lives in a cookie and a cookie belongs to one address, so a new
+       tunnel means a new address means a stranger with no character. This is
+       the thing you paste to be yourself again — at this table or anyone's. -->
+  <details class="fold">
+    <summary>Your passport</summary>
+    <p class="hint">Copy this and keep it. Paste it at any Hearth table to arrive as
+      yourself, with your character. It is not a password and gives nobody anything —
+      the invitation is what seats you.</p>
+    <div class="linkrow">
+      <input type="text" id="tablePass" readonly aria-label="Your passport">
+      <button class="ico" id="tablePassCopy" title="Copy" aria-label="Copy your passport"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 6.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1.5"/></svg></button>
+    </div>
+    <div class="linkrow">
+      <input type="text" id="tablePassIn" placeholder="Paste a passport to restore your character" aria-label="Paste a passport">
+      <button class="ico" id="tablePassGo" title="Use it" aria-label="Use this passport"><svg viewBox="0 0 24 24"><path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg></button>
+    </div>
+  </details>
+
   <div class="actions">
     <button class="ghost" id="tableDone">Close</button>
   </div>

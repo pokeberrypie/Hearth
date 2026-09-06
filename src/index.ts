@@ -13,6 +13,7 @@ import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedF
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
 import { LEVELS, difficultyForPrompt } from "./difficulty";
 import { bookIsUsable, seedFromBook } from "./frombook";
+import { readPassport, writePassport } from "./passport";
 import { closeDoor, doorState, openDoor } from "./door";
 import {
   clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
@@ -4471,6 +4472,72 @@ api.put("/table/sheet", async (c) => {
   saveSheet(g.player.id, "player", sheet);
   publish(g.share.id, "players", { players: playersAt(g.share.id) });
   return c.json({ sheet });
+});
+
+/**
+ * Your character, carried by you.
+ *
+ * A seat lives in a cookie, a cookie belongs to one address, and a quick
+ * tunnel hands out a new one every time it opens — so the second evening of a
+ * campaign the same person on the same phone arrives as a stranger with no
+ * character. Accounts would fix it and are the wrong size: passwords, resets
+ * and a login screen so that friends can play a game on a machine one of them
+ * owns.
+ *
+ * A passport is the small version. It grants nothing — the invitation is what
+ * seats you — it only says what to call you and what your character can do
+ * once you are already sitting down. So it can be handed over in the open, and
+ * works at anybody's table rather than only at this one.
+ */
+api.get("/table/passport", (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  return c.json({
+    passport: writePassport({
+      id: g.player.id,
+      name: g.player.name,
+      sheet: sheetFor(g.player.id),
+      at: now(),
+    }),
+  });
+});
+
+api.post("/table/passport", async (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const { passport } = await c.req.json().catch(() => ({}));
+  const p = readPassport(passport);
+  if (!p) return c.json({ error: "That is not a passport." }, 400);
+
+  /*
+   * The seat this passport came from, if it is still sitting there.
+   *
+   * A passport is used precisely when somebody has arrived on a new seat — a
+   * new address, a new browser — so the old one is the same person and has to
+   * go. Left behind it is a ghost at the table holding their name, which then
+   * collides with them and turns them into "Dan (2)"; do it twice and the
+   * table is a list of empty chairs.
+   */
+  if (p.id && p.id !== g.player.id) {
+    db.query("DELETE FROM players WHERE id = ? AND share_id = ?").run(p.id, g.share.id);
+    db.query("DELETE FROM sheets WHERE owner_id = ?").run(p.id);
+  }
+
+  const taken = (db.query("SELECT name FROM players WHERE share_id = ? AND id != ?")
+    .all(g.share.id, g.player.id) as any[]).map((r) => r.name);
+  const name = tidyPlayerName(p.name || g.player.name, taken);
+  db.query("UPDATE players SET name = ? WHERE id = ?").run(name, g.player.id);
+
+  /*
+   * The sheet is normalised rather than trusted. It arrived as text from
+   * somebody's clipboard, which is exactly the shape of thing that turns up
+   * with a level of 9e99 in it.
+   */
+  const sheet = p.sheet ? normaliseSheet(p.sheet) : null;
+  if (sheet) saveSheet(g.player.id, "player", sheet);
+
+  publish(g.share.id, "players", { players: playersAt(g.share.id) });
+  return c.json({ ok: true, name, sheet });
 });
 
 api.post("/table/roll", async (c) => {

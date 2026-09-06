@@ -6897,6 +6897,10 @@ async function guestBoot(state) {
   guestPaint();
   guestListen();
 
+  // Somebody who has been here before, or been at another table, gets
+  // themselves back without being asked anything.
+  if (await guestRestore()) return;
+
   // A name, so the transcript is not four people all called "A player".
   const saved = (localStorage.getItem("hearth.myName") || "").trim();
   if (saved) await guestName(saved);
@@ -7026,6 +7030,67 @@ function guestListen() {
  * hangs off their seat rather than a persona, so sitting down at a table does
  * not add rows to the host's library and getting up takes it away again.
  */
+/**
+ * The passport, kept where the browser will let us and offered where it will
+ * not.
+ *
+ * Saved to this address's storage so that coming back to the same table is
+ * silent, and shown in full so that coming back to a *different* address —
+ * which is what a new tunnel is — is one paste rather than a lost character.
+ */
+const PASS_KEY = "hearth.passport";
+
+async function guestPassport() {
+  const r = await api("/table/passport").catch(() => null);
+  if (!r?.passport) return;
+  try { localStorage.setItem(PASS_KEY, r.passport); } catch {}
+  const box = $("#tablePass");
+  if (box) box.value = r.passport;
+}
+
+async function guestUsePassport(text) {
+  const r = await api("/table/passport", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ passport: String(text ?? "").trim() }),
+  }).catch(() => null);
+  if (!r || r.error) { if (r?.error) fail(r.error); return false; }
+  try { localStorage.setItem(PASS_KEY, String(text).trim()); } catch {}
+  await guestSync();
+  return true;
+}
+
+/**
+ * Arriving somewhere you have been before.
+ *
+ * Only when this seat has nothing on it yet: a passport must never overwrite a
+ * character somebody has already made here, which is what makes it safe to try
+ * this without asking.
+ */
+async function guestRestore() {
+  const me = (GUEST.state.players ?? []).find((p) => p.id === GUEST.state.you?.id);
+  if (me?.sheet) return false;
+  let saved = "";
+  try { saved = localStorage.getItem(PASS_KEY) || ""; } catch {}
+  if (!saved) return false;
+  return await guestUsePassport(saved);
+}
+
+$("#tablePassCopy").onclick = async () => {
+  const v = $("#tablePass")?.value;
+  if (!v) return;
+  try {
+    await navigator.clipboard.writeText(v);
+    $("#tablePassCopy").classList.add("done");
+    setTimeout(() => $("#tablePassCopy").classList.remove("done"), 1400);
+  } catch { $("#tablePass").select(); }
+};
+
+$("#tablePassGo").onclick = async () => {
+  const v = $("#tablePassIn")?.value?.trim();
+  if (!v) return;
+  if (await guestUsePassport(v)) $("#tablePassIn").value = "";
+};
+
 async function guestSheetPanel() {
   const me = (GUEST.state.players ?? []).find((p) => p.id === GUEST.state.you?.id);
   const wrap = $("#tableParty");
@@ -7049,6 +7114,7 @@ async function guestSheetPanel() {
   if (sheet) sheet.innerHTML = me?.sheet ? sheetCard(me.sheet) : `<p class="hint">You have not made one yet. Everything still works without one; a sheet is what lets the narrator roll against you rather than guess.</p>`;
   const make = $("#tableMake");
   if (make) { make.hidden = false; make.textContent = me?.sheet ? "Roll a new character" : "Make your character"; }
+  guestPassport();
 }
 
 /**
