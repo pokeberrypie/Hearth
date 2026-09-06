@@ -4,4 +4,4 @@
  * What this build calls itself, taken from package.json at build time so a
  * running Hearth can say which one it is.
  */
-export const VERSION = "0.2.0";
+export const VERSION = "0.2.1";

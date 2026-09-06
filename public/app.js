@@ -3723,12 +3723,33 @@ async function openInspect() {
   const r = await api(`/chats/${S.chatId}/inspect`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ mode: "reply", guide: guideText(), content: $("#input").value }),
+    /*
+     * Who is about to speak, which this used to leave out.
+     *
+     * Without it the server falls back to "whoever has been quietest", so in a
+     * group the inspector described a different character than the one you had
+     * chosen — the Character section was somebody else's while your pick was
+     * the one about to talk. And since a tie is broken at random, it could
+     * even differ between two openings of the same panel.
+     *
+     * The whole point of this panel is showing what will actually be sent, so
+     * it has to be asked the same question the send is.
+     */
+    body: JSON.stringify({
+      mode: "reply",
+      guide: guideText(),
+      content: $("#input").value,
+      speaker: S.speaker || "",
+    }),
   });
   if (r.error) { $("#i_stats").innerHTML = `<span class="istat">${esc(r.error)}</span>`; return; }
 
   const stat = (label, value) => `<span class="istat"><em>${label}</em>${esc(String(value))}</span>`;
   $("#i_stats").innerHTML =
+    // Whose prompt this is. A room of five means five different Character
+    // sections, and a panel that shows one without saying which is a panel
+    // that can quietly describe the wrong person.
+    (r.speaker?.name ? stat("speaking", r.speaker.name) : "") +
     stat("provider", r.provider) + stat("model", r.model) +
     stat("turns", r.turns) + stat("characters", r.chars.toLocaleString()) +
     stat("about", `${r.estTokens.toLocaleString()} tokens`) +

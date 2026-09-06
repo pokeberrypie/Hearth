@@ -80,6 +80,23 @@ app has loaded, and back now asks the page: it closes what is open, or leaves
 a chat for the shelf, and only means "leave" when there is nothing left to
 close.
 
+### The inspector described the wrong character in a group
+
+Reported from a real game: Joffrey was the one talking and the Character
+section was Olenna's.
+
+The page posted mode, guide and content to /inspect and no speaker at all, so
+the server fell back to "whoever has been quietest" and built the prompt for
+them. A full tie is broken at random, so two openings of the same panel could
+disagree with each other. The panel exists to show what will actually be sent,
+which makes this the one thing it must not get wrong.
+
+It sends the chosen speaker now, and shows whose prompt it is drawing —
+without that, a wrong Character section looks exactly like a right one.
+
+Note: package.json is on 0.2.1 and the Android versionCode on 45 from a
+release that was started and stopped. Both are correct for the next cut.
+
 ---
 
 ## Cutting the release

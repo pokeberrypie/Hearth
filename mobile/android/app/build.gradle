@@ -17,7 +17,7 @@ android {
         // Each diagnostic build must be newer than the last one the phone
         // saw; otherwise Package Installer can reject it before evaluating
         // the package we are trying to test.
-        versionCode 44
+        versionCode 45
         // Read rather than repeated. package.json is where the version is
         // written, and the desktop build already takes it from there; a second
         // copy here is a number that silently disagrees, which is exactly what
