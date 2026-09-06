@@ -2606,8 +2606,23 @@ body[data-msgstyle="portrait"] .msg { align-items: flex-start; }
    moves from the individual message to the column as a whole, which keeps the
    blur and solidity sliders meaningful here too. */
 
-body[data-msgstyle="page"] .who .medallion { display: none; }
-body[data-msgstyle="page"] .who { gap: 0; }
+/*
+ * No faces by default — the point of this style is unbroken prose. But some
+ * people want the column width AND to see who is talking, which are not
+ * actually in conflict, so it is a switch.
+ *
+ * Written as "hide unless asked" rather than "show when asked" so the medallion
+ * keeps its own display: it is `block` normally and `grid` when it is a blank
+ * with an initial in it, and a rule that set one would have broken the other.
+ */
+body[data-msgstyle="page"]:not(.pagefaces) .who .medallion { display: none; }
+body[data-msgstyle="page"]:not(.pagefaces) .who { gap: 0; }
+
+/* Bigger than the 22px thread medallion: there is room here, and the name is
+ * the head of a passage rather than a line in a list. */
+body[data-msgstyle="page"].pagefaces .who { gap: 0.6rem; margin-bottom: 0.5rem; }
+body[data-msgstyle="page"].pagefaces .who .medallion { width: 34px; height: 34px; }
+body[data-msgstyle="page"].pagefaces .who .medallion.blank { font-size: 1rem; }
 
 body[data-msgstyle="page"] #thread {
   padding: 1.4rem 1.6rem 2.4rem;

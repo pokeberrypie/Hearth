@@ -366,6 +366,8 @@ export const DEFAULTS: Record<string, string> = {
   key_custom: "",
   custom_base: "",
   custom_format: "openai",
+  // Faces in page mode. Off, so nobody's reading view changes under them.
+  page_faces: "0",
   tabletop_difficulty: "faircount",
   // The room following the story. Off: it changes what you are looking at.
   scene_follows: "0",

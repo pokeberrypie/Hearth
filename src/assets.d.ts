@@ -23,9 +23,16 @@ declare module "*.png" {
   const path: string;
   export default path;
 }
-/* The frontend's own script, imported as a file to be carried rather than as
-   a module to be called into. */
-declare module "*/app.js" {
+/*
+ * The frontend's scripts, imported as files to be carried rather than as
+ * modules to be called into.
+ *
+ * This used to name app.js specifically, which meant the day a second script
+ * appeared under public/ the build generated an import tsc had never been told
+ * about. Any .js reaching this compiler is a file being carried — everything
+ * in src/ is TypeScript.
+ */
+declare module "*.js" {
   const path: string;
   export default path;
 }

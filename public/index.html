@@ -678,6 +678,10 @@
           <button type="button" data-style="portrait">Portrait</button>
           <button type="button" data-style="page">Page</button>
         </div>
+        <!-- Page mode drops faces to keep the prose unbroken. Some people want
+             both, so it asks. Shown only in the style it applies to. -->
+        <label class="check" id="pagefaceRow"><input type="checkbox" id="page_faces">
+          Show who is speaking</label>
         <label id="bannerRow">Portrait width <span class="v" id="v_banner"></span>
           <input type="range" id="banner_width" min="90" max="280" step="5">
         </label>

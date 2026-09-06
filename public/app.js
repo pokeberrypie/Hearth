@@ -6165,7 +6165,7 @@ function buildSwatches() {
 
 const LORE_SETTINGS = ["lore_scan_depth", "lore_budget", "auto_lore_every", "auto_lore_scope"];
 const LOOK = ["overlay_opacity", "glow_opacity", "font_scale", "avatar_size", "radius", "banner_width", "measure", "fade_start", "plate_blur", "plate_opacity", "tuck"];
-const TOGGLES = ["bleed", "show_stats", "show_cutoff", "sound"];
+const TOGGLES = ["bleed", "show_stats", "show_cutoff", "sound", "page_faces"];
 const PREFS = ["confirm_deletes", "dice_enabled"];
 
 function applyLook() {
@@ -6273,6 +6273,7 @@ $("#custom_css").oninput = () => { applyCustomCss(); saveLook(); };
 
 function applyToggles() {
   document.body.classList.toggle("bleed", $("#bleed").checked);
+  document.body.classList.toggle("pagefaces", !!$("#page_faces")?.checked);
   const page = document.body.dataset.msgstyle === "page";
   $("#fadeRow").hidden = page || !$("#bleed").checked;
   $("#tuckRow").hidden = page || !$("#bleed").checked || document.body.dataset.msgstyle !== "banner";
@@ -6358,6 +6359,8 @@ function setMsgStyle(style) {
     b.classList.toggle("on", b.dataset.style === style));
   $("#avatarRow").hidden = style !== "portrait";
   $("#bannerRow").hidden = style !== "banner";
+  // Only offered where it does anything; the other two styles always show faces.
+  if ($("#pagefaceRow")) $("#pagefaceRow").hidden = style !== "page";
   $("#fadeRow").hidden = style === "page" || !$("#bleed").checked;
   $("#bleed").closest("label").hidden = style === "page";
 }
