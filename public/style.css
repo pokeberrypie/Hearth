@@ -6315,9 +6315,29 @@ body.guest #guideBtn { display: none !important; }
 }
 .kindcard:hover .kindtools,
 .kindcard:focus-within .kindtools { opacity: 1; }
-/* No hover on a phone, so they simply stay. */
-@media (max-width: 700px) { .kindtools { opacity: 0.65; } }
+/* No hover on a phone, so they simply stay — quietly. */
+@media (max-width: 700px) { .kindtools { opacity: 1; } }
+
+/* And quiet is the point. A delete on every card, in the danger colour, was
+   the loudest thing in a list whose subject is the writing on the cards. It
+   only goes red once you are pointing at it. */
+.kindtools .ico { color: var(--lumiverse-text-hint); }
+.kindtools .ico:hover { color: var(--lumiverse-primary); }
+.kindtools .ico.danger { color: var(--lumiverse-text-hint); }
+.kindtools .ico.danger:hover { color: var(--lumiverse-danger); }
 
 /* The ones that came with Hearth are not lesser, only older. A hairline is
    enough to say so without turning the list into two lists. */
 .kindcard.came .kindname { color: var(--lumiverse-primary-hover); }
+
+/* Two things of the same size, side by side. Making one a button and the other
+   a quiet link said one of them mattered less, and a class and a race are the
+   same size of decision. They stack when there is no room for two. */
+.pairrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+.pairrow > button { width: 100%; margin: 0; }
+@media (max-width: 380px) { .pairrow { grid-template-columns: 1fr; } }
