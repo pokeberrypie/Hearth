@@ -288,6 +288,33 @@ export const ALTER_TABLES: string[] = [
  * remembered at each route, because a boundary you have to remember is a
  * boundary you will forget once and only need to forget once.
  */
+/**
+ * Classes and races, including the ones that shipped.
+ *
+ * Both in one table because they are the same shape of thing — a name, a line
+ * about what it is for, and a few mechanical facts — and keeping them apart
+ * would mean writing import, export, listing and validation twice with a
+ * subtle difference between them.
+ *
+ * The built-ins are seeded into this table on first run rather than living
+ * only in code, so that everything the game offers you comes from one place
+ * and a built-in you have edited stays edited. The flag exists to warn before
+ * deleting one and for nothing else.
+ */
+export const CREATE_KITS = `
+CREATE TABLE IF NOT EXISTS kits (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL DEFAULT 'class',
+  name       TEXT NOT NULL,
+  data       TEXT NOT NULL DEFAULT '{}',
+  builtin    INTEGER NOT NULL DEFAULT 0,
+  position   INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_kits_kind ON kits(kind, position, created_at);
+`;
+
 export const CREATE_SHARES = `
 CREATE TABLE IF NOT EXISTS shares (
   id         TEXT PRIMARY KEY,

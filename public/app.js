@@ -1889,7 +1889,9 @@ function sheetCard(sheet) {
     <div class="charsheet">
       <div class="cshead">
         ${medallion(S.personaAvatar, S.personaName || "You", "csface")}
-        <span class="csclass">Level ${sheet.level} ${esc(klassName(sheet.klass))}</span>
+        <span class="csclass">Level ${sheet.level} ${
+          sheet.race && raceName(sheet.race) ? `${esc(raceName(sheet.race))} ` : ""
+        }${esc(klassName(sheet.klass))}</span>
         <span class="cshp"><span id="hpNow">${sheet.hp}</span> / ${sheet.maxHp} hp</span>
       </div>
       <div class="csstats">${rings}</div>
@@ -1976,11 +1978,38 @@ async function classChooser() {
       <span class="s">${esc(k.blurb)}</span>
       <span class="kbits">d${k.hitDie} &middot; ${k.primary.map((p) => p.toUpperCase()).join(" / ")}</span>
     </button>`).join("");
+  /*
+   * People first, calling second.
+   *
+   * A race adjusts what you already are, so it has to be chosen before the
+   * roll rather than applied to one — and the class is the thing you press to
+   * commit, which makes it the natural last step.
+   */
+  const races = await raceList();
+  const people = races.length
+    ? `<label>Your people
+         <select id="sheetRace">
+           <option value="">Not using them</option>
+           ${races.map((r) => `<option value="${esc(r.id)}" title="${esc(r.blurb)}">${esc(r.name)}</option>`).join("")}
+         </select>
+       </label>`
+    : "";
   return `
     <p class="hint">Pick what you are. The two abilities your class leans on get your best scores.</p>
+    ${people}
     <div class="classes">${cards}</div>
     <label class="check"><input type="checkbox" id="sheetArray"> Take an even spread instead of rolling</label>`;
 }
+
+let RACE_CACHE = null;
+async function raceList() {
+  if (!RACE_CACHE) {
+    const where = GUEST.on ? "/table/races" : "/tabletop/races";
+    try { RACE_CACHE = await api(where); } catch { RACE_CACHE = []; }
+  }
+  return Array.isArray(RACE_CACHE) ? RACE_CACHE : [];
+}
+const raceName = (id) => (RACE_CACHE ?? []).find((r) => r.id === id)?.name ?? "";
 
 const klassName = (id) => (CLASS_CACHE ?? []).find((k) => k.id === id)?.name ?? id;
 
@@ -2050,7 +2079,9 @@ function wireSheet(sheet) {
       try {
         await api(`/sheets/${activePersonaId}/roll`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ klass: b.dataset.klass, how, kind: "persona" }),
+          body: JSON.stringify({
+            klass: b.dataset.klass, race: $("#sheetRace")?.value ?? "", how, kind: "persona",
+          }),
         });
         await refreshSheet();
         toast(how === "roll" ? "Rolled." : "Set.");
@@ -4032,7 +4063,7 @@ const showPanel = () => {
   if (!wide()) return openDrawer();
   document.body.classList.remove("tucked");
   refreshChats(); refreshCast(); refreshPersonas(); refreshPresets(); refreshLore();
-  refreshTogether();
+  refreshTogether(); refreshKits();
 };
 
 $("#scrim").onclick = closeDrawer;
@@ -6472,6 +6503,200 @@ function showDifficultyHint() {
 }
 $("#tabletop_difficulty")?.addEventListener("change", showDifficultyHint);
 
+/**
+ * Handing a file to whoever is looking at this.
+ *
+ * A blob and an anchor, which works everywhere a browser is a browser. In the
+ * Android shell a download may be refused outright, so the text is put on the
+ * clipboard as well — an export you cannot save is still an export you can
+ * paste somewhere.
+ */
+function download(name, text) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch {}
+  navigator.clipboard?.writeText(text).then(
+    () => toast("Saved, and copied to the clipboard."),
+    () => {},
+  );
+}
+
+// ---- classes and races ---------------------------------------------------
+
+/**
+ * Writing your own, and taking somebody else's.
+ *
+ * The six that shipped are rows like anything you write, so this list is one
+ * list rather than "ours" above "yours" — the only thing marking a built-in is
+ * a word, and that exists to warn before deleting one.
+ */
+async function refreshKits() {
+  const wrap = $("#kitList");
+  if (!wrap) return;
+  const [classes, races] = await Promise.all([
+    api("/kits?kind=class").catch(() => []),
+    api("/kits?kind=race").catch(() => []),
+  ]);
+  RACE_CACHE = Array.isArray(races) ? races : [];
+  CLASS_CACHE = Array.isArray(classes) ? classes : [];
+
+  wrap.innerHTML = "";
+  for (const kind of ["class", "race"]) {
+    const rows = kind === "class" ? CLASS_CACHE : RACE_CACHE;
+    if (!rows.length) continue;
+    const head = document.createElement("p");
+    head.className = "hint";
+    head.textContent = kind === "class" ? "Classes" : "Races";
+    wrap.append(head);
+    for (const k of rows) wrap.append(kitRow(k));
+  }
+}
+
+function kitRow(k) {
+  const row = document.createElement("div");
+  row.className = "item";
+  const what = k.kind === "class"
+    ? `d${k.hitDie} · ${(k.primary ?? []).map((p) => p.toUpperCase()).join(" / ") || "—"}`
+    : Object.entries(k.bonus ?? {}).map(([a, n]) => `${a.toUpperCase()} ${n > 0 ? "+" : ""}${n}`)
+        .join(" · ") || "no bonuses";
+  row.innerHTML = medallion("", k.name) +
+    `<span class="meta"><span class="t">${esc(k.name)}</span>` +
+    `<span class="s">${esc(what)}${k.builtin ? " · came with Hearth" : ""}</span></span>`;
+
+  const edit = document.createElement("button");
+  edit.className = "ico";
+  edit.title = "Edit";
+  edit.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>`;
+  edit.onclick = () => editKit(k);
+
+  const del = document.createElement("button");
+  del.className = "ico danger";
+  del.title = "Delete";
+  del.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>`;
+  del.onclick = async () => {
+    const sure = await askDialog({
+      title: `Delete ${k.name}?`,
+      text: k.builtin
+        ? "This one came with Hearth. Deleting it removes it from this copy; anyone already " +
+          "playing it keeps the sheet they have."
+        : "Anyone already playing it keeps the sheet they have.",
+      confirmLabel: "Delete",
+    });
+    if (!sure) return;
+    await api(`/kits/${k.id}`, { method: "DELETE" });
+    refreshKits();
+  };
+
+  row.append(edit, del);
+  return row;
+}
+
+/**
+ * The form, which is the same form for both — they are the same shape of
+ * thing, and two forms would drift.
+ */
+async function editKit(k) {
+  const isRace = k.kind === "race";
+  const box = $("#kitDialog");
+  $("#kitTitle").textContent = k.id
+    ? `Edit ${k.name}`
+    : (isRace ? "Write a race" : "Write a class");
+  $("#kitBody").innerHTML =
+    `<label>Name<input id="kit_name" maxlength="40" value="${esc(k.name ?? "")}"></label>` +
+    `<label>What it is for<input id="kit_blurb" maxlength="160" value="${esc(k.blurb ?? "")}"` +
+      ` placeholder="One line, the way the chooser will read it."></label>` +
+    (isRace
+      ? `<p class="hint">What it adds to each ability. Between −2 and +3; leave the rest at zero.</p>
+         <div class="abilgrid">${["str", "dex", "con", "int", "wis", "cha"].map((a) =>
+           `<label class="abil">${a.toUpperCase()}<input type="number" id="kit_b_${a}" min="-2" max="3"
+             value="${Number(k.bonus?.[a] ?? 0)}"></label>`).join("")}</div>
+         <label>What makes them themselves
+           <textarea id="kit_traits" rows="3"
+             placeholder="One a line. The narrator is told these — not the numbers, which are already on the sheet."
+             >${esc((k.traits ?? []).join("\\n"))}</textarea></label>`
+      : `<label>Hit die
+           <select id="kit_hitdie">${[6, 8, 10, 12].map((d) =>
+             `<option value="${d}"${Number(k.hitDie) === d ? " selected" : ""}>d${d}</option>`).join("")}</select></label>
+         <p class="hint">The two abilities it leans on. These get the best scores when a character is rolled.</p>
+         <div class="linkrow">
+           ${[0, 1].map((i) => `<select id="kit_p${i}">${
+             ["str", "dex", "con", "int", "wis", "cha"].map((a) =>
+               `<option value="${a}"${(k.primary ?? [])[i] === a ? " selected" : ""}>${a.toUpperCase()}</option>`).join("")
+           }</select>`).join("")}
+         </div>
+         <label>Trained in<textarea id="kit_skills" rows="2"
+           placeholder="One a line, or separated by commas.">${esc((k.skills ?? []).join("\\n"))}</textarea></label>
+         <label>What they start with<textarea id="kit_kit" rows="3"
+           placeholder="One a line.">${esc((k.kit ?? []).join("\\n"))}</textarea></label>`);
+
+  box.returnValue = "";
+  box.showModal();
+  const done = await new Promise((r) => box.addEventListener("close", () => r(box.returnValue), { once: true }));
+  if (done !== "save") return;
+
+  const body = {
+    kind: k.kind,
+    name: $("#kit_name").value,
+    blurb: $("#kit_blurb").value,
+  };
+  if (isRace) {
+    body.bonus = {};
+    for (const a of ["str", "dex", "con", "int", "wis", "cha"]) {
+      body.bonus[a] = Number($(`#kit_b_${a}`).value) || 0;
+    }
+    body.traits = $("#kit_traits").value;
+  } else {
+    body.hitDie = Number($("#kit_hitdie").value);
+    body.primary = [$("#kit_p0").value, $("#kit_p1").value];
+    body.skills = $("#kit_skills").value;
+    body.kit = $("#kit_kit").value;
+  }
+
+  const out = k.id
+    ? await api(`/kits/${k.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+    : await api("/kits", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (out?.error) return fail(out.error);
+  refreshKits();
+}
+
+$("#kitNewClass").onclick = () => editKit({ kind: "class", hitDie: 8, primary: ["str", "con"] });
+$("#kitNewRace").onclick = () => editKit({ kind: "race", bonus: {} });
+
+$("#kitExport").onclick = async () => {
+  const all = await api("/kits/export").catch(() => null);
+  if (!all || all.error) return fail("Could not read them.");
+  download("hearth-classes-and-races.json", JSON.stringify(all, null, 2));
+};
+
+$("#kitFile").onchange = async (e) => {
+  const files = [...(e.target.files ?? [])];
+  e.target.value = "";
+  let added = 0;
+  const skipped = [];
+  for (const f of files) {
+    let parsed;
+    try { parsed = JSON.parse(await f.text()); }
+    catch { skipped.push(f.name); continue; }
+    const out = await api("/kits/import", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(parsed),
+    }).catch(() => null);
+    if (out?.error) { skipped.push(f.name); continue; }
+    added += out?.added ?? 0;
+    skipped.push(...(out?.skipped ?? []));
+  }
+  await refreshKits();
+  toast(added
+    ? `Added ${added}.${skipped.length ? ` Skipped ${skipped.length}.` : ""}`
+    : "Nothing in those could be read.");
+};
+
 // ---- playing together ----------------------------------------------------
 
 /**
@@ -7259,7 +7484,7 @@ async function guestMakeCharacter() {
       where.innerHTML = `<p class="hint">Rolling…</p>`;
       const r = await api("/table/roll-sheet", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ klass: b.dataset.klass, how }),
+        body: JSON.stringify({ klass: b.dataset.klass, race: $("#sheetRace")?.value ?? "", how }),
       }).catch(() => null);
       $("#tableMake").hidden = false;
       if (r?.error) { fail(r.error); return guestSheetPanel(); }

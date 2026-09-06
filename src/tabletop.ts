@@ -99,10 +99,51 @@ export const CLASSES: Klass[] = [
   },
 ];
 
-export const classById = (id: string) => CLASSES.find((c) => c.id === id) ?? null;
+/**
+ * Looking a class up, wherever classes now live.
+ *
+ * They started as the constant above and are rows now, so that people can
+ * write their own — and everything in this file that turns an id into a class
+ * has to see those too. Without this, makeSheet cannot roll a Warden and,
+ * worse, normaliseSheet silently turns one back into a Fighter every time a
+ * sheet is read.
+ *
+ * The constant stays as the fallback, so this file remains testable on its own
+ * and a database that has not seeded yet still makes a character.
+ */
+let resolveClass: (id: string) => Klass | null =
+  (id) => CLASSES.find((c) => c.id === id) ?? null;
+
+export function provideClasses(fn: (id: string) => Klass | null): void {
+  resolveClass = (id) => {
+    const found = fn(id);
+    if (!found) return null;
+    /*
+     * Two primaries, always. A class written with one — or none — would leave
+     * rollAbilities assigning a score to `undefined`, and the sheet arrives
+     * with a missing ability rather than an error anybody can see.
+     */
+    const primary = [...(found.primary ?? [])] as Ability[];
+    for (const a of ABILITIES) {
+      if (primary.length >= 2) break;
+      if (!primary.includes(a)) primary.push(a);
+    }
+    return { ...found, primary: [primary[0], primary[1]] as [Ability, Ability] };
+  };
+}
+
+export const classById = (id: string) => resolveClass(id);
+
+/** How a race becomes a sentence, supplied by whoever can read the rows. */
+let raceLine: (id: string) => string = () => "";
+export function provideRaces(fn: (id: string) => string): void {
+  raceLine = fn;
+}
 
 export type Sheet = {
   klass: string;
+  /** Their people, if the table uses them. Empty is a perfectly good answer. */
+  race?: string;
   level: number;
   abilities: Record<Ability, number>;
   maxHp: number;
@@ -206,6 +247,10 @@ export function normaliseSheet(raw: any): Sheet | null {
     Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()) : [];
   return {
     klass: klass.id,
+    // Kept as written: races are rows and this file cannot check them, but a
+    // sheet that forgets what somebody is every time it is read is worse than
+    // one carrying an id nothing resolves.
+    ...(typeof raw.race === "string" && raw.race.trim() ? { race: raw.race.trim() } : {}),
     level: Math.max(1, Math.min(20, Math.round(Number(raw.level) || 1))),
     abilities,
     maxHp,
@@ -230,10 +275,15 @@ export function sheetForPrompt(name: string, sheet: Sheet): string {
   const stats = ABILITIES
     .map((a) => `${a.toUpperCase()} ${sheet.abilities[a]} (${signed(modifier(sheet.abilities[a]))})`)
     .join(", ");
+  // A race is a row this file cannot read, so the caller lends it a way to
+  // turn one into a sentence. Without it the narrator is handed six numbers
+  // and no idea that this character does not sleep.
+  const people = raceLine(sheet.race ?? "");
   const lines = [
     `${name} — level ${sheet.level} ${klass?.name ?? "adventurer"}, ${sheet.hp}/${sheet.maxHp} hp`,
     stats,
   ];
+  if (people) lines.push(people);
   if (sheet.skills.length) lines.push(`Trained in: ${sheet.skills.join(", ")}`);
   if (sheet.inventory.length) lines.push(`Carrying: ${sheet.inventory.join(", ")}`);
   if (sheet.notes.trim()) lines.push(sheet.notes.trim());

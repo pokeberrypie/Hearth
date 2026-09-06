@@ -6228,3 +6228,30 @@ body.guest #guideBtn { display: none !important; }
 }
 /* The label beside a check's total, so "14" says what it was a check of. */
 .rollnote { font-size: 0.76em; color: var(--lumiverse-text-dim); margin-left: 0.35em; }
+
+/* ---- classes and races --------------------------------------------------- */
+
+/* Six little boxes rather than six rows: the whole point of a race's bonuses is
+   that you read them as a shape at a glance, and a column of labelled fields
+   makes you read six sentences instead. */
+.abilgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.abilgrid .abil {
+  margin: 0;
+  display: grid;
+  gap: 0.2rem;
+  justify-items: center;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--lumiverse-text-dim);
+}
+.abilgrid .abil input {
+  margin: 0;
+  width: 100%;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

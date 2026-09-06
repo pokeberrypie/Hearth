@@ -9,12 +9,13 @@ import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNot
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
 import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinstall";
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
-import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier,
+import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier, provideClasses, provideRaces,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
 import { LEVELS, difficultyForPrompt } from "./difficulty";
 import { bookIsUsable, seedFromBook } from "./frombook";
 import { readPassport, writePassport } from "./passport";
 import { soundFor, wallpaperFor } from "./scenery";
+import { applyRace, looksWritten as kitWritten, normaliseKit, raceForPrompt, type Kit } from "./kits";
 import { closeDoor, doorState, openDoor } from "./door";
 import { hostingState, setHosting } from "./hosting";
 import {
@@ -2952,7 +2953,169 @@ function saveSheet(ownerId: string, kind: string, sheet: Sheet) {
 }
 
 /** The classes on offer, for the chooser. */
-api.get("/tabletop/classes", (c) => c.json(CLASSES));
+/*
+ * The classes on offer, which are now rows rather than a constant — the
+ * shipped six seeded alongside anything written since, so there is one list
+ * rather than "ours" and "yours".
+ */
+api.get("/tabletop/classes", (c) => c.json(kitsOf("class")));
+api.get("/tabletop/races", (c) => c.json(kitsOf("race")));
+
+/*
+ * And tabletop.ts is told where classes live now, so that rolling a Warden
+ * makes a Warden and — the quieter half — reading one back does not turn it
+ * into a Fighter.
+ */
+provideClasses((id) => {
+  const k = kitById(id);
+  return k && k.kind === "class" ? (k as any) : null;
+});
+provideRaces((id) => raceForPrompt(id ? kitById(id) : null));
+// ---- classes and races ----------------------------------------------------
+
+/**
+ * Six classes in the code was fine for a first evening and wrong for a
+ * campaign: everybody's table has a thing in it nobody else's has. These are
+ * rows now, the shipped ones seeded alongside anything you write, so the game
+ * offers you one list rather than "ours" and "yours".
+ */
+const RACES_ON_FIRST_RUN = [
+  { id: "human", name: "Human", blurb: "Adaptable, everywhere, and rarely the strangest thing in the room.",
+    bonus: { con: 1, cha: 1 },
+    traits: ["They are found in most places and belong to none of them particularly."] },
+  { id: "dwarf", name: "Dwarf", blurb: "Built low and patient, and hard to move once decided.",
+    bonus: { con: 2, str: 1, dex: -1 },
+    traits: ["They see in the dark as well as most people see at dusk.",
+             "Stone and metalwork tell them things other people have to be told."] },
+  { id: "elf", name: "Elf", blurb: "Long-lived enough to be unhurried about nearly everything.",
+    bonus: { dex: 2, int: 1, con: -1 },
+    traits: ["They do not sleep so much as stop paying attention for a few hours.",
+             "They remember conversations that everyone else has forgotten happened."] },
+  { id: "halfling", name: "Halfling", blurb: "Small, lucky, and consistently underestimated.",
+    bonus: { dex: 2, cha: 1, str: -1 },
+    traits: ["They are easy to overlook, and have made a habit of it.",
+             "Their luck is not magic, but it is remarked upon."] },
+];
+
+function seedKits() {
+  const have = (db.query("SELECT COUNT(*) n FROM kits").get() as any)?.n ?? 0;
+  if (have > 0) return;
+  const ins = db.query(
+    "INSERT INTO kits (id, kind, name, data, builtin, position, created_at) VALUES (?,?,?,?,1,?,?)",
+  );
+  let at = 0;
+  for (const k of CLASSES) {
+    const kit = normaliseKit({ ...k, kind: "class", builtin: true });
+    ins.run(kit.id, "class", kit.name, JSON.stringify(kit), at++, now());
+  }
+  at = 0;
+  for (const r of RACES_ON_FIRST_RUN) {
+    const kit = normaliseKit({ ...r, kind: "race", builtin: true });
+    ins.run(kit.id, "race", kit.name, JSON.stringify(kit), at++, now());
+  }
+}
+
+/** Everything of one kind, in order, built-ins and yours together. */
+function kitsOf(kind: "class" | "race"): Kit[] {
+  seedKits();
+  return (db.query(
+    "SELECT data FROM kits WHERE kind = ? AND deleted_at IS NULL ORDER BY position, created_at",
+  ).all(kind) as any[]).map((r) => {
+    try { return normaliseKit(JSON.parse(r.data)); } catch { return null; }
+  }).filter(Boolean) as Kit[];
+}
+
+function kitById(id: string): Kit | null {
+  seedKits();
+  const row = db.query("SELECT data FROM kits WHERE id = ? AND deleted_at IS NULL").get(id) as any;
+  if (!row) return null;
+  try { return normaliseKit(JSON.parse(row.data)); } catch { return null; }
+}
+
+api.get("/kits", (c) => {
+  const kind = c.req.query("kind") === "race" ? "race" : "class";
+  return c.json(kitsOf(kind));
+});
+
+api.post("/kits", async (c) => {
+  const kit = normaliseKit(await c.req.json().catch(() => ({})));
+  if (!kitWritten(kit)) {
+    return c.json({ error: "Give it a name and at least one thing that makes it itself." }, 400);
+  }
+  /*
+   * A name that is already taken gets a suffix rather than an error.
+   *
+   * Somebody importing a pack of six classes over a pack of five should end up
+   * with eleven and a duplicate to tidy, not a failed import halfway through
+   * and no way to tell which ones landed.
+   */
+  let id = kit.id;
+  for (let n = 2; db.query("SELECT id FROM kits WHERE id = ?").get(id); n++) id = `${kit.id}-${n}`;
+
+  const at = (db.query("SELECT ifnull(MAX(position), -1) p FROM kits WHERE kind = ?")
+    .get(kit.kind) as any).p + 1;
+  const saved = { ...kit, id, builtin: false };
+  db.query("INSERT INTO kits (id, kind, name, data, builtin, position, created_at) VALUES (?,?,?,?,0,?,?)")
+    .run(id, saved.kind, saved.name, JSON.stringify(saved), at, now());
+  return c.json(saved);
+});
+
+api.put("/kits/:id", async (c) => {
+  const before = kitById(c.req.param("id"));
+  if (!before) return c.json({ error: "No such class or race." }, 404);
+  const kit = normaliseKit({ ...before, ...(await c.req.json().catch(() => ({}))), id: before.id });
+  if (!kitWritten(kit)) return c.json({ error: "There is nothing left in it." }, 400);
+  // Editing a built-in makes it yours. It stays edited, and stops being
+  // something the app claims to have provided.
+  const saved = { ...kit, builtin: false };
+  db.query("UPDATE kits SET name = ?, data = ?, builtin = 0 WHERE id = ?")
+    .run(saved.name, JSON.stringify(saved), saved.id);
+  return c.json(saved);
+});
+
+api.delete("/kits/:id", (c) => {
+  const kit = kitById(c.req.param("id"));
+  if (!kit) return c.json({ error: "No such class or race." }, 404);
+  db.query("UPDATE kits SET deleted_at = ? WHERE id = ?").run(now(), kit.id);
+  return c.json({ ok: true });
+});
+
+/**
+ * Importing a file somebody else made.
+ *
+ * Takes one, or an array, or the shape this exports — so a pack and a single
+ * class are the same button. Each is normalised on the way in, and one bad
+ * entry is skipped rather than failing the lot: an import that refuses six
+ * good classes because the seventh has a typo is an import nobody uses twice.
+ */
+api.post("/kits/import", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const raw = Array.isArray(body) ? body
+    : Array.isArray(body?.kits) ? body.kits
+    : body ? [body] : [];
+  if (!raw.length) return c.json({ error: "There was nothing in that file." }, 400);
+
+  const added: Kit[] = [];
+  const skipped: string[] = [];
+  for (const one of raw.slice(0, 200)) {
+    const kit = normaliseKit(one);
+    if (!kitWritten(kit)) { skipped.push(kit.name); continue; }
+    let id = kit.id;
+    for (let n = 2; db.query("SELECT id FROM kits WHERE id = ?").get(id); n++) id = `${kit.id}-${n}`;
+    const at = (db.query("SELECT ifnull(MAX(position), -1) p FROM kits WHERE kind = ?")
+      .get(kit.kind) as any).p + 1;
+    const saved = { ...kit, id, builtin: false };
+    db.query("INSERT INTO kits (id, kind, name, data, builtin, position, created_at) VALUES (?,?,?,?,0,?,?)")
+      .run(id, saved.kind, saved.name, JSON.stringify(saved), at, now());
+    added.push(saved);
+  }
+  return c.json({ added: added.length, skipped, kits: added });
+});
+
+/** Everything, as a file to hand somebody. */
+api.get("/kits/export", (c) =>
+  c.json({ hearth: "kits", version: 1, kits: [...kitsOf("class"), ...kitsOf("race")] }));
+
 api.get("/tabletop/difficulties", (c) =>
   c.json(LEVELS.map(({ id, name, blurb, dc }) => ({ id, name, blurb, dc }))));
 
@@ -3142,12 +3305,38 @@ api.get("/sheets/:ownerId", (c) => {
 
 /** Makes one: pick a class, and either roll for it or take the even spread. */
 api.post("/sheets/:ownerId/roll", async (c) => {
-  const { klass, how, kind } = await c.req.json().catch(() => ({}));
+  const { klass, race, how, kind } = await c.req.json().catch(() => ({}));
   const sheet = makeSheet(String(klass ?? ""), how === "array" ? "array" : "roll");
   if (!sheet) return c.json({ error: "No such class." }, 400);
-  saveSheet(c.req.param("ownerId"), String(kind ?? "persona"), sheet);
-  return c.json({ sheet });
+  const withRace = dressWithRace(sheet, String(race ?? ""));
+  saveSheet(c.req.param("ownerId"), String(kind ?? "persona"), withRace);
+  return c.json({ sheet: withRace });
 });
+
+/**
+ * A race's contribution, applied after the class has rolled.
+ *
+ * After, never before: rolling against a total that already includes the bonus
+ * is how a +2 becomes a +2 *and* a better roll, and then a Dwarf Fighter is
+ * not a Fighter who is a Dwarf, it is a better Fighter. The hit points are
+ * recomputed because constitution may have moved, and the character is given
+ * the same fraction of health they had rather than being quietly healed.
+ */
+function dressWithRace(sheet: Sheet, raceId: string): Sheet {
+  const race = raceId ? kitById(raceId) : null;
+  if (!race || race.kind !== "race") return sheet;
+  const abilities = applyRace(sheet.abilities, race);
+  const conBefore = modifier(sheet.abilities.con);
+  const conAfter = modifier(abilities.con);
+  const maxHp = Math.max(1, sheet.maxHp + (conAfter - conBefore));
+  return {
+    ...sheet,
+    race: race.id,
+    abilities,
+    maxHp,
+    hp: Math.max(1, Math.round(maxHp * (sheet.hp / Math.max(1, sheet.maxHp)))),
+  };
+}
 
 /** Editing one by hand — damage taken, something picked up, a note. */
 api.put("/sheets/:ownerId", async (c) => {
@@ -4511,7 +4700,14 @@ api.post("/table/say", async (c) => {
  */
 api.get("/table/classes", (c) => {
   if (!guestOf(c)) return c.json({ error: "Not a seat at this table." }, 403);
-  return c.json(CLASSES);
+  // The host's classes, including any they wrote — a guest at your table plays
+  // your game, not the one that shipped.
+  return c.json(kitsOf("class"));
+});
+
+api.get("/table/races", (c) => {
+  if (!guestOf(c)) return c.json({ error: "Not a seat at this table." }, 403);
+  return c.json(kitsOf("race"));
 });
 
 api.post("/table/roll-sheet", async (c) => {

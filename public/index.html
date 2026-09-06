@@ -979,6 +979,24 @@
             <select id="tabletop_difficulty"></select>
           </label>
           <p class="hint" id="difficultyHint"></p>
+          <!-- Six classes in the code was fine for one evening and wrong for a
+               campaign: every table has a thing in it nobody else's has. -->
+          <h3>Classes and races</h3>
+          <div class="listbar">
+            <button class="ico" id="kitNewClass" title="Write a class" aria-label="Write a class"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <span class="grow"></span>
+            <button class="ico" id="kitExport" title="Export them all" aria-label="Export them all"><svg viewBox="0 0 24 24"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg></button>
+          </div>
+          <div id="kitList" class="list"></div>
+          <div class="quietrow">
+            <button class="linkish" id="kitNewRace">Write a race</button>
+          </div>
+          <label class="filebtn">Import classes or races
+            <input type="file" id="kitFile" accept=".json" multiple hidden>
+          </label>
+          <p class="hint">A file of one, or a pack of them. Anything that will not read is
+            skipped rather than failing the rest.</p>
+
           <!-- A story chat's swipes are drafts; a game's are a way of not
                having rolled. -->
           <label id="tableSwipeRow" hidden>Swipes at the table
@@ -1161,6 +1179,17 @@
   <div class="actions">
     <button class="ghost" id="tableDone">Close</button>
   </div>
+</dialog>
+
+<dialog id="kitDialog">
+  <h2 id="kitTitle">Write a class</h2>
+  <form method="dialog">
+    <div id="kitBody"></div>
+    <div class="actions">
+      <button class="ghost" value="cancel">Cancel</button>
+      <button class="solid" value="save">Save</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="askDialog">

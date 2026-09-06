@@ -109,6 +109,7 @@ const GUEST_ROUTES: { method: string; re: RegExp }[] = [
   // Making one. The class list is the same one the host picks from, and is
   // not private — it is the rules, not anybody's data.
   { method: "GET",  re: /^\/api\/table\/classes$/ },
+  { method: "GET",  re: /^\/api\/table\/races$/ },
   { method: "POST", re: /^\/api\/table\/roll-sheet$/ },
   { method: "PUT",  re: /^\/api\/table\/sheet$/ },
   // Your character, to carry away or to bring with you.
