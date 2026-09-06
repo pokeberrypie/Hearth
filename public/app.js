@@ -309,7 +309,17 @@ function strayMarks(html) {
  */
 function dice(html) {
   return html.replace(
-    /\[\[(\d+d\d+(?:[+-]\d+)?):\s*([^\]]+?)\s*=?\s*(\d+)\]\]/g,
+    /*
+     * The `=` is required, not optional.
+     *
+     * describeRoll writes arithmetic only when there is arithmetic to show: two
+     * dice or a modifier gives "2d6+3: 4, 5 + 3 = 12", and a lone die gives
+     * "1d20: 18". With the equals optional this pattern happily ate the second
+     * form as well — lazily matching "1" as the working and "8" as the total,
+     * so every d20 of ten or more displayed as its last digit and the tooltip
+     * showed its first. Which is a spectacular way to lose a game.
+     */
+    /\[\[(\d+d\d+(?:[+-]\d+)?):\s*([^\]]+?)\s*=\s*(\d+)\]\]/g,
     (_whole, notation, working, total) =>
       `<span class="roll" title="${esc(notation)} — ${esc(working)}">` +
         `<span class="die">${esc(total)}</span>` +
