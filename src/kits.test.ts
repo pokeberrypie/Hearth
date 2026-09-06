@@ -122,3 +122,31 @@ describe("what the narrator is told", () => {
     expect(raceForPrompt(normaliseKit({ kind: "class", name: "Fighter" }))).toBe("");
   });
 });
+
+describe("seeding the ones that ship", () => {
+  test("a built-in is a normal kit with a flag on it", () => {
+    // The flag exists to warn before deleting one and for nothing else — the
+    // shape has to be identical or "edit one and it becomes yours" is a lie.
+    const shipped = normaliseKit({
+      kind: "race", name: "Tiefling", builtin: true,
+      blurb: "Somebody's old bargain, still being paid off in the face.",
+      bonus: { cha: 2, int: 1, wis: -1 },
+      traits: ["Fire does not trouble them."],
+    });
+    const written = normaliseKit({ ...shipped, builtin: false });
+    expect(Object.keys(shipped).sort()).toEqual(Object.keys(written).sort());
+    expect(looksWritten(shipped)).toBe(true);
+  });
+
+  test("the horned pip has something behind it", () => {
+    // The chain's Kinds icon is a figure with horns. Shipping that without
+    // shipping a Tiefling is a promise the list does not keep.
+    const t = normaliseKit({
+      kind: "race", name: "Tiefling",
+      bonus: { cha: 2, int: 1, wis: -1 },
+      traits: ["Fire does not trouble them."],
+    });
+    expect(t.id).toBe("tiefling");
+    expect(t.bonus.cha).toBe(2);
+  });
+});

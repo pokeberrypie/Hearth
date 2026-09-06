@@ -2995,23 +2995,36 @@ const RACES_ON_FIRST_RUN = [
     bonus: { dex: 2, cha: 1, str: -1 },
     traits: ["They are easy to overlook, and have made a habit of it.",
              "Their luck is not magic, but it is remarked upon."] },
+  { id: "tiefling", name: "Tiefling", blurb: "Somebody's old bargain, still being paid off in the face.",
+    bonus: { cha: 2, int: 1, wis: -1 },
+    traits: ["Fire does not trouble them, and they are quietly used to that being noticed.",
+             "Strangers decide something about them before they have spoken.",
+             "The bargain was not theirs. Everyone assumes it was."] },
 ];
 
 function seedKits() {
-  const have = (db.query("SELECT COUNT(*) n FROM kits").get() as any)?.n ?? 0;
-  if (have > 0) return;
+  /*
+   * One at a time, and only ones this database has never heard of.
+   *
+   * All-or-nothing on an empty table meant a built-in added later never
+   * reached anybody who had already run the app once — which is how the chain
+   * ended up with a horned pip and no Tiefling behind it. Checked against
+   * every row *including* the soft-deleted ones, so a built-in you have
+   * thrown away stays thrown away rather than coming back each restart.
+   */
+  const known = db.query("SELECT id FROM kits WHERE id = ?");
   const ins = db.query(
     "INSERT INTO kits (id, kind, name, data, builtin, position, created_at) VALUES (?,?,?,?,1,?,?)",
   );
-  let at = 0;
-  for (const k of CLASSES) {
-    const kit = normaliseKit({ ...k, kind: "class", builtin: true });
-    ins.run(kit.id, "class", kit.name, JSON.stringify(kit), at++, now());
-  }
-  at = 0;
-  for (const r of RACES_ON_FIRST_RUN) {
-    const kit = normaliseKit({ ...r, kind: "race", builtin: true });
-    ins.run(kit.id, "race", kit.name, JSON.stringify(kit), at++, now());
+  const place = db.query("SELECT ifnull(MAX(position), -1) p FROM kits WHERE kind = ?");
+
+  for (const [kind, source] of [["class", CLASSES], ["race", RACES_ON_FIRST_RUN]] as const) {
+    for (const raw of source) {
+      const kit = normaliseKit({ ...raw, kind, builtin: true });
+      if (known.get(kit.id)) continue;
+      const at = ((place.get(kind) as any).p ?? -1) + 1;
+      ins.run(kit.id, kind, kit.name, JSON.stringify(kit), at, now());
+    }
   }
 }
 
