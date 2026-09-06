@@ -4158,7 +4158,7 @@ function pickPanel(tab) {
    * Here instead, where the thing that knows which panel you are looking at
    * is the thing that fills it.
    */
-  if (tab === "table") refreshKits();
+  if (tab === "kinds") refreshKits();
   if (tab === "together") refreshTogether();
 }
 for (const b of document.querySelectorAll(".chainlink, .raillink"))
@@ -6554,41 +6554,68 @@ async function refreshKits() {
     api("/kits?kind=class").catch(() => []),
     api("/kits?kind=race").catch(() => []),
   ]);
-  RACE_CACHE = Array.isArray(races) ? races : [];
   CLASS_CACHE = Array.isArray(classes) ? classes : [];
+  RACE_CACHE = Array.isArray(races) ? races : [];
 
   wrap.innerHTML = "";
-  for (const kind of ["class", "race"]) {
-    const rows = kind === "class" ? CLASS_CACHE : RACE_CACHE;
-    if (!rows.length) continue;
-    const head = document.createElement("p");
-    head.className = "hint";
+  for (const [kind, rows, empty] of [
+    ["class", CLASS_CACHE, "No classes yet."],
+    ["race", RACE_CACHE, "No races yet. A game is perfectly playable without them."],
+  ]) {
+    const head = document.createElement("h3");
     head.textContent = kind === "class" ? "Classes" : "Races";
     wrap.append(head);
-    for (const k of rows) wrap.append(kitRow(k));
+    if (!rows.length) {
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = empty;
+      wrap.append(p);
+      continue;
+    }
+    const grid = document.createElement("div");
+    grid.className = "kindgrid";
+    for (const k of rows) grid.append(kitCard(k));
+    wrap.append(grid);
   }
 }
 
-function kitRow(k) {
-  const row = document.createElement("div");
-  row.className = "item";
-  const what = k.kind === "class"
-    ? `d${k.hitDie} · ${(k.primary ?? []).map((p) => p.toUpperCase()).join(" / ") || "—"}`
-    : Object.entries(k.bonus ?? {}).map(([a, n]) => `${a.toUpperCase()} ${n > 0 ? "+" : ""}${n}`)
-        .join(" · ") || "no bonuses";
-  row.innerHTML = medallion("", k.name) +
-    `<span class="meta"><span class="t">${esc(k.name)}</span>` +
-    `<span class="s">${esc(what)}${k.builtin ? " · came with Hearth" : ""}</span></span>`;
+/**
+ * One card each, the same shape the chooser uses.
+ *
+ * A stack of list rows made this read as a settings list — a column of names
+ * with the interesting part squeezed into small grey text underneath. These
+ * are things somebody made, so they get the space to say what they are: the
+ * name, the line about what it is for, and the mechanical fact underneath.
+ */
+function kitCard(k) {
+  const card = document.createElement("div");
+  card.className = "kindcard" + (k.builtin ? " came" : "");
+
+  const facts = k.kind === "class"
+    ? `d${k.hitDie} &middot; ${(k.primary ?? []).map((p) => p.toUpperCase()).join(" / ") || "—"}`
+    : Object.entries(k.bonus ?? {})
+        .map(([a, n]) => `${a.toUpperCase()} ${n > 0 ? "+" : ""}${n}`).join(" &middot; ")
+      || "no bonuses";
+
+  card.innerHTML =
+    `<span class="kindname">${esc(k.name)}</span>` +
+    `<span class="kindblurb">${esc(k.blurb || (k.kind === "race" ? "A people." : "A calling."))}</span>` +
+    `<span class="kindbits">${facts}</span>`;
+
+  const tools = document.createElement("div");
+  tools.className = "kindtools";
 
   const edit = document.createElement("button");
   edit.className = "ico";
-  edit.title = "Edit";
+  edit.title = `Edit ${k.name}`;
+  edit.setAttribute("aria-label", `Edit ${k.name}`);
   edit.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>`;
   edit.onclick = () => editKit(k);
 
   const del = document.createElement("button");
   del.className = "ico danger";
-  del.title = "Delete";
+  del.title = `Delete ${k.name}`;
+  del.setAttribute("aria-label", `Delete ${k.name}`);
   del.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>`;
   del.onclick = async () => {
     const sure = await askDialog({
@@ -6604,8 +6631,9 @@ function kitRow(k) {
     refreshKits();
   };
 
-  row.append(edit, del);
-  return row;
+  tools.append(edit, del);
+  card.append(tools);
+  return card;
 }
 
 /**
@@ -7706,7 +7734,7 @@ function palSources() {
   for (const [tab, name] of [
     ["cast", "Cast"], ["you", "You and your personas"], ["lore", "Lorebooks"],
     ["presets", "Presets and sampling"], ["regex", "Regex scripts"],
-    ["look", "Look and theme"], ["table", "The table"],
+    ["look", "Look and theme"], ["kinds", "Classes and races"], ["table", "The table"],
     ["connection", "Connection, keys and model"], ["behaviour", "Behaviour"],
     ["data", "Import and export"], ["extensions", "Extensions"],
   ]) {

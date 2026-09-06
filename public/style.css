@@ -6255,3 +6255,69 @@ body.guest #guideBtn { display: none !important; }
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- kinds: what a character can be -------------------------------------- */
+
+/* Two to a row where there is room, one where there is not. These are things
+   somebody wrote rather than settings somebody set, so they get a card each
+   instead of a name with the interesting part in small grey text under it. */
+.kinds h3:first-child { margin-top: 0.4rem; }
+.kindgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.4rem;
+}
+
+.kindcard {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 0.22rem;
+  padding: 0.7rem 0.8rem 0.75rem;
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-bg) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--lumiverse-border);
+  transition: box-shadow .16s;
+}
+.kindcard:hover { box-shadow: inset 0 0 0 1px var(--lumiverse-border-hover); }
+
+.kindname {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.98rem;
+  color: var(--lumiverse-primary);
+  /* Room for the two tools, so a long name never runs under them. */
+  padding-right: 3.4rem;
+}
+.kindblurb {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--lumiverse-text-muted);
+  min-height: 2.1em;
+}
+.kindbits {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--lumiverse-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The tools sit out of the reading order, and out of the way until wanted. */
+.kindtools {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  display: flex;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity .14s;
+}
+.kindcard:hover .kindtools,
+.kindcard:focus-within .kindtools { opacity: 1; }
+/* No hover on a phone, so they simply stay. */
+@media (max-width: 700px) { .kindtools { opacity: 0.65; } }
+
+/* The ones that came with Hearth are not lesser, only older. A hairline is
+   enough to say so without turning the list into two lists. */
+.kindcard.came .kindname { color: var(--lumiverse-primary-hover); }

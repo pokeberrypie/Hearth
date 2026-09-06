@@ -424,6 +424,7 @@
     <div class="chainlinks">
       <button class="chainlink" data-tab="cast" style="--i:0"><span class="chainname">Cast</span><span class="chainpip"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.1"/><path d="M3 19c0-3.1 2.7-4.8 6-4.8s6 1.7 6 4.8"/><path d="M16.2 5.4a3.1 3.1 0 0 1 0 5.5"/><path d="M17.4 14.6c2.2.6 3.6 2.1 3.6 4.4"/></svg></span></button>
       <button class="chainlink" data-tab="you" style="--i:1"><span class="chainname">You</span><span class="chainpip"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg></span></button>
+      <button class="chainlink tableonly" data-tab="kinds" style="--i:2"><span class="chainname">Kinds</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M12 3.2 19 7v9.6L12 20.8 5 16.6V7z"/><path d="M12 3.2V12M12 12 5 8M12 12l7-4"/><circle cx="12" cy="12" r="1.2"/></svg></span></button>
       <button class="chainlink" data-tab="lore" style="--i:2"><span class="chainname">Lore</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M4 5.5A2 2 0 0 1 6 4h5v16H6a2 2 0 0 0-2 1.5z"/><path d="M20 5.5A2 2 0 0 0 18 4h-5v16h5a2 2 0 0 1 2 1.5z"/><path d="M11 7.5h-4M11 11h-4"/></svg></span></button>
       <button class="chainlink" data-tab="presets" style="--i:3"><span class="chainname">Presets</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="18" cy="12" r="2.1"/><circle cx="19.5" cy="18" r="2.1"/></svg></span></button>
       <button class="chainlink" data-tab="regex" style="--i:4"><span class="chainname">Regex</span><span class="chainpip"><svg viewBox="0 0 24 24"><path d="M8 5.5 5 12l3 6.5"/><path d="m16 5.5 3 6.5-3 6.5"/><path d="M13.4 9.2 10.6 15"/></svg></span></button>
@@ -448,6 +449,7 @@
       <nav class="panelrail" aria-label="Panels">
         <button class="raillink" data-tab="cast" title="Cast" aria-label="Cast"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.1"/><path d="M3 19c0-3.1 2.7-4.8 6-4.8s6 1.7 6 4.8"/><path d="M16.2 5.4a3.1 3.1 0 0 1 0 5.5"/><path d="M17.4 14.6c2.2.6 3.6 2.1 3.6 4.4"/></svg></button>
         <button class="raillink" data-tab="you" title="You" aria-label="You"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg></button>
+        <button class="raillink tableonly" data-tab="kinds" title="Kinds" aria-label="Kinds"><svg viewBox="0 0 24 24"><path d="M12 3.2 19 7v9.6L12 20.8 5 16.6V7z"/><path d="M12 3.2V12M12 12 5 8M12 12l7-4"/><circle cx="12" cy="12" r="1.2"/></svg></button>
         <button class="raillink" data-tab="lore" title="Lore" aria-label="Lore"><svg viewBox="0 0 24 24"><path d="M4 5.5A2 2 0 0 1 6 4h5v16H6a2 2 0 0 0-2 1.5z"/><path d="M20 5.5A2 2 0 0 0 18 4h-5v16h5a2 2 0 0 1 2 1.5z"/><path d="M11 7.5h-4M11 11h-4"/></svg></button>
         <span class="railcut"></span>
         <button class="raillink" data-tab="presets" title="Presets" aria-label="Presets"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="18" cy="12" r="2.1"/><circle cx="19.5" cy="18" r="2.1"/></svg></button>
@@ -553,6 +555,32 @@
           <p class="hint" id="personaImportHint">Point the second one at your SillyTavern
             <code>settings.json</code> and it will pull in every persona and description.</p>
         </details>
+      </section>
+
+      <!-- What a character can be. Its own room rather than a block wedged
+           into the settings: six classes in the code was fine for one evening
+           and wrong for a campaign, and a thing people are meant to write
+           needs somewhere to be written. -->
+      <section data-panel="kinds" class="panel" hidden>
+        <header class="panelhead">
+          <h2>Kinds<span class="panelcount" data-count-for="kitList"></span></h2>
+          <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
+                  title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+          <div class="moremenu" hidden></div>
+        </header>
+        <p class="hint">What a character can be, and what they can do. The six that came with
+          Hearth sit here with anything you write — edit one and it becomes yours.</p>
+        <div id="kitList" class="kinds"></div>
+        <button class="solid wide" id="kitNewClass">Write a class</button>
+        <div class="quietrow">
+          <button class="linkish" id="kitNewRace">Write a race</button>
+          <button class="linkish" id="kitExport">Export them all</button>
+        </div>
+        <label class="filebtn">Import classes or races
+          <input type="file" id="kitFile" accept=".json" multiple hidden>
+        </label>
+        <p class="hint">A file of one, or a pack of them. Anything that will not read is skipped
+          rather than failing the rest.</p>
       </section>
 
       <section data-panel="lore" class="panel" hidden>
@@ -979,24 +1007,6 @@
             <select id="tabletop_difficulty"></select>
           </label>
           <p class="hint" id="difficultyHint"></p>
-          <!-- Six classes in the code was fine for one evening and wrong for a
-               campaign: every table has a thing in it nobody else's has. -->
-          <h3>Classes and races</h3>
-          <div class="listbar">
-            <button class="ico" id="kitNewClass" title="Write a class" aria-label="Write a class"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-            <span class="grow"></span>
-            <button class="ico" id="kitExport" title="Export them all" aria-label="Export them all"><svg viewBox="0 0 24 24"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg></button>
-          </div>
-          <div id="kitList" class="list"></div>
-          <div class="quietrow">
-            <button class="linkish" id="kitNewRace">Write a race</button>
-          </div>
-          <label class="filebtn">Import classes or races
-            <input type="file" id="kitFile" accept=".json" multiple hidden>
-          </label>
-          <p class="hint">A file of one, or a pack of them. Anything that will not read is
-            skipped rather than failing the rest.</p>
-
           <!-- A story chat's swipes are drafts; a game's are a way of not
                having rolled. -->
           <label id="tableSwipeRow" hidden>Swipes at the table
