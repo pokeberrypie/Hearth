@@ -36,6 +36,7 @@
  */
 const PERSONA = [
   { key: "Gender", hint: "However you would say it. One word is fine." },
+  { key: "Age", hint: "A number, or how old you read as." },
   { key: "Appearance", also: ["physical appearance", "looks", "physique"],
     hint: "What somebody notices first: height and build, hair, eyes, how you dress." },
   { key: "Voice and manner", also: ["voice", "manner", "speech", "speech pattern"],
@@ -71,6 +72,8 @@ const CHARACTER = [
     hint: "Titles and what people call them — Ser, the Kingslayer, a name only " +
           "their sister uses. The plain name goes in the box above." },
   { key: "Gender", hint: "However the character would say it." },
+  { key: "Age", also: ["apparent age"],
+    hint: "A number, or how old they look if that is the more useful answer." },
   { key: "Personality", also: ["temperament", "character", "disposition"],
     hint: "Who they are to be around. There is a Personality box below as well — " +
           "one or the other, not both, or they will end up disagreeing." },
@@ -135,6 +138,49 @@ function tidyName(v) {
 /** A heading line: "Appearance:" on its own, or "Gender: female" inline. */
 const HEADING = /^[ \t]*([A-Za-z][A-Za-z '&/-]{1,30}?)[ \t]*:[ \t]*(.*)$/;
 
+/**
+ * The same heading, wearing whatever markup somebody wrote it in.
+ *
+ * Cards are traded as markdown far more often than as plain text, so the
+ * heading usually arrives dressed: `**Appearance:** 6'3"`, `**Name: Abel**`,
+ * `### Background`, `- **Likes:** wine`. Matching only bare `Appearance:` left
+ * every one of those sitting unsplit in the block at the top, which is exactly
+ * the case the fields exist for — and it is what happens to most cards people
+ * actually download.
+ *
+ * The markers are read and dropped rather than kept: what goes back into the
+ * box is one consistent shape, and the description is prose for a model, which
+ * has no use for the asterisks either way.
+ */
+function splitHeading(line) {
+  let s = String(line ?? "");
+  // A bullet or markdown hashes in front. `[-*+]` needs the space after it, so
+  // this cannot eat the first star of `**bold**`.
+  const atx = /^[ \t]*#{1,6}[ \t]*/.test(s);
+  s = s.replace(/^[ \t]*(?:[-*+][ \t]+|#{1,6}[ \t]*)/, "");
+  s = s.replace(/^[ \t]*(?:\*\*|__|\*|_)/, "");
+
+  /*
+   * `### Background` is a heading and has no colon, which the ordinary shape
+   * requires. Only granted to lines that actually started with hashes — a bare
+   * line of prose must never become a heading, or it would take the rest of
+   * the description into a field with it.
+   */
+  if (atx && !s.includes(":")) {
+    const bare = s.replace(/(?:\*\*|__|\*|_)[ \t]*$/, "").trim();
+    return /^[A-Za-z][A-Za-z '&/-]{1,30}$/.test(bare) ? { label: bare, rest: "" } : null;
+  }
+
+  const m = HEADING.exec(s);
+  if (!m) return null;
+  const rest = m[2]
+    // "**Appearance:** value" — the emphasis closes just after the colon.
+    .replace(/^(?:\*\*|__|\*|_)[ \t]*/, "")
+    // "**Name: value**" — or it closes at the end of the whole line.
+    .replace(/(?:\*\*|__|\*|_)[ \t]*$/, "");
+  return { label: m[1].trim(), rest: rest.trim() };
+}
+
 const norm = (s) => String(s ?? "").trim().toLowerCase();
 
 /**
@@ -175,12 +221,12 @@ function parse(text, sections) {
   };
 
   for (const line of lines) {
-    const m = HEADING.exec(line);
-    const key = m ? known.get(norm(m[1])) : null;
+    const m = splitHeading(line);
+    const key = m ? known.get(norm(m.label)) : null;
     if (key) {
       stash();
       current = key;
-      bucket = m[2].trim() ? [m[2].trim()] : [];
+      bucket = m.rest ? [m.rest] : [];
     } else if (current) {
       bucket.push(line);
     } else {
@@ -232,9 +278,9 @@ function unknownHeadings(text, sections) {
   }
   const out = [];
   for (const line of String(text ?? "").split("\n")) {
-    const m = HEADING.exec(line);
+    const m = splitHeading(line);
     if (!m) continue;
-    const name = tidyName(m[1]);
+    const name = tidyName(m.label);
     if (!name || known.has(norm(name)) || out.some((o) => norm(o) === norm(name))) continue;
     out.push(name);
   }

@@ -174,6 +174,61 @@ describe("headings it has no box for", () => {
   });
 });
 
+describe("headings wearing markdown, which is how cards are actually traded", () => {
+  /*
+   * Found on a real card, on the phone: every heading was bolded, so none of
+   * them matched and the whole sheet landed in the block at the top. Cards are
+   * traded as markdown far more often than as plain text, so this is the
+   * common case rather than an edge one.
+   */
+  test("bold headings with the value outside the emphasis", () => {
+    const card = [
+      "**Name: Abel Williamson**",
+      "**Age:** 27",
+      "**Appearance:** 6'3\", lean build with callused hands",
+      "**Likes:** carpentry, quiet mornings",
+    ].join("\n");
+    const { fields } = G.parse(card, G.CHARACTER);
+    expect(fields.Name).toBe("Abel Williamson");
+    expect(fields.Appearance).toContain("callused hands");
+    expect(fields.Likes).toBe("carpentry, quiet mornings");
+  });
+
+  test("single stars, underscores, bullets and markdown headings", () => {
+    const card = [
+      "*Gender:* male",
+      "__Background:__ a carpenter",
+      "- **Dislikes:** crowds",
+      "### Ego",
+      "quietly certain",
+    ].join("\n");
+    const { fields } = G.parse(card, G.CHARACTER);
+    expect(fields.Gender).toBe("male");
+    expect(fields.Background).toBe("a carpenter");
+    expect(fields.Dislikes).toBe("crowds");
+    expect(fields.Ego).toBe("quietly certain");
+  });
+
+  test("a bolded heading it has no box for is still offered", () => {
+    expect(G.unknownHeadings("**House affiliations:** Lannister", G.CHARACTER))
+      .toContain("House affiliations");
+  });
+
+  test("the markers are dropped, not carried into the field", () => {
+    const { fields } = G.parse("**Appearance:** tall", G.CHARACTER);
+    expect(fields.Appearance).not.toContain("*");
+  });
+
+  test("bold body text is not mistaken for a heading", () => {
+    // "**She said:**" would be a heading by shape; it is not a known one, so
+    // it stays put rather than swallowing the paragraph after it.
+    const text = "He is **very** tired.\nShe said: nothing at all.";
+    const { lead, fields } = G.parse(text, G.CHARACTER);
+    expect(lead).toBe(text);
+    expect(Object.keys(fields)).toEqual([]);
+  });
+});
+
 describe("the mixture, which is what actually happens", () => {
   const mixed = [
     "An old card someone downloaded, written as a paragraph.",

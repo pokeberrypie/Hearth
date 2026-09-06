@@ -30,6 +30,11 @@ empty box stops being the hardest part of the program.
 - The description text remains exactly what is saved and sent. The fields
   compose into it; guided is a way of typing, not a way of storing.
 
+- Headings written in markdown are understood, which is how cards are actually
+  traded: `**Appearance:** 6'3"`, `**Name: Abel**`, `### Background`,
+  `- **Likes:** wine`. Matching only bare `Appearance:` left most downloaded
+  cards sitting unsplit in the block at the top.
+
 New setting keys: `guided_persona`, `guided_character`.
 
 ---
