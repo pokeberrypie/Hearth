@@ -620,3 +620,35 @@ describe("stripSpeakerLabel", () => {
     expect(out[out.length - 1].content).toBe("Jaime: he laughed.");
   });
 });
+
+describe("more than one pair of hands", () => {
+  const turns = [
+    { id: "1", role: "user", name: "Taylor", content: "I cross the bridge." },
+    { id: "2", role: "assistant", name: "The Gamekeeper", content: "It is stone." },
+    { id: "3", role: "user", name: "Dan", content: "I hang back and watch." },
+  ] as any[];
+  const gk = { name: "The Gamekeeper" } as any;
+
+  test("playing alone, a turn is not labelled", () => {
+    const out = buildMessages(turns, gk, "Taylor", 8000, false, false);
+    expect(out.find((m) => m.content.includes("cross the bridge"))!.content)
+      .toBe("I cross the bridge.");
+  });
+
+  test("at a shared table, every human turn says who took it", () => {
+    // The bug: user turns were never labelled, only assistant ones, so four
+    // people at a table arrived as one person with inconsistent handwriting
+    // and the narrator wrote back to the wrong one.
+    const out = buildMessages(turns, gk, "Taylor", 8000, false, true);
+    const human = out.filter((m) => m.role === "user").map((m) => m.content);
+    expect(human).toContain("Taylor: I cross the bridge.");
+    expect(human).toContain("Dan: I hang back and watch.");
+  });
+
+  test("and the two names never merge into one", () => {
+    const out = buildMessages(turns, gk, "Taylor", 8000, false, true);
+    const joined = out.map((m) => m.content).join(" | ");
+    expect(joined).toContain("Taylor:");
+    expect(joined).toContain("Dan:");
+  });
+});

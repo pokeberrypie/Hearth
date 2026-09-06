@@ -129,6 +129,16 @@ export function buildMessages(
   budgetTokens: number,
   /** Group chats prefix each reply with who said it; solo chats have no need. */
   labelSpeakers = false,
+  /**
+   * And a shared table prefixes the *human* turns, which nothing else does.
+   *
+   * Playing alone, every user turn is yours and a label would be noise. With
+   * two people at a table it is the difference between a narrator that knows
+   * who did what and one that reads four players as a single person with
+   * inconsistent handwriting — which is exactly what it did: Dan's turns came
+   * through as the host's, and the story was written back at the wrong person.
+   */
+  labelPlayers = false,
 ): ChatMessage[] {
   // Newest first until the budget runs out, then put it back in order. The
   // oldest turns are the ones to lose; the newest are the scene.
@@ -148,11 +158,10 @@ export function buildMessages(
     // Strip any label the stored line already carries before adding ours, or
     // the prompt teaches the model to write one more of them every turn.
     const body = macros(stripSpeakerLabel(h.content, h.name ?? ""), char.name, personaName);
+    const label = role === "assistant" ? labelSpeakers : labelPlayers;
     return {
       role,
-      content: labelSpeakers && role === "assistant" && h.name?.trim()
-        ? `${h.name.trim()}: ${body}`
-        : body,
+      content: label && h.name?.trim() ? `${h.name.trim()}: ${body}` : body,
     };
   });
 

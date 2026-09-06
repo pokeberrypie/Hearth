@@ -3934,8 +3934,20 @@ document.addEventListener("keydown", (e) => {
 
 // ---- panel --------------------------------------------------------------
 
+/*
+ * The drawer, for programs that have one.
+ *
+ * A guest's copy has the whole thing removed — there is nothing behind it they
+ * are allowed to see — and these helpers were still reaching for it. The one
+ * that mattered was panelShowing(), called from the click listener that folds
+ * the panel away: it read $("#drawer").classList on every click in the app, so
+ * in guest mode every tap threw before it got anywhere. It looked like the
+ * dice being broken, because the dice were what somebody happened to press.
+ */
 const openDrawer = () => {
-  $("#drawer").classList.add("open");
+  const d = $("#drawer");
+  if (!d) return;
+  d.classList.add("open");
   $("#scrim").hidden = false;
   refreshTogether();
   refreshChats();
@@ -3945,8 +3957,8 @@ const openDrawer = () => {
   refreshLore();
 };
 const closeDrawer = () => {
-  $("#drawer").classList.remove("open");
-  $("#scrim").hidden = true;
+  $("#drawer")?.classList.remove("open");
+  if ($("#scrim")) $("#scrim").hidden = true;
 };
 /**
  * Wide screens fold the panel away rather than sliding it off, so the two
@@ -3954,7 +3966,8 @@ const closeDrawer = () => {
  */
 const wide = () => matchMedia("(min-width: 900px)").matches;
 const panelShowing = () =>
-  wide() ? !document.body.classList.contains("tucked") : $("#drawer").classList.contains("open");
+  !!$("#drawer") &&
+  (wide() ? !document.body.classList.contains("tucked") : $("#drawer").classList.contains("open"));
 const retractPanel = () => {
   // A lit link means "this one is up", so once nothing is up nothing is lit.
   for (const x of document.querySelectorAll(".chainlink, .raillink")) x.classList.remove("on");
@@ -3995,12 +4008,13 @@ addEventListener("click", (e) => {
 const chainOpen = () => document.body.classList.contains("chained");
 const closeChain = () => {
   document.body.classList.remove("chained");
-  $("#menuBtn").setAttribute("aria-expanded", "false");
+  $("#menuBtn")?.setAttribute("aria-expanded", "false");
 };
 const openChain = () => {
+  if (!$("#chain")) return;
   document.body.classList.add("chained");
   chainFits();
-  $("#menuBtn").setAttribute("aria-expanded", "true");
+  $("#menuBtn")?.setAttribute("aria-expanded", "true");
 };
 
 $("#menuBtn").setAttribute("aria-haspopup", "true");
@@ -6332,7 +6346,7 @@ $("#themeCopy").onclick = async () => {
  * it is the thing everyone else is looking at. The guest's view is the same
  * app with the drawer taken away; there is no second client to keep in step.
  */
-const TG = { share: null, feed: null, answering: false, door: null, chats: [] };
+const TG = { share: null, feed: null, answering: false, pending: false, door: null, chats: [] };
 
 /**
  * The address to put in front of the link.
@@ -6507,9 +6521,22 @@ function tgListen() {
 async function tgAnswer(evt) {
   if (S.chatId !== TG.share?.chat_id) { await refreshChats(); return; }
   await openChat(S.chatId).catch(() => {});
-  if (TG.answering || S.generating) return;
+
+  /*
+   * Two people typing at once must not become two narrators talking over each
+   * other — and must not become one turn silently going unanswered either,
+   * which is what a plain guard does. A turn that lands mid-reply is
+   * remembered, and answered once the current one is finished: by then it is
+   * in the transcript, so the narrator sees both and can address both.
+   */
+  if (TG.answering || S.generating) { TG.pending = true; return; }
   TG.answering = true;
-  try { await run("silent"); } finally { TG.answering = false; }
+  try {
+    await run("silent");
+  } finally {
+    TG.answering = false;
+    if (TG.pending) { TG.pending = false; setTimeout(() => tgAnswer(evt), 250); }
+  }
 }
 
 $("#tgOpen").onclick = async () => {
@@ -6828,10 +6855,42 @@ function guestPaint() {
 }
 
 /** One socket, reconnected by the browser if the line drops. */
+/**
+ * Coming back after the phone has been away.
+ *
+ * A live feed is not enough on a phone. iOS suspends the tab the moment the
+ * screen locks or you switch apps, and an EventSource that was suspended does
+ * not always come back — so the table carries on without you and your copy
+ * sits there showing the last thing it heard. Which is exactly what it looks
+ * like from the outside: nothing happens until you reload.
+ *
+ * So: reconnect when the socket errors, reconnect when the tab is shown again
+ * and the socket is not open, and re-read the whole table either way. The
+ * re-read is the important half — a reconnected socket only brings what
+ * happens next, and what you actually missed is everything that happened while
+ * the phone was in a pocket.
+ */
+function guestWake() {
+  if (!GUEST.on) return;
+  const dead = !GUEST.feed || GUEST.feed.readyState === EventSource.CLOSED;
+  if (dead) guestListen();
+  guestSync();
+}
+addEventListener("visibilitychange", () => { if (!document.hidden) guestWake(); });
+addEventListener("online", guestWake);
+addEventListener("pageshow", guestWake);
+
 function guestListen() {
   GUEST.feed?.close();
   const feed = new EventSource("/api/table/live");
   GUEST.feed = feed;
+  feed.onerror = () => {
+    // The browser retries an EventSource on its own, but not always, and not
+    // from a suspended tab. One reconnect of our own, once it has given up.
+    if (feed.readyState === EventSource.CLOSED && GUEST.feed === feed) {
+      setTimeout(() => { if (GUEST.feed === feed) guestListen(); }, 2000);
+    }
+  };
 
   // The narrator's reply arrives as the same frames the host sees, so it
   // types itself out here exactly as it does there.
@@ -7637,7 +7696,7 @@ addEventListener("keydown", (e) => {
   closeAllMenus();
   closeChain();
   $("#composer").dataset.guided = "false";
-  $("#plusBtn").setAttribute("aria-expanded", "false");
+  $("#plusBtn")?.setAttribute("aria-expanded", "false");
 });
 
 wirePanelChrome();

@@ -2034,7 +2034,17 @@ export function assemble(
     }));
   }
 
-  const messages = buildMessages(history, char, me.name, Number(s.context_tokens), others.length > 0);
+  /*
+   * Whether the human turns need names on them: only when more than one person
+   * is writing them. See buildMessages.
+   */
+  const sharedWith = db
+    .query("SELECT COUNT(*) n FROM players p JOIN shares sh ON sh.id = p.share_id"
+         + " WHERE sh.chat_id = ? AND sh.open = 1")
+    .get(chat.id) as any;
+  const manyHands = (sharedWith?.n ?? 0) > 0;
+  const messages = buildMessages(
+    history, char, me.name, Number(s.context_tokens), others.length > 0, manyHands);
   if (mode === "silent" && messages[messages.length - 1]?.role === "assistant") {
     messages.push({ role: "user", content: `(${me.name} says nothing.)` });
   }
@@ -2167,9 +2177,12 @@ ${DICE_BRIEF}` : DICE_BRIEF;
         });
       if (party.length) {
         table.push(
-          `# Who is playing\nThis game is being played by more than one person. Each of them ` +
-          `writes their own turns, signed with their name. Address them separately, let them ` +
-          `act separately, and never write a turn for any of them.\n\n${party.join("\n\n")}`,
+          `# Who is playing\nThis game is being played by more than one person. Their turns are ` +
+          `signed with their names — those names are who acted, and they are different people.\n\n` +
+          `Answer whoever has just acted, by name. If two of them acted before you replied, ` +
+          `answer both in the one turn rather than picking one and leaving the other standing ` +
+          `there. Never write a turn, a line of speech or a decision for any of them, and never ` +
+          `attribute what one of them did to another.\n\n${party.join("\n\n")}`,
         );
       }
     }
