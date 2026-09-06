@@ -23,7 +23,11 @@
 ; you made with it.
 
 #define AppName      "Hearth"
-#define AppVersion   "0.1.0"
+; Passed in by scripts/build-installer.ts, which reads package.json. The
+; fallback only matters if somebody runs ISCC by hand.
+#ifndef AppVersion
+  #define AppVersion "0.0.0"
+#endif
 #define AppExe       "Hearth.exe"
 
 [Setup]
@@ -101,10 +105,13 @@ Name: "desktopicon"; Description: "Put a Hearth on my Desktop"; GroupDescription
 Source: "..\dist\desktop\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "hearth.ico";               DestDir: "{app}"; Flags: ignoreversion
 ; The tunnel, so that hosting a game over distance does not begin with an
-; install. skipifsourcedoesntexist: a checkout that has not run
-; scripts/fetch-cloudflared.ts still builds, it just ships without it.
-Source: "..endor\cloudflared.exe";           DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "..endor\CLOUDFLARED-LICENSE.txt";   DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; install. scripts/build-installer.ts fetches these before calling ISCC, so
+; a missing file here means a wrong path -- and it should stop the build. It
+; once carried skipifsourcedoesntexist, and that flag turned a typo in this
+; very line into an installer that shipped without the tunnel and said
+; nothing about it.
+Source: "..\vendor\cloudflared.exe";         DestDir: "{app}"; Flags: ignoreversion
+Source: "..\vendor\CLOUDFLARED-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}";                 Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\hearth.ico"

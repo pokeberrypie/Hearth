@@ -52,7 +52,10 @@ if (!iscc) {
 }
 
 console.log(`${NL}  Packaging the installer ...`);
-const pack = Bun.spawnSync([iscc, "installer\\hearth.iss"], { stdout: "pipe", stderr: "pipe" });
+// The version comes from package.json, which is the only place it is written.
+const version = JSON.parse(await Bun.file("package.json").text()).version;
+const pack = Bun.spawnSync([iscc, `/DAppVersion=${version}`, "installer\\hearth.iss"],
+  { stdout: "pipe", stderr: "pipe" });
 if (pack.exitCode !== 0) {
   console.error(pack.stdout.toString());
   console.error(pack.stderr.toString());
@@ -61,5 +64,27 @@ if (pack.exitCode !== 0) {
 
 const out = "dist/HearthSetup.exe";
 const size = (await stat(out)).size;
+
+/*
+ * Did the tunnel actually go in?
+ *
+ * It did not, once, and nothing said so: a stray escape turned `..\vendor\`
+ * into `..<VT>endor\` in the .iss, and the `skipifsourcedoesntexist` flag —
+ * there so a checkout without the binary could still build — obligingly
+ * skipped it. The build printed success and produced an installer that was
+ * quietly missing the thing the release notes said it had.
+ *
+ * The flag is gone, so a bad path is now a hard failure. This is the second
+ * belt: the packaged size has to have room for a 50MB binary in it. Cheap, and
+ * it checks the artefact rather than the intention.
+ */
+const tunnelSize = (await stat("vendor/cloudflared.exe")).size;
+const floor = 12 * 1024 * 1024;
+if (size < floor) {
+  console.error(`${NL}  That installer is ${(size / 1024 / 1024).toFixed(1)} MB, which is too`);
+  console.error(`  small to have ${(tunnelSize / 1024 / 1024).toFixed(1)} MB of cloudflared inside it.`);
+  console.error(`  Check the [Files] paths in installer/hearth.iss.${NL}`);
+  process.exit(1);
+}
 console.log(`${NL}  ${out}  —  ${(size / 1024 / 1024).toFixed(1)} MB`);
 console.log(`  That is the download. Everything else is built from it.${NL}`);
