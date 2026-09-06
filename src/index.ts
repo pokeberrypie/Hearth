@@ -2291,6 +2291,37 @@ api.post("/chats/:id/inspect", async (c) => {
   // lore fires against it here the same way it will on send.
   const a = assemble(chat, mode, guide, mode === "reply" ? content : "", speaker);
 
+  /*
+   * And whatever the extensions do to it, because they do it on the way out.
+   *
+   * The inspector ran assemble() and stopped, so an extension's prompt:before
+   * was invisible here and present in every real send — an inspector that can
+   * disagree with the thing it inspects, which is the one thing it must never
+   * be. Same call, same order, same payload as generate.
+   */
+  const shapedForView = runServerHook(
+    liveExtensions(),
+    "prompt:before",
+    { system: a.system, messages: a.messages },
+    (where, err) => console.error(`[extension] ${where}`, err ?? ""),
+  );
+  /*
+   * And it has to be *visible*, not merely applied. The inspector reports
+   * `sections`, which assemble() fills in as it goes and which therefore knows
+   * nothing about anything that happens afterwards — so applying the hook and
+   * stopping would have left the numbers right and the reading wrong, which is
+   * the same lie in quieter clothes.
+   */
+  if (shapedForView.system !== a.system) {
+    a.sections.push({
+      label: "Extensions changed the system prompt",
+      content: shapedForView.system,
+      chars: shapedForView.system.length,
+    });
+  }
+  a.system = shapedForView.system;
+  a.messages = shapedForView.messages;
+
   const chars =
     a.system.length +
     a.messages.reduce((n, m) => n + m.content.length, 0) +
