@@ -21,6 +21,16 @@ const desktop = Bun.spawnSync(["bun", "run", "scripts/build-desktop.ts"],
 if (desktop.exitCode !== 0) process.exit(1);
 
 /*
+ * The tunnel binary rides along, so that playing with somebody far away does
+ * not start with "first install cloudflared" — the step at which most people
+ * give up. Pinned and hash-checked in that script; a failure there stops the
+ * build rather than quietly shipping an installer without it.
+ */
+const tunnel = Bun.spawnSync(["bun", "run", "scripts/fetch-cloudflared.ts"],
+  { stdout: "inherit", stderr: "inherit" });
+if (tunnel.exitCode !== 0) process.exit(1);
+
+/*
  * Inno Setup installs per-user by default on this machine, so it is not on
  * PATH and not in Program Files. Look where winget puts it before giving up,
  * and say plainly how to get it rather than failing with a "not found".

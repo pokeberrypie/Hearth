@@ -22,3 +22,7 @@ src/embedded.generated.ts
 # in dist/, so it was the same bundle twice.
 mobile/dist/
 mobile/android/app/src/main/assets/nodejs-project/
+
+# The pinned cloudflared the installer ships. Fetched by
+# scripts/fetch-cloudflared.ts; a 70MB binary does not belong in git.
+vendor/

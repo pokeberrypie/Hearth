@@ -100,6 +100,11 @@ Name: "desktopicon"; Description: "Put a Hearth on my Desktop"; GroupDescription
 [Files]
 Source: "..\dist\desktop\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "hearth.ico";               DestDir: "{app}"; Flags: ignoreversion
+; The tunnel, so that hosting a game over distance does not begin with an
+; install. skipifsourcedoesntexist: a checkout that has not run
+; scripts/fetch-cloudflared.ts still builds, it just ships without it.
+Source: "..endor\cloudflared.exe";           DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..endor\CLOUDFLARED-LICENSE.txt";   DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}";                 Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\hearth.ico"

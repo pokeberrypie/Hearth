@@ -20,6 +20,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 /*
  * Loaded when the door is opened, never at boot.
@@ -35,7 +36,7 @@ type ChildProcess = { killed?: boolean; kill(): void;
   stderr?: { on(e: string, f: (b: unknown) => void): void };
   on(e: string, f: () => void): void };
 
-/** Where the installer puts it on each platform, plus whatever is on PATH. */
+/** Where somebody's own install of it lives, per platform. */
 const CANDIDATES = [
   "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe",
   "C:\\Program Files\\cloudflared\\cloudflared.exe",
@@ -44,7 +45,32 @@ const CANDIDATES = [
   "/opt/homebrew/bin/cloudflared",
 ];
 
+/**
+ * The copy the installer put beside Hearth.
+ *
+ * Looked at first, and it is the one almost everybody will use: playing with
+ * somebody in another country should not begin with "now go and install a
+ * Cloudflare tool", which is the point at which most people stop. Somebody who
+ * has their own newer copy on PATH still gets theirs if ours is absent, and a
+ * checkout with no vendored binary falls through to exactly the old behaviour.
+ *
+ * `process.execPath` is the compiled Hearth.exe in a built app and the Bun
+ * binary in a checkout — in the second case the file simply is not there and
+ * this costs one failed stat.
+ */
+function besideUs(): string | null {
+  try {
+    const name = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
+    const p = join(dirname(process.execPath), name);
+    return existsSync(p) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
 export function findCloudflared(): string | null {
+  const ours = besideUs();
+  if (ours) return ours;
   for (const p of CANDIDATES) if (existsSync(p)) return p;
   // On PATH under whatever name the platform uses. `spawn` will find it.
   return process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
