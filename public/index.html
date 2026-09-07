@@ -932,6 +932,12 @@
           </details>
 
           <h3>Who is here</h3>
+          <!-- A rotation, when a table wants one. Off by default: most evenings
+               run fine on people not talking over each other, and the ones that
+               do not are the ones that ask for this. -->
+          <label class="check"><input type="checkbox" id="tgTurns">
+            Take it in turns</label>
+          <p class="hint" id="tgTurnState">Off. Anyone can speak whenever they like.</p>
           <div id="tgPlayers" class="list"></div>
           <p class="hint" id="tgAlone">Nobody yet. The link works the moment you send it.</p>
 

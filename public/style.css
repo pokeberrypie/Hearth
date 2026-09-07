@@ -3544,6 +3544,91 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
 
 .casthint { font-size: .74em; opacity: .45; white-space: nowrap; margin-left: auto; padding-left: .5rem; }
 
+/* ---- the seats, at somebody else's table ---------------------------------
+   The same strip a guest sees, drawn as names rather than faces: a guest has
+   no cast to draw a face from. Its own class so the host's room strip above
+   keeps its own rules exactly as they are. */
+
+/* The bar stops scrolling; the row inside it scrolls instead, so the pass
+   button stays put at the end of a long table. `.seats` is only ever on a
+   guest's strip — the host's room strip keeps `.castbar`'s own rules. */
+.castbar.seats { overflow-x: hidden; gap: .5rem; }
+
+.seatrow {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+.seatrow::-webkit-scrollbar { display: none; }
+
+.seat {
+  flex: 0 0 auto;
+  font-size: .82em;
+  white-space: nowrap;
+  padding: .12rem .55rem;
+  border-radius: 2rem;
+  border: 1px solid transparent;
+  opacity: .55;
+}
+.seat.you { opacity: .8; }
+
+/* Whose go it is. The glow is the whole point of the strip when a table is
+   taking turns — it has to be findable across a room, not read. */
+.seat.turn {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-primary) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 22%, transparent),
+              0 0 10px color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+}
+.seat.turn.you {
+  animation: seatglow 2.4s ease-in-out infinite;
+}
+@keyframes seatglow {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 22%, transparent),
+                         0 0 10px color-mix(in srgb, var(--lumiverse-primary) 30%, transparent); }
+  50%      { box-shadow: 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 40%, transparent),
+                         0 0 18px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent); }
+}
+/* Somebody watching a light pulse for an hour did not ask for that. */
+@media (prefers-reduced-motion: reduce) {
+  .seat.turn.you { animation: none; }
+}
+
+.seatpass {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: .74em;
+  background: none;
+  border: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .14));
+  border-radius: 2rem;
+  padding: .12rem .6rem;
+  color: inherit;
+  opacity: .6;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.seatpass:hover { opacity: 1; }
+.seatpass:disabled { opacity: .3; cursor: default; }
+/* A pill this small is a fair target with a mouse and a poor one with a thumb.
+   The tap area grows past the pill rather than the pill past the strip — the
+   strip has to stay a strip. */
+.seatpass { position: relative; }
+.seatpass::after { content: ""; position: absolute; inset: -11px -8px; }
+
+/* The writing box, when the table is taking turns. Quiet while you wait,
+   framed while it is your go — the same signal as the strip, where your eyes
+   already are. */
+.composer.waiting .hc-box { opacity: .55; }
+.composer.myturn .hc-box {
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+}
+
 /* ---- this scene, in the Cast panel ---------------------------------------
    The Cast panel's first page while a chat is open. Same materials as the
    library page under it — the two are pages of one panel, not two panels. */

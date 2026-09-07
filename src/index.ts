@@ -252,7 +252,19 @@ app.use("/api/*", async (c, next) => {
   // Compared rather than trusted: the row came back from a lookup on the token
   // it claims, and this says so out loud where the next person can see it.
   const ok = !!player && !!share && share.open === 1 && sameToken(player.token, token);
-  if (!ok) return c.json({ error: "Not a seat at this table." }, 403);
+  /*
+   * `door` says which side this refusal happened on, and it is for the page
+   * rather than for the caller: it tells nobody anything they did not already
+   * know, since they chose the address they knocked on.
+   *
+   * Without it a guest whose seat has gone — the cookie cleared, the tab
+   * closed in private browsing, ninety days passed — loads the host's own app
+   * around an empty library, because the page has no way to tell "you are the
+   * owner and there is nothing here" from "you are a visitor and your seat is
+   * gone". Two completely different situations that looked identical, and the
+   * second one is the common one on a phone.
+   */
+  if (!ok) return c.json({ error: "Not a seat at this table.", door: proxied }, 403);
 
   if (!guestMayTouch(c.req.method, c.req.path)) {
     return c.json({ error: "Guests can see the table, and only the table." }, 403);
@@ -4703,6 +4715,70 @@ function playersAt(shareId: string) {
     .map((p) => ({ ...publicPlayer(p), sheet: sheetFor(p.id) }));
 }
 
+/* ---- taking turns ----------------------------------------------------------
+ * Whose go it is, when a table has asked for an order.
+ *
+ * Seating order, which is arrival order — the same order `playersAt` already
+ * returns and the same order the faces are drawn in, so the turn visibly goes
+ * round the table rather than hopping about.
+ *
+ * The host is not in the rotation. They are running the game rather than
+ * playing in it: they hand the turn out, they can take it back, and they are
+ * never stopped from speaking. A narrator who has to wait their turn cannot
+ * answer the person whose turn it is.
+ */
+
+/** Everyone who can hold a turn, in the order they sat down. */
+function seatOrder(shareId: string): any[] {
+  return db.query(
+    "SELECT * FROM players WHERE share_id = ? AND host = 0 ORDER BY created_at",
+  ).all(shareId) as any[];
+}
+
+/**
+ * Moves the turn along one seat.
+ *
+ * `from` is who has just finished. Passing nobody — an empty table, or a
+ * rotation that has just been switched on — starts it at the first seat.
+ */
+function advanceTurn(share: any, from?: string | null): string | null {
+  const seats = seatOrder(share.id);
+  if (!seats.length) return null;
+  const at = from ? seats.findIndex((p) => p.id === from) : -1;
+  const next = seats[(at + 1) % seats.length];
+  return next?.id ?? null;
+}
+
+function setTurn(shareId: string, playerId: string | null) {
+  db.query("UPDATE shares SET turn_player_id = ? WHERE id = ?").run(playerId, shareId);
+}
+
+/**
+ * The turn as everybody should see it.
+ *
+ * Read rather than trusted: the stored id can name somebody who has since got
+ * up, and a table waiting for a player who is not there is a table that has
+ * stopped. When that happens the turn moves to the first seat still filled.
+ */
+function turnAt(share: any): { on: boolean; player: string | null } {
+  const on = !!share.taking_turns;
+  if (!on) return { on: false, player: null };
+  const seats = seatOrder(share.id);
+  if (!seats.length) return { on: true, player: null };
+  const held = seats.some((p) => p.id === share.turn_player_id);
+  if (held) return { on: true, player: share.turn_player_id };
+  const first = seats[0].id;
+  setTurn(share.id, first);
+  return { on: true, player: first };
+}
+
+/** Announces the turn to the whole table, players and host alike. */
+function publishTurn(shareId: string) {
+  const share = shareOf(shareId);
+  if (!share) return;
+  publish(shareId, "turn", { turn: turnAt(share), players: playersAt(shareId) });
+}
+
 api.get("/shares", (c) => {
   const rows = db.query("SELECT * FROM shares WHERE open = 1 ORDER BY created_at DESC").all() as any[];
   return c.json(rows.map((r) => ({
@@ -4710,6 +4786,8 @@ api.get("/shares", (c) => {
     // The invitation, spelled out, because the host has to be able to send it.
     join: `/join/${r.token}`,
     players: playersAt(r.id),
+    // So the panel can draw the rotation without a second round trip.
+    turn: turnAt(r),
   })));
 });
 
@@ -4728,6 +4806,35 @@ api.post("/shares", async (c) => {
     .run(id, chat.id, newToken(), String(name ?? "").slice(0, 80), now());
   const row = shareOf(id);
   return c.json({ id, join: `/join/${row.token}`, reused: false });
+});
+
+/**
+ * The host's control of the rotation: switch it on or off, or hand the turn to
+ * a particular seat.
+ *
+ * A host route rather than a guest one, and deliberately: whose turn it is is
+ * the sort of thing one person should decide, and at this table that person is
+ * the one whose machine is answering.
+ */
+api.put("/shares/:id/turns", async (c) => {
+  const row = shareOf(c.req.param("id"));
+  if (!row) return c.json({ error: "No such table." }, 404);
+  const { on, player } = await c.req.json().catch(() => ({}));
+
+  if (on !== undefined) {
+    db.query("UPDATE shares SET taking_turns = ? WHERE id = ?").run(on ? 1 : 0, row.id);
+    // Switching it on starts the round at the first seat rather than at
+    // whoever happened to hold the turn last time it was on.
+    if (on) setTurn(row.id, advanceTurn(row, null));
+  }
+  if (typeof player === "string" && player) {
+    const seat = seatOrder(row.id).find((p) => p.id === player);
+    if (!seat) return c.json({ error: "Nobody is in that seat." }, 400);
+    setTurn(row.id, seat.id);
+  }
+
+  publishTurn(row.id);
+  return c.json({ ok: true, turn: turnAt(shareOf(row.id)) });
 });
 
 api.delete("/shares/:id", (c) => {
@@ -4915,6 +5022,7 @@ function tableState(share: any, player: any) {
     },
     you: publicPlayer(player),
     players: playersAt(share.id),
+    turn: turnAt(share),
     messages: msgs,
     fight: fightIn(share.chat_id),
   };
@@ -4968,6 +5076,19 @@ api.post("/table/say", async (c) => {
   if (!text) return c.json({ error: "Nothing to say." }, 400);
   if (text.length > 8000) return c.json({ error: "That is longer than a turn." }, 400);
 
+  /*
+   * Whose go it is, when the table has asked for an order.
+   *
+   * Checked here rather than only in the browser, because the browser is the
+   * one place at this table that belongs to the person being checked. A
+   * disabled composer is a courtesy; this is the rule.
+   */
+  const turn = turnAt(g.share);
+  if (turn.on && turn.player && turn.player !== g.player.id) {
+    const who = seatOrder(g.share.id).find((p) => p.id === turn.player);
+    return c.json({ error: `It is ${who?.name || "somebody else"}'s turn.` }, 409);
+  }
+
   const id = uid();
   const at = now();
   db.query(
@@ -4977,7 +5098,40 @@ api.post("/table/say", async (c) => {
 
   const msg = { id, role: "user", name: g.player.name, content: text, created_at: at };
   publish(g.share.id, "said", { message: msg, by: publicPlayer(g.player) });
+
+  /*
+   * Speaking passes the turn on.
+   *
+   * Rather than waiting for the narrator to answer — which would leave the
+   * table staring at a disabled composer for the length of a generation, and
+   * would break entirely if the host's copy were closed. This way the next
+   * player can be writing while the reply arrives.
+   */
+  if (turn.on) {
+    setTurn(g.share.id, advanceTurn(g.share, g.player.id));
+    publishTurn(g.share.id);
+  }
   return c.json({ ok: true, message: msg });
+});
+
+/**
+ * Handing your turn on without using it.
+ *
+ * Somebody has stepped away from the table, or has nothing to add. Without
+ * this, one person in the kitchen stops the game — which is the failure a
+ * rotation invites and the reason most tables never enforce one.
+ */
+api.post("/table/pass", (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const turn = turnAt(g.share);
+  if (!turn.on) return c.json({ error: "This table is not taking turns." }, 400);
+  // Anyone may pass the turn along, not only its holder: the point is a table
+  // that cannot stall, and the person who has wandered off is precisely the
+  // one who cannot press this.
+  setTurn(g.share.id, advanceTurn(g.share, turn.player));
+  publishTurn(g.share.id);
+  return c.json({ ok: true, turn: turnAt(shareOf(g.share.id)) });
 });
 
 /**

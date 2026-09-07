@@ -207,6 +207,21 @@ export const ALTER_TABLES: string[] = [
   "ALTER TABLE lorebooks ADD COLUMN world TEXT NOT NULL DEFAULT 'story'",
   "ALTER TABLE lorebooks ADD COLUMN deleted_at INTEGER",
 
+  /*
+   * Taking turns at a shared table.
+   *
+   * Off by default and off for every table that already exists: a group of
+   * friends talking over each other is how most tables actually run, and a
+   * rotation that arrived switched on would have changed somebody's evening
+   * without being asked for.
+   *
+   * `turn_player_id` is whose turn it is while it is on. Null means nobody in
+   * particular — which is also what a table falls back to if the player whose
+   * turn it was gets up and leaves.
+   */
+  "ALTER TABLE shares ADD COLUMN taking_turns INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE shares ADD COLUMN turn_player_id TEXT",
+
   ...[
     "swipes TEXT NOT NULL DEFAULT '[]'",
     "swipe_index INTEGER NOT NULL DEFAULT 0",

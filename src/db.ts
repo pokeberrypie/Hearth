@@ -11,15 +11,26 @@ db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA foreign_keys = ON;");
 
 db.exec(CREATE_TABLES);
-
-// Additive migrations. Safe to run repeatedly — each is ignored once applied.
-for (const stmt of ALTER_TABLES) {
-  try { db.exec(stmt); } catch {}
-}
-
 db.exec(CREATE_CHAT_MEMBERS);
 db.exec(CREATE_SHARES);
 db.exec(CREATE_KITS);
+
+/*
+ * Additive migrations. Safe to run repeatedly — each is ignored once applied.
+ *
+ * After every CREATE, and that ordering is load-bearing. These used to run
+ * between the first CREATE and the rest, which worked for years because every
+ * migration happened to touch a table in that first batch. The first one that
+ * did not — a column on `shares` — failed on a fresh install, where the table
+ * did not exist yet, and the failure is swallowed on purpose because that is
+ * how "already applied" is detected. So the column was simply missing, on new
+ * copies only, with nothing said. Upgrades were fine, which is the worst
+ * version of this: it works everywhere it is tested and is broken for
+ * everybody arriving for the first time.
+ */
+for (const stmt of ALTER_TABLES) {
+  try { db.exec(stmt); } catch {}
+}
 
 export const now = () => Date.now();
 export const uid = () => crypto.randomUUID();

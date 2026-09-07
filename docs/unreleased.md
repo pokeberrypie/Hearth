@@ -10,9 +10,9 @@ yet, so nobody who downloaded Hearth has it.
 
 ## In v0.2.2, when it is cut
 
-All three of these came from nerb, a week into using the Android build. Two
-are dead controls and one is a piece of the game the app knew and would not
-say out loud.
+The first three came from nerb, a week into using the Android build: two dead
+controls and a piece of the game the app knew and would not say out loud. The
+rest came from walking the app afterwards, and from playing at a table.
 
 ### The sign over the door is the door now
 
@@ -192,6 +192,96 @@ same tree and were being woken twenty-six times to be told nothing.
 **Not found:** every icon-only control is centred to the pixel, on desktop and
 at 375px — nothing was off by even one. No horizontal overflow at phone width.
 No button in any of the thirteen drawer panels that does nothing when pressed.
+
+### Taking it in turns
+
+Four people at one table, all typing at once, is a transcript nobody can
+follow. There was a soft pause between turns and no way to say whose go it
+actually was, and the request was for the smallest possible version of that: a
+glowing border, so you can see it from across the room.
+
+A rotation you can switch on, off by default. When it is on, the strip at the
+top of a guest's screen glows around whoever holds the turn, everyone else's
+writing box is closed and says *"Waiting on Ana…"*, and speaking hands the
+turn to the next seat.
+
+The seating order is arrival order — the same order the names are already
+drawn in, so the turn visibly goes round the table rather than hopping about.
+
+**The host is not in the rotation.** They are running the game rather than
+playing in it: they hand the turn out, they can take it back, and they are
+never stopped from speaking. A narrator who has to wait their turn cannot
+answer the person whose turn it is.
+
+**The turn moves when the words are written down**, not when the narrator has
+finished answering. Otherwise the whole table waits out a generation with
+nothing to do — and if the host's copy is closed, waits forever. This way the
+next person can be writing while the reply arrives.
+
+**Anybody may pass, not only whoever is holding the turn.** Every table that
+has ever tried an enforced order has found the same failure: one person goes to
+make tea and the evening stops. The person who has wandered off is precisely
+the one who cannot press "pass", so everyone else gets *"Nudge it on"*. The
+turn also refuses to sit with somebody who has closed their tab — their row is
+gone, so it moves to the first seat still filled rather than blocking the table
+on a person who is not there.
+
+The refusal is on the server, not only in the browser. A closed writing box is
+a courtesy; a 409 is the rule, and the browser is the one machine at this table
+that belongs to the person being checked. A turn taken out of order is not
+written down at all.
+
+The host's side is in **Together**: a switch, a sentence saying whose go it is,
+and an arrow on each name to hand them the turn directly — for when the order
+and the room have come apart, which they do, constantly, at a real table.
+
+The names scroll and the pass button does not, so a table of nine on a phone
+still has both the glow and the button on screen. Whoever holds the turn is
+scrolled into view: a glow nobody can see is not an indicator.
+
+### A migration that was never applied on new copies
+
+Found by the above, and older and worse than it.
+
+Additive migrations ran between the first `CREATE TABLE` batch and the rest of
+them. Every migration so far happened to touch a table in that first batch, so
+the ordering had never mattered and nothing said it had to hold. The first one
+that did not — a column on `shares` — threw on a fresh install because the
+table did not exist yet, and the throw is swallowed on purpose, because that is
+how "already applied" is detected.
+
+So the column was simply missing, on new installs only, silently. Upgrades were
+fine, which is the worst version of this: it works everywhere it is tested and
+is broken for everybody arriving for the first time. Migrations run after every
+create now, and there is a test that reads the columns back out of a database
+built from nothing.
+
+### A guest on a phone
+
+Everything above was checked at 375px as well as on a desktop, but three of
+these are specifically about somebody who tapped a link in a message on an
+iPhone.
+
+**Reading remembered settings could stop a guest sitting down.** Every write to
+local storage in the app was already wrapped, because storage can be full or
+switched off; the reads were not. In private browsing on iOS — which is where a
+lot of guests will open a link somebody sent them — reading it throws outright,
+and an unguarded read in a boot path does not degrade, it stops the boot. One
+of them sat in the guest's, immediately before the box that asks their name.
+
+**Your seat is a cookie, and cookies go.** A private tab closed, history
+cleared, ninety days, a new phone. Anybody coming back to the address without
+one got the *host's* app — every route behind it refused, the library empty —
+which reads as a broken program rather than as "ask for the link again". The
+page could not tell "you are the owner and there is nothing here" from "you are
+a visitor and your seat is gone", so the gate now says which side of the door
+it refused on, and the second case gets a sentence instead of an empty shelf.
+
+**Giving your name did not redraw the strip.** The server announces it to the
+table and this copy is at that table, so in principle the announcement comes
+back. In practice the socket is often still opening when somebody types their
+name into the first thing they are shown — so the one person who had just given
+their name was the one still labelled "A player".
 
 **Worth a look, not changed:** tap targets. The icon rail is 34×34, the
 chat-list select buttons 30×30, and "Delete chat" is 28×28 — against the 44×44

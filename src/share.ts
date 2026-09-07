@@ -102,6 +102,9 @@ const GUEST_ROUTES: { method: string; re: RegExp }[] = [
   { method: "POST", re: /^\/api\/table\/say$/ },
   { method: "POST", re: /^\/api\/table\/roll$/ },
   { method: "POST", re: /^\/api\/table\/leave$/ },
+  // Handing your turn on. A player may pass; only the host may switch the
+  // rotation on or off, or hand the turn to somebody in particular.
+  { method: "POST", re: /^\/api\/table\/pass$/ },
   // Who they are playing, and their own sheet. A guest may write their own
   // character and nobody else's; the id is checked against their player row.
   { method: "GET",  re: /^\/api\/table\/me$/ },

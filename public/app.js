@@ -126,6 +126,19 @@ const S = { chatId: null, charName: "", charAvatar: "", personaAvatar: "", perso
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/*
+ * Reading something we left for ourselves last time.
+ *
+ * Every write in here is already wrapped, because storage can be full or
+ * switched off; the reads were not, and they are the half that matters. In
+ * private browsing on iOS — which is where a lot of guests will open a link
+ * somebody sent them — touching localStorage throws outright, and an
+ * unguarded read in a boot path does not degrade, it stops the boot.
+ */
+function recall(key, fallback = "") {
+  try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+}
+
 /**
  * Structured tags a model may wrap its answer in. SillyTavern-style prompts ask
  * for these, and a reply full of visible `<true_thoughts>` is the reader seeing
@@ -3408,7 +3421,7 @@ function showDie(result) {
 $("#diceBtn").onclick = async () => {
   // A guest rolls on the table's dice, and everybody watches it land.
   if (GUEST.on) {
-    const notation = await askFor("Roll what?", localStorage.getItem("hearth.lastRoll") || "1d20");
+    const notation = await askFor("Roll what?", recall("hearth.lastRoll") || "1d20");
     if (!notation?.trim()) return;
     try { localStorage.setItem("hearth.lastRoll", notation.trim()); } catch {}
     return guestRoll(notation.trim());
@@ -3436,7 +3449,7 @@ $("#diceBtn").onclick = async () => {
 
   // The last thing rolled is the likely next thing rolled, so it is offered
   // back rather than making you retype it every time.
-  const notation = await askFor("Roll what?", localStorage.getItem("hearth.lastRoll") || "1d20");
+  const notation = await askFor("Roll what?", recall("hearth.lastRoll") || "1d20");
   if (!notation?.trim()) return;
   try { localStorage.setItem("hearth.lastRoll", notation.trim()); } catch {}
   const line = await rollFor(notation.trim());
@@ -7558,13 +7571,50 @@ function renderTogether() {
   const list = $("#tgPlayers");
   const people = TG.share.players ?? [];
   $("#tgAlone").hidden = people.length > 0;
+
+  /*
+   * The rotation, from the host's side.
+   *
+   * The host is not in it — see `seatOrder` on the server. Somebody has to be
+   * able to answer the person whose turn it is, and a narrator waiting their
+   * go is a table that has stopped.
+   */
+  const turn = TG.share.turn ?? { on: false, player: null };
+  const seats = people.filter((p) => !p.host);
+  const box = $("#tgTurns");
+  if (box) box.checked = !!turn.on;
+  const state = $("#tgTurnState");
+  if (state) {
+    const who = seats.find((p) => p.id === turn.player);
+    state.textContent = !turn.on
+      ? "Off. Anyone can speak whenever they like."
+      : !seats.length
+        ? "On, but nobody has sat down yet. It starts with whoever arrives first."
+        : `On. It is ${who ? who.name : "nobody"}'s turn. Yours is not in the rotation — `
+          + "you are running the game, so you can always speak.";
+  }
+
   list.innerHTML = "";
   for (const p of people) {
     const row = document.createElement("div");
-    row.className = "item";
+    const theirs = turn.on && p.id === turn.player;
+    row.className = "item" + (theirs ? " active" : "");
     row.innerHTML = medallion("", p.name) +
       `<span class="meta"><span class="t">${esc(p.name)}</span>` +
-      `<span class="s">${p.seen_at ? `here ${ago(p.seen_at)}` : "just arrived"}</span></span>`;
+      `<span class="s">${theirs ? "their turn" : p.seen_at ? `here ${ago(p.seen_at)}` : "just arrived"}</span></span>`;
+
+    // Handing the turn to somebody in particular, for when the order and the
+    // room have come apart — which they do, constantly, at a real table.
+    if (turn.on && !p.host && !theirs) {
+      const hand = document.createElement("button");
+      hand.className = "ico";
+      hand.title = `Hand the turn to ${p.name}`;
+      hand.setAttribute("aria-label", `Hand the turn to ${p.name}`);
+      hand.innerHTML = `<svg viewBox="0 0 24 24"><path d="M5 12h13M13 7l5 5-5 5"/></svg>`;
+      hand.onclick = () => setTurns({ player: p.id });
+      row.append(hand);
+    }
+
     const kick = document.createElement("button");
     kick.className = "ico danger";
     kick.title = "Show them the door";
@@ -7578,6 +7628,27 @@ function renderTogether() {
     list.append(row);
   }
 }
+
+/**
+ * Switching the rotation on, or handing the turn along.
+ *
+ * One route for both, because they are the same decision made twice: who goes
+ * next. The server answers with the turn it settled on rather than the one we
+ * asked for, so a hand-off to somebody who has just left corrects itself here
+ * instead of leaving the panel telling a story the table is not in.
+ */
+async function setTurns(patch) {
+  if (!TG.share) return;
+  const r = await api(`/shares/${TG.share.id}/turns`, {
+    method: "PUT", headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  }).catch(() => null);
+  if (!r || r.error) return fail(r?.error ?? "Could not change whose turn it is.");
+  TG.share.turn = r.turn;
+  renderTogether();
+}
+
+$("#tgTurns").onchange = (e) => setTurns({ on: e.target.checked });
 
 /**
  * The door, from the panel.
@@ -7701,6 +7772,14 @@ function tgListen() {
     let evt; try { evt = JSON.parse(e.data); } catch { return; }
     if (evt.event === "players") {
       if (TG.share) TG.share.players = evt.players ?? [];
+      renderTogether();
+      return;
+    }
+    if (evt.event === "turn") {
+      if (TG.share) {
+        TG.share.turn = evt.turn ?? { on: false, player: null };
+        TG.share.players = evt.players ?? TG.share.players;
+      }
       renderTogether();
       return;
     }
@@ -8091,7 +8170,7 @@ async function guestBoot(state) {
   if (await guestRestore()) return;
 
   // A name, so the transcript is not four people all called "A player".
-  const saved = (localStorage.getItem("hearth.myName") || "").trim();
+  const saved = recall("hearth.myName").trim();
   if (saved) await guestName(saved);
   else if (/^A player/.test(state.you?.name ?? "")) guestAskName();
 }
@@ -8099,10 +8178,114 @@ async function guestBoot(state) {
 function guestTitle() {
   const bar = $(".bar h1");
   if (bar) bar.textContent = GUEST.state?.chat?.title || "The table";
-  const here = (GUEST.state?.players ?? []).map((p) => p.name).join(" · ");
-  const sub = $("#castBar");
-  if (sub) { sub.hidden = !here; sub.textContent = here; }
+  guestSeats();
+  guestTurn();
 }
+
+/**
+ * Who is at the table, along the top.
+ *
+ * The host's group-chat strip lives in this same element and is a different
+ * thing entirely — faces you tap to hand the next line to. A guest cannot do
+ * that and has no cast to draw faces from, so this draws names, under its own
+ * class, and leaves `.castbar`'s rules alone.
+ */
+function guestSeats() {
+  const sub = $("#castBar");
+  if (!sub) return;
+  const people = GUEST.state?.players ?? [];
+  const turn = GUEST.state?.turn ?? { on: false, player: null };
+  sub.classList.add("seats");
+  sub.hidden = people.length === 0;
+  sub.innerHTML = "";
+
+  /*
+   * The names scroll; the button next to them does not.
+   *
+   * At a table of nine on a phone the strip runs off the edge, and the two
+   * things that must never be off the edge are the pill that says whose go it
+   * is and the button that moves it along. So the seats get a scroller of
+   * their own inside the bar rather than the bar being the scroller. Scoped to
+   * `.seats`, which only a guest's strip ever carries — the host's room strip
+   * is the same element and is not ours to relayout.
+   */
+  const row = document.createElement("div");
+  row.className = "seatrow";
+  sub.append(row);
+
+  let here = null;
+  for (const p of people) {
+    const pill = document.createElement("span");
+    const theirs = turn.on && p.id === turn.player;
+    pill.className = "seat"
+      + (p.id === GUEST.state?.you?.id ? " you" : "")
+      + (theirs ? " turn" : "");
+    pill.textContent = p.name;
+    row.append(pill);
+    if (theirs) here = pill;
+  }
+
+  // And bring it into view, for the same reason: a glow nobody can see is
+  // not an indicator.
+  if (here) here.scrollIntoView({ block: "nearest", inline: "nearest" });
+
+  /*
+   * Handing the turn on without using it.
+   *
+   * Shown to everybody rather than only to whoever holds the turn, because the
+   * person who has wandered off to make tea is exactly the one who cannot
+   * press it, and a rotation that can stall on one absent player is a
+   * rotation nobody will switch on twice.
+   */
+  if (turn.on && people.length > 1) {
+    const pass = document.createElement("button");
+    pass.type = "button";
+    pass.className = "seatpass";
+    const mine = turn.player === GUEST.state?.you?.id;
+    pass.textContent = mine ? "Pass" : "Nudge it on";
+    pass.title = mine
+      ? "Hand your turn to the next person"
+      : "Move the turn along for somebody who has stepped away";
+    pass.onclick = async () => {
+      pass.disabled = true;
+      const r = await api("/table/pass", { method: "POST" }).catch(() => null);
+      pass.disabled = false;
+      if (r?.error) fail(r.error);
+    };
+    sub.append(pass);
+  }
+}
+
+/**
+ * The composer, when it is not your go.
+ *
+ * A closed door rather than a refusal after the fact: typing a paragraph and
+ * then being told it was not your turn is the worst of both. The server
+ * refuses it too — see POST /table/say — because this half is a courtesy and
+ * that half is the rule.
+ */
+function guestTurn() {
+  const turn = GUEST.state?.turn ?? { on: false, player: null };
+  const input = $("#input");
+  const send = $("#sendBtn");
+  const form = $("#composer");
+  if (!input) return;
+
+  const people = GUEST.state?.players ?? [];
+  const mine = !turn.on || !turn.player || turn.player === GUEST.state?.you?.id;
+  const who = people.find((p) => p.id === turn.player);
+
+  form?.classList.toggle("myturn", !!turn.on && mine);
+  form?.classList.toggle("waiting", !!turn.on && !mine);
+  input.disabled = !mine;
+  if (send) send.disabled = !mine;
+  input.placeholder = mine
+    ? (turn.on ? "Your turn." : GUEST_PLACEHOLDER)
+    : `Waiting on ${who ? who.name : "somebody else"}…`;
+}
+
+/** What the box says when nothing is stopping you, kept so it can be put back. */
+const GUEST_PLACEHOLDER = $("#input")?.placeholder || "Say something";
 
 function guestPaint() {
   const thread = $("#thread");
@@ -8178,6 +8361,12 @@ function guestListen() {
       GUEST.state.players = evt.players ?? [];
       guestTitle();
       guestSheetPanel();
+      return;
+    }
+    if (evt.event === "turn") {
+      GUEST.state.turn = evt.turn ?? { on: false, player: null };
+      GUEST.state.players = evt.players ?? GUEST.state.players;
+      guestTitle();
       return;
     }
     if (evt.event === "closed") { guestClosed(); return; }
@@ -8453,6 +8642,19 @@ async function guestName(name) {
   if (r?.you) {
     GUEST.state.you = r.you;
     try { localStorage.setItem("hearth.myName", r.you.name); } catch {}
+    /*
+     * Draw it here rather than waiting to be told.
+     *
+     * The server announces the new name to the table and this copy is at that
+     * table, so in principle the feed brings it back. In practice the socket
+     * is often still opening when somebody types their name into the very
+     * first dialog they are shown, and the announcement goes out to nobody —
+     * leaving the person who has just given their name as the one player at
+     * the table still labelled "A player".
+     */
+    const me = (GUEST.state.players ?? []).find((p) => p.id === r.you.id);
+    if (me) me.name = r.you.name;
+    guestTitle();
   }
 }
 
@@ -8472,7 +8674,20 @@ async function guestSay(text) {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ content: text }),
   }).catch(() => null);
-  if (r?.error) fail(r.error);
+  if (!r?.error) return;
+  fail(r.error);
+  /*
+   * Give the words back.
+   *
+   * A refusal is nearly always "it is not your turn yet", which is a wait
+   * rather than a mistake — losing what somebody wrote because the rotation
+   * moved while they were typing would teach them not to type until spoken to.
+   */
+  const input = $("#input");
+  if (input && !input.value.trim()) {
+    input.value = text;
+    input.dispatchEvent(new Event("input"));
+  }
 }
 
 async function guestRoll(notation) {
@@ -8543,9 +8758,13 @@ function openTheHearth() {
  */
 (async () => {
   let seat = null;
+  let door = false;
   try {
     const res = await fetch("/api/table/state");
     if (res.ok) seat = await res.json();
+    // A refusal that came through the guest door: somebody at a table, whose
+    // seat is not there any more. See the gate in index.ts.
+    else door = !!(await res.json().catch(() => ({}))).door;
   } catch {}
   if (seat && !seat.error) {
     try { await guestBoot(seat); }
@@ -8553,8 +8772,43 @@ function openTheHearth() {
     openTheHearth();
     return;
   }
+  if (door) { guestNoSeat(); openTheHearth(); return; }
   boot();
 })();
+
+/**
+ * You came to a table and your seat is gone.
+ *
+ * Not the host's app: none of it would work, because every route behind it is
+ * refused, and the library it draws would be empty — an empty shelf and a
+ * spinning icon, which reads as "this program is broken" rather than as "ask
+ * for the link again".
+ *
+ * Reaching this is ordinary rather than exceptional. The seat is a cookie, and
+ * cookies go: a private tab closed on iOS, history cleared, ninety days, a new
+ * phone. What is needed is one sentence and whose fault it isn't.
+ */
+function guestNoSeat() {
+  document.body.classList.add("guest");
+  for (const sel of ["#drawer", "#chain", "#chainVeil", "#menuBtn", "#scrim",
+                     "#chatMenuBtn", "#homeBtn", "#composer", "#splash", "#castBar"]) {
+    document.querySelector(sel)?.remove();
+  }
+  const bar = $(".bar h1");
+  if (bar) bar.textContent = "Hearth";
+  const thread = $("#thread");
+  if (!thread) return;
+  thread.hidden = false;
+  thread.innerHTML = "";
+  const note = document.createElement("div");
+  note.className = "empty";
+  note.innerHTML = `<h3>Your seat is not here any more.</h3>` +
+    `<p>This is somebody else's table, and the browser has forgotten which chair ` +
+    `was yours — which happens on its own if the tab was private, or if it has ` +
+    `been a while. Nothing has been lost at their end.</p>` +
+    `<p>Ask whoever invited you for the link again, and open it once more.</p>`;
+  thread.append(note);
+}
 
 /* ---- everything, from one box -----------------------------------------------
    A deep app with its depth behind a gear icon is an app most people only ever
