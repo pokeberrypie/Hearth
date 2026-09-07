@@ -1506,6 +1506,14 @@ function paintCastView() {
   const scene = inChat && castView === "scene";
   $("#sceneNow").hidden = !scene;
   $("#castLibrary").hidden = scene;
+  /*
+   * The count in the header belongs to the library list, and the library list
+   * is not what is on screen. Left showing, the panel read "Cast · 6" over a
+   * room with three people in it — a number counting something the reader
+   * cannot see, next to a list they can.
+   */
+  const count = document.querySelector('[data-count-for="castList"]');
+  if (count) count.hidden = scene;
   // The way back exists exactly when there is somewhere to go back to.
   $("#sceneBack").hidden = !inChat;
   if (scene) renderScene();

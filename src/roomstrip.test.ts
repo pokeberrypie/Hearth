@@ -221,9 +221,10 @@ describe("this scene, in the Cast panel", () => {
   });
 
   test("and there is no scene page without a chat", () => {
-    const paint = APP.slice(APP.indexOf("function paintCastView()"));
-    expect(paint.slice(0, 500)).toContain("const inChat = !!S.chatId;");
-    expect(paint.slice(0, 500)).toContain(`$("#sceneBack").hidden = !inChat;`);
+    const paint = APP.slice(APP.indexOf("function paintCastView()"),
+                            APP.indexOf("$(\"#sceneAll\").onclick"));
+    expect(paint).toContain("const inChat = !!S.chatId;");
+    expect(paint).toContain(`$("#sceneBack").hidden = !inChat;`);
     // Leaving a chat puts the panel back to the library.
     expect(APP).toMatch(/castView = "library";\s*\n\s*paintCastView\(\);/);
   });
@@ -299,5 +300,32 @@ describe("naming the story when it opens", () => {
     expect(go.slice(0, 1400)).toContain("const told = story.value.trim();");
     expect(go.indexOf("const told = story.value.trim();"))
       .toBeLessThan(go.indexOf("/autolore"));
+  });
+});
+
+describe("a row's small controls are the same size whatever is in them", () => {
+  const CSS = readFileSync(join(import.meta.dir, "..", "public", "style.css"), "utf8");
+  const bico = CSS.slice(CSS.indexOf("\n.bico {"), CSS.indexOf("\n.bico svg"));
+
+  test("sized as a box, not by their contents", () => {
+    /*
+     * `.bico` was `line-height: 0` with padding, which is exactly right for
+     * the ones holding an SVG and wrong for the one holding a character.
+     * "Remove from the scene" is a minus sign, so its line box was zero and
+     * the button measured eighteen pixels wide by *seven* tall — a destructive
+     * control you could barely hit, beside a 23-pixel one you could.
+     *
+     * Measured, not guessed: this was found by asking the browser for the
+     * rectangles rather than by looking at the screen, where seven pixels of
+     * gold minus sign looks much like any other small button.
+     */
+    expect(bico).toContain("width: 1.45rem");
+    expect(bico).toContain("height: 1.45rem");
+    expect(bico).toContain("place-items: center");
+  });
+
+  test("and not back to a zero line box", () => {
+    // The one line that caused it. If it returns, so does the seven-pixel button.
+    expect(bico.includes("line-height: 0")).toBe(false);
   });
 });
