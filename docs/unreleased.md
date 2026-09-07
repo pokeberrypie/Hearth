@@ -79,6 +79,48 @@ split happens in the renderer now, so all three roads end at the same place,
 and the browser splits names with the same rule the server does — there is a
 test that fails if those two ever drift.
 
+### The strip above a chat, in every chat
+
+It appeared only once a chat had two or more people in it, on the reasoning
+that a solo chat has no turn to hand out and so nothing to press. True of the
+one job it had, wrong about the room: you still want to fix a line in the card
+you are talking to, set the scene, name the chat, or bring somebody else in.
+
+So it is always up, and a face means the useful thing in each case.
+
+- **In a group** a face is a turn, as before — press to hand them the next
+  reply, press again to hand it back to whoever has been quietest.
+- **In a solo chat** there is no turn to give, so the face is the character:
+  press it and their card opens.
+- **The plus** adds someone. In a solo chat that is how it becomes a group —
+  something the server has always supported and nothing ever offered, because
+  the only way in was a button on a strip solo chats did not draw.
+- **The chat's name** sits in the strip and renames on a press. A new chat is
+  named after its character and the bar above is already showing that name in
+  inch-high letters, so an untouched title draws as *"Name this chat"* instead
+  of saying the same word twice — which is also the answer to naming a chat as
+  it opens: the offer is there from the first frame, at the cost of a press
+  rather than a prompt in front of the greeting.
+- **The scenario** has a button of its own. It is still at the bottom of the
+  members dialog, but it is the field in there that changes mid-story, and
+  reaching it meant reading past the mute switches.
+
+Everything heavier — muting, dropping someone, auto-reply — stays behind the
+plus, in a dialog with room for it. Each member row there now has an **edit**
+button too, so the card of somebody standing in front of you is one press away
+rather than a trip to the library. A strip that grew three buttons per face
+would be unusable on the phone this is mostly read on.
+
+The faces scroll and nothing after them does: a cast of nine used to push the
+name and the scenario button off the end of the strip, where there was no
+reason to think they existed. On a narrow screen the "quietest replies next"
+sentence goes before anything pressable does.
+
+Renaming a chat was three copies of the same prompt — the strip, the chat menu,
+and the row for any chat in "Manage chat files" — and the copies had already
+drifted: two treated a cancelled prompt and an emptied box as the same answer,
+and none redrew the strip. One function now.
+
 ### The character leads the prompt now
 
 The system prompt used to open with `main` — four lines of framing that read

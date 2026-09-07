@@ -703,6 +703,8 @@ const ICON = {
   folder: `<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.4h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
   up: `<svg viewBox="0 0 24 24"><path d="M12 19V6"/><path d="M6 12l6-6 6 6"/></svg>`,
   branch: `<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2v7.6M8.2 6h4.3a3 3 0 0 1 3 3"/></svg>`,
+  // A card with a scene written on it: the shared premise, not a document.
+  scenario: `<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M7 9.5h7M7 13h10M7 16h5"/></svg>`,
 };
 
 const tools = () =>
@@ -1348,50 +1350,188 @@ $("#treeCanvas").addEventListener("keydown", (e) => {
 // ---- who is in the room ---------------------------------------------------
 
 /**
- * The face strip above a group chat. Tapping a face hands them the next turn;
- * tapping the one already chosen hands it back to whoever has been quietest.
- * A solo chat has nothing to choose, so the bar stays hidden.
+ * The strip above a chat: who is in the room, what it is called, and the two
+ * things people reach for while reading.
+ *
+ * It used to appear only for groups of two or more, on the reasoning that a
+ * solo chat has no turn to hand out and so nothing to press. That was true of
+ * the one job the strip had and false about the room: you still want to fix a
+ * line in the card you are talking to, set the scene everyone is standing in,
+ * or give the chat a name that is not just the character's.
+ *
+ * So it is always up, and a face means the useful thing in each case. In a
+ * group a face is a turn — press one to hand them the next reply, press it
+ * again to hand it back to whoever has been quietest. In a solo chat there is
+ * no turn to give, so the face is the character: press it and their card
+ * opens. One gesture, the sensible meaning in each room.
+ *
+ * Everything heavier — muting, dropping someone, the auto-reply switch — stays
+ * behind the plus, which is a full-sized dialog with room for it. A strip that
+ * grew three buttons per face would be unusable on the phone this is mostly
+ * read on, which is the thing to protect here.
  */
 function renderRoom() {
   const bar = $("#castBar");
   bar.innerHTML = "";
-  bar.hidden = S.cast.length < 2;
+  bar.hidden = !S.chatId || !S.cast.length;
   if (bar.hidden) return;
+
+  const group = S.cast.length > 1;
+  bar.classList.toggle("solo", !group);
+
+  // The faces scroll; nothing after them does. A cast of nine should not push
+  // the chat's name off the end of the strip.
+  const faces = document.createElement("div");
+  faces.className = "castfaces";
 
   S.cast.forEach((m) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "castface" +
       (m.muted ? " muted" : "") +
-      (S.speaker === m.id ? " picked" : "");
-    b.title = m.muted ? `${m.name} — muted` : `${m.name} speaks next`;
+      (group && S.speaker === m.id ? " picked" : "");
+    b.title = group
+      ? (m.muted ? `${m.name} — muted` : `${m.name} speaks next`)
+      : `Edit ${m.name}`;
     b.setAttribute("aria-label", b.title);
     b.innerHTML = medallion(m.avatar, m.name) + `<span class="cn">${esc(m.name)}</span>`;
     b.onclick = () => {
+      if (!group) return editChar(m);
       if (m.muted) return;
       S.speaker = S.speaker === m.id ? null : m.id;
       renderRoom();
     };
-    bar.appendChild(b);
+    faces.appendChild(b);
   });
 
-  const any = document.createElement("span");
-  any.className = "casthint";
-  any.textContent = S.speaker
-    ? S.cast.find((m) => m.id === S.speaker)?.name + " replies next"
-    : "quietest replies next";
-  bar.appendChild(any);
+  // In a solo chat this is the way a second person arrives, which the server
+  // has always supported and nothing in the app ever offered.
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "castedit";
+  add.title = group ? "Add or remove someone" : "Add someone to this scene";
+  add.setAttribute("aria-label", add.title);
+  add.innerHTML = ICON.plus;
+  add.onclick = openRoom;
+  faces.appendChild(add);
 
-  // Adding or dropping someone should not require hunting through the menu.
-  const edit = document.createElement("button");
-  edit.type = "button";
-  edit.className = "castedit";
-  edit.title = "Add or remove someone";
-  edit.setAttribute("aria-label", "Add or remove someone from this scene");
-  edit.innerHTML = ICON.plus;
-  edit.onclick = openRoom;
-  bar.appendChild(edit);
+  bar.appendChild(faces);
+
+  // Whose turn it is, where there is a turn to have.
+  if (group) {
+    const hint = document.createElement("span");
+    hint.className = "casthint";
+    hint.textContent = S.speaker
+      ? `${S.cast.find((m) => m.id === S.speaker)?.name} replies next`
+      : "quietest replies next";
+    bar.appendChild(hint);
+  }
+
+  /*
+   * What this chat is called.
+   *
+   * A new chat is named after the character it is with, so this is never
+   * blank — and it is also why renaming matters: the fourth chat with Marla is
+   * the fourth thing called "Marla" on the shelf. Putting the name here means
+   * a chat can be named the moment it opens, rather than after somebody has
+   * gone looking for the menu that renames it.
+   */
+  const title = (chatMeta?.title ?? "").trim();
+  /*
+   * A chat is created named after the character, and the bar above this one is
+   * already showing that name in inch-high letters. Repeating it here would be
+   * the same word twice with nothing between them.
+   *
+   * So an untouched title is drawn as the invitation it actually is. Which is
+   * also the answer to naming a chat when it opens: the offer is on screen
+   * from the first frame, and it costs a press rather than a prompt nobody
+   * asked for in front of the greeting they did.
+   */
+  const unnamed = !title || S.cast.some((m) => m.name === title);
+  const name = document.createElement("button");
+  name.type = "button";
+  name.className = "castname" + (unnamed ? " unnamed" : "");
+  name.title = unnamed ? "Give this chat a name" : "Rename this chat";
+  name.setAttribute("aria-label", unnamed ? "Give this chat a name" : `Rename this chat, currently ${title}`);
+  name.innerHTML =
+    `<span class="cnm">${unnamed ? "Name this chat" : esc(title)}</span>${ICON.edit}`;
+  // Wrapped, not passed: an onclick handler is called with the event, and
+  // renameChat's first parameter is a chat id.
+  name.onclick = () => renameChat();
+  bar.appendChild(name);
+
+  const scene = document.createElement("button");
+  scene.type = "button";
+  scene.className = "castscene";
+  scene.title = "The scenario everyone is standing in";
+  scene.setAttribute("aria-label", "The scenario everyone is standing in");
+  scene.innerHTML = ICON.scenario;
+  scene.onclick = openScenario;
+  bar.appendChild(scene);
 }
+
+/**
+ * Naming a chat. Three places ask for it — the strip, the chat menu, and the
+ * row for any chat in "Manage chat files" — and they are one function because
+ * they were three, and the three had already drifted: two refused an empty
+ * name by treating cancel and cleared-box the same, and none of them redrew
+ * the strip that is now showing the name.
+ *
+ * Defaults to the open chat, so the two callers that mean "this one" say
+ * nothing. Returns whether anything changed, for the caller that has its own
+ * list to redraw.
+ */
+async function renameChat(id = S.chatId, current = chatMeta?.title ?? "") {
+  if (!id) return false;
+  const title = await askFor("Name this chat", current);
+  // askFor resolves null on cancel and "" on an emptied box. Cancel means
+  // leave it alone; an emptied box is refused because a chat with no name at
+  // all reads as a bug on the shelf.
+  if (title === null) return false;
+  const next = title.trim();
+  if (!next || next === current) return false;
+  await api("/chats/" + id, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: next }),
+  });
+  if (id === S.chatId) {
+    if (chatMeta) chatMeta.title = next;
+    renderRoom();
+  }
+  await refreshCast();
+  await refreshChats();
+  toast("Renamed.");
+  return true;
+}
+
+/**
+ * The scenario, on its own.
+ *
+ * It lives at the bottom of the members dialog too, which is where it was
+ * born — but it is the field in there that actually changes mid-story, and
+ * reaching it meant opening a dialog about who is in the room and reading past
+ * the mute switches to get to it.
+ */
+function openScenario() {
+  if (!S.chatId) return;
+  $("#sc_text").value = chatMeta?.scenario ?? "";
+  $("#scenarioDialog").showModal();
+}
+
+$("#scenarioForm").addEventListener("submit", async (e) => {
+  if (e.submitter?.value !== "save" || !S.chatId) return;
+  const next = $("#sc_text").value;
+  await api("/chats/" + S.chatId, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ scenario: next }),
+  });
+  if (chatMeta) chatMeta.scenario = next;
+  // The members dialog holds the same field; keep it from showing a stale copy.
+  if ($("#roomScenario")) $("#roomScenario").value = next;
+  toast(next.trim() ? "Scenario set." : "Scenario cleared.");
+});
 
 async function loadRoom() {
   const list = await api(`/chats/${S.chatId}/members`);
@@ -1416,6 +1556,10 @@ async function openRoom() {
       `<span class="b-fixed">${esc(m.name)}</span>` +
       `<span class="btools">` +
         `<label class="switch" title="Let them speak"><input type="checkbox" class="m-on"><span></span></label>` +
+        // Editing the card of somebody standing in front of you should not mean
+        // closing the scene, opening the drawer, and finding them in the library.
+        `<button type="button" class="bico" data-edit-member title="Edit ${esc(m.name)}"` +
+        ` aria-label="Edit ${esc(m.name)}">${ICON.edit}</button>` +
         `<button type="button" class="bico danger" data-drop title="Remove from the scene" aria-label="Remove ${esc(m.name)}">&minus;</button>` +
       `</span></div>`;
     const on = row.querySelector(".m-on");
@@ -1426,6 +1570,12 @@ async function openRoom() {
         body: JSON.stringify({ mute: { id: m.id, on: !on.checked } }),
       });
       openRoom();
+    };
+    row.querySelector("[data-edit-member]").onclick = () => {
+      // The character dialog is modal too, and two open at once leaves the
+      // wrong one taking the keyboard.
+      $("#castDialog").close();
+      editChar(m);
     };
     row.querySelector("[data-drop]").onclick = async () => {
       if (S.cast.length < 2) return void toast("A scene needs someone in it.");
@@ -3450,17 +3600,9 @@ document.addEventListener("click", async (e) => {
       break;
 
     case "rename": {
-      const title = await askFor("Name this chat", chatMeta?.title ?? "");
-      if (!title?.trim()) return;
-      await api("/chats/" + S.chatId, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: title.trim() }),
-      });
-      chatMeta.title = title.trim();
-      await refreshCast();
-      await refreshChats();
-      toast("Renamed.");
+      // The strip has the same job now; both go through one function so they
+      // cannot drift into asking slightly different questions.
+      await renameChat();
       break;
     }
 
@@ -4137,15 +4279,8 @@ async function renderFiles() {
         return openChat(c.id);
       }
       if (e.target.closest("[data-rename]")) {
-        const title = await askFor("Name this chat", c.title ?? "");
-        if (!title?.trim()) return;
-        await api("/chats/" + c.id, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title: title.trim() }),
-        });
-        if (c.id === S.chatId) chatMeta.title = title.trim();
-        await renderFiles(); await refreshCast(); await refreshChats();
+        // Any chat in the list, not only the open one — hence the arguments.
+        if (await renameChat(c.id, c.title ?? "")) await renderFiles();
         return;
       }
       if (e.target.closest("[data-del]")) {

@@ -1549,6 +1549,22 @@
   </form>
 </dialog>
 
+<!-- The scenario on its own, because it is the one field in "Who is in this
+     scene" that gets changed mid-story. Reaching it used to mean opening the
+     members dialog and reading past the mute switches to the bottom. -->
+<dialog id="scenarioDialog">
+  <form method="dialog" id="scenarioForm">
+    <h2>The scenario</h2>
+    <p class="hint">The shared premise everyone in this scene is standing in.
+      While it is set it replaces each character's own scene text.</p>
+    <label>Scenario<textarea id="sc_text" rows="7" placeholder="The lamp has failed three nights running, and the supply boat is late."></textarea></label>
+    <div class="actions">
+      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+      <button value="save" class="solid">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="blocksDialog">
   <form method="dialog" id="blocksForm">
     <h2 id="blocksTitle">Prompt blocks</h2>
