@@ -239,6 +239,20 @@ The names scroll and the pass button does not, so a table of nine on a phone
 still has both the glow and the button on screen. Whoever holds the turn is
 scrolled into view: a glow nobody can see is not an indicator.
 
+### Deleting messages moved to where the messages are
+
+It was the last row of the chat menu: open the menu, scroll past eight rows
+about settings and documents, press the ninth. Everything else in that menu is
+a setting or a document; this is an action on the thing you are looking at, and
+it was the wrong distance away from it.
+
+It is a bin in the tray the plus opens, beside continue and impersonate. Last
+in the row and set apart by a gap, because everything to its left is pressed
+constantly and this one throws messages away. Off in a chat with nothing in it.
+
+The same handler, not a copy — the click listener already took actions from
+inside that tray — so the menu version is gone rather than duplicated.
+
 ### A migration that was never applied on new copies
 
 Found by the above, and older and worse than it.

@@ -3538,6 +3538,11 @@ function syncGuideActions() {
   $("#guideCont").disabled = !canFollow;
   $("#guideSwipe").disabled = !canFollow;
   $("#guideImper").disabled = false;   // writing your turn is always available
+  // Nothing to tidy in an empty chat, and the greeting is not deletable on
+  // its own — so an empty thread leaves this off rather than opening a
+  // selection mode with nothing in it.
+  const pick = $("#guidePick");
+  if (pick) pick.disabled = all.length === 0;
 }
 
 /**

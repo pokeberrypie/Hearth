@@ -1928,6 +1928,12 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 .hc-round--primary svg, .hc-die svg { stroke: var(--hc-gold-hi); }
 /* Guidance is open: the disc says where the line in the box came from. */
 .hc-round.on { border-color: var(--hc-gold-line); background: var(--hc-fill-prim); }
+/* Set apart from the run of buttons before it. Everything to its left is
+   pressed constantly, and a control that throws messages away should not be
+   one slip of the thumb from "continue". */
+/* An explicit gap rather than `margin-left: auto`: the row is `flex: none`
+   and sized to its contents, so there is no free space for auto to eat. */
+.hc-round--apart { margin-left: 11px; }
 .hc-round.on svg { stroke: var(--hc-gold-hi); }
 
 /* plus - opens the tray, rotates to a cross */

@@ -342,6 +342,12 @@
             <button type="button" class="hc-round" id="guideBtn" title="Guide this reply" aria-label="Guide this reply">
               <svg viewBox="0 0 22 22"><path d="M11 3l1.8 4.4L17 9l-4.2 1.6L11 15l-1.8-4.4L5 9l4.2-1.6z"/><path d="M16.5 14.5l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9z"/></svg>
             </button>
+            <!-- Tidying up. Last, and set apart by a gap: everything to its left
+                 is pressed constantly and this one throws messages away. -->
+            <button type="button" class="hc-round hc-round--apart" id="guidePick" data-act="select"
+                    title="Delete messages" aria-label="Delete messages">
+              <svg viewBox="0 0 22 22"><path d="M4 6.5h14"/><path d="M8.5 6.5V4.5h5v2"/><path d="M6 6.5l1 11h8l1-11"/><path d="M9.5 9.5v5M12.5 9.5v5"/></svg>
+            </button>
             </div>
           </div>
         </div>
@@ -1472,8 +1478,6 @@
     <div class="sheetsep"></div>
     <button class="sheetrow" data-act="new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Start a new chat</button>
     <button class="sheetrow" data-act="close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg> Close this chat</button>
-    <div class="sheetsep"></div>
-    <button class="sheetrow" data-act="select"><svg viewBox="0 0 24 24"><path d="M4 7h9M4 12h9M4 17h9"/><path d="M16.5 7.5l2 2 4-4.5"/></svg> Delete messages</button>
   </div>
 </div>
 
