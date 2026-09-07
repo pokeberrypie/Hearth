@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { buildParts, buildMessages, buildPostHistory, macros, stripSpeakerLabel, type Character } from "./prompt";
 import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNote, NOTE_SYSTEM, type Scope } from "./autolore";
+import { CARRY_SYSTEM, carryEntry, carryPrompt, carriedTitle, cleanSummary, recentFor, tailBudget } from "./carryon";
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
 import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinstall";
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
@@ -1802,6 +1803,185 @@ api.post("/messages/:id/branch", (c) => {
   })();
 
   return c.json({ id: newId, copied: rows.length });
+});
+
+/**
+ * Summing up, and carrying on somewhere fresh.
+ *
+ * Every turn resends the whole conversation, so an evening that has run long
+ * costs more per message than the same evening did at the start — for a
+ * transcript whose early half nobody is thinking about any more. The standing
+ * advice is "start a new chat sometimes", and nobody does it, because doing it
+ * by hand means losing the thread.
+ *
+ * So this does the losing-nothing part. The recap goes into the memory book as
+ * an entry that is always in the prompt, the new chat opens on the last thing
+ * that was actually said, and everything that made the old chat what it was —
+ * the cast, the books, the notes, the scene, the persona, the campaign — comes
+ * across with it. It is filed as a child of the old chat, so the story still
+ * reads as one story in the fork view.
+ *
+ * Nothing is deleted. The old chat is left exactly as it was, which is the
+ * only thing that makes this safe to press.
+ */
+api.post("/chats/:id/carry-on", async (c) => {
+  const src = db.query("SELECT * FROM chats WHERE id = ? AND deleted_at IS NULL")
+    .get(c.req.param("id")) as any;
+  if (!src) return c.json({ error: "Chat not found." }, 404);
+  const char = db.query("SELECT * FROM characters WHERE id = ?").get(src.character_id) as any;
+  if (!char) return c.json({ error: "That character no longer exists." }, 404);
+
+  const all = db.query(
+    "SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at, rowid",
+  ).all(src.id) as any[];
+  if (all.length < 2) return c.json({ error: "There is not enough here to sum up yet." }, 400);
+
+  const s = getSettings();
+  const size = Number(s.summary_size) || 300;
+  const picked = recentFor(all, tailBudget(size));
+
+  /*
+   * Written before anything is created.
+   *
+   * A half-made chat with no recap in it is worse than no chat at all — you
+   * would have to notice it had failed, and the failure looks exactly like a
+   * successful carry-on until you read it. So the model is asked first, and a
+   * refusal leaves the library untouched.
+   */
+  let said = "";
+  try {
+    for await (const chunk of generate({
+      ...connectionFrom(s),
+      model: s.model,
+      system: CARRY_SYSTEM,
+      messages: [{ role: "user", content: carryPrompt(picked, char.name, size) }],
+      sampling: {
+        // Low, because this reports rather than embroiders — a recap that
+        // invents a detail puts it in the prompt of every turn that follows.
+        temperature: 0.3, topP: 1, minP: 0,
+        /*
+         * Room to overshoot, because they do — asked for three hundred tokens
+         * a model will happily write seven. There is still a ceiling, since a
+         * length slider that can be ignored is not a setting, and `endWhole`
+         * tidies the sentence it lands in the middle of.
+         */
+        maxTokens: Math.min(4000, Math.max(300, Math.round(size * 3.5 + 120))),
+        repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0,
+        stream: false, reasoningEffort: "off",
+      },
+    })) {
+      if (chunk.kind === "text") said += chunk.text;
+      if (said.length > 20000) break;
+    }
+  } catch (err: any) {
+    return c.json({ error: err?.message || "The summary could not be written." }, 502);
+  }
+
+  const summary = cleanSummary(said);
+  if (!summary) return c.json({ error: "The summary came back empty." }, 502);
+
+  const newId = uid();
+  const t = now();
+  db.query(
+    `INSERT INTO chats (id, character_id, title, created_at, updated_at, parent_chat_id, branch_note,
+                        author_note, note_depth, wallpaper, persona_id, is_group, auto_reply, scenario,
+                        location, fight, campaign, campaign_asked, accent, ambience,
+                        auto_lore_book_id, auto_lore_asked, auto_lore_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    newId, src.character_id, carriedTitle(src.title || char.name), t, t, src.id,
+    "Summed up and carried on",
+    src.author_note ?? "", src.note_depth ?? 2, src.wallpaper ?? "", src.persona_id ?? null,
+    src.is_group ?? 0, src.auto_reply ?? 0, src.scenario ?? "",
+    src.location ?? "", src.fight ?? "", src.campaign ?? "", src.campaign_asked ?? 0,
+    src.accent ?? "", src.ambience ?? "",
+    src.auto_lore_book_id ?? null, src.auto_lore_asked ?? 0,
+    // The note-taker starts fresh here rather than inheriting a mark from a
+    // transcript this chat does not have: with the old timestamp every message
+    // in the new chat would read as already covered.
+    0,
+  );
+
+  /*
+   * The room, not just the founder.
+   *
+   * `character_id` is only whoever the chat was started with. In a group the
+   * cast lives in chat_members, and a carry-on that dropped it would open a
+   * scene with everybody but one person missing — the failure hardest to spot
+   * in exactly the chats this feature is for, since a long evening is usually
+   * a full one.
+   */
+  const members = db.query(
+    "SELECT character_id, position, muted FROM chat_members WHERE chat_id = ? ORDER BY position",
+  ).all(src.id) as any[];
+  const addMember = db.query(
+    "INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES (?,?,?,?,?)",
+  );
+  db.transaction(() => {
+    for (const m of members) addMember.run(uid(), newId, m.character_id, m.position, m.muted ?? 0);
+  })();
+
+  // The books pinned to the old chat, exactly as a branch inherits them.
+  const pinned = db
+    .query("SELECT book_id FROM lorebook_links WHERE scope = 'chat' AND target_id = ?")
+    .all(src.id) as any[];
+  for (const link of pinned) {
+    db.query("INSERT INTO lorebook_links (id, book_id, scope, target_id) VALUES (?,?,?,?)")
+      .run(uid(), link.book_id, "chat", newId);
+  }
+
+  /*
+   * Where the recap goes.
+   *
+   * The chat's own memory book if it has one — that is the thing the recap
+   * *is*, and putting it there means it is applied by the ordinary lore
+   * machinery rather than by something new. A chat that never picked a book
+   * gets one made for it: refusing to carry on because of a question nobody
+   * answered would be a strange place to stop.
+   */
+  let bookId: string | null = src.auto_lore_book_id ?? null;
+  if (bookId && !db.query("SELECT id FROM lorebooks WHERE id = ? AND deleted_at IS NULL").get(bookId)) {
+    bookId = null;
+  }
+  if (!bookId) {
+    bookId = uid();
+    db.query("INSERT INTO lorebooks (id, name, entries, created_at, world) VALUES (?,?,?,?,?)")
+      .run(bookId, freeBookName(`${char.name} — notes`), "[]", t, currentWorld());
+    db.query("UPDATE chats SET auto_lore_book_id = ?, auto_lore_asked = 1 WHERE id = ?")
+      .run(bookId, newId);
+    db.query("INSERT INTO lorebook_links (id, book_id, scope, target_id) VALUES (?,?,?,?)")
+      .run(uid(), bookId, "chat", newId);
+  } else if (!pinned.some((l) => l.book_id === bookId)) {
+    // Named as the chat's book but never actually attached to it, which is
+    // possible for chats older than that link. Attach it, or the recap is
+    // written somewhere nothing reads.
+    db.query("INSERT INTO lorebook_links (id, book_id, scope, target_id) VALUES (?,?,?,?)")
+      .run(uid(), bookId, "chat", newId);
+  }
+
+  const book = db.query("SELECT * FROM lorebooks WHERE id = ?").get(bookId) as any;
+  const entries = readEntries(book);
+  entries.push(normaliseEntry(carryEntry(summary, src.title || char.name)));
+  db.query("UPDATE lorebooks SET entries = ? WHERE id = ?")
+    .run(JSON.stringify(entries), bookId);
+
+  /*
+   * And the last thing that was said, word for word.
+   *
+   * A recap tells you what happened; it does not give you the sentence you
+   * were about to answer. Copied as a row rather than quoted into the summary,
+   * so it keeps its speaker and draws as whoever actually said it — and so the
+   * recap does not spend its budget repeating it.
+   */
+  const last = all[all.length - 1];
+  db.query(
+    `INSERT INTO messages (id, chat_id, role, name, content, created_at, swipes, swipe_index,
+                           reasoning, tokens, ms, character_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(uid(), newId, last.role, last.name ?? "", last.content, t,
+        "[]", 0, "", last.tokens ?? 0, last.ms ?? 0, last.character_id ?? null);
+
+  return c.json({ id: newId, summary, book_id: bookId, members: members.length });
 });
 
 

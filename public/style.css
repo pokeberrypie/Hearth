@@ -1438,6 +1438,35 @@ label.check input[type="checkbox"]:checked::after {
   transform: rotate(43deg);
 }
 
+/* ---- this chat is getting long -------------------------------------------
+   An offer sitting on the writing line, not a dialog over the story: it is a
+   suggestion about money and it must be ignorable at a glance. Quiet type,
+   no fill, and the two answers read as links rather than as buttons — the
+   loud version of this is a nag bar, and a nag bar over somebody's evening is
+   worse than the tokens it saves. */
+
+.carrybar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .1rem .8rem;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: .45rem 1rem .1rem;
+  font-size: .8rem;
+  color: var(--lumiverse-text-dim);
+}
+.carryword { flex: 1 1 14rem; min-width: 0; }
+.carrybar .linkish { flex: 0 0 auto; font-size: .8rem; }
+#carryGo { color: var(--lumiverse-primary); }
+
+/* On a phone the sentence takes the whole width and the two answers sit
+   under it, rather than the three of them fighting over one line. */
+@media (max-width: 700px) {
+  .carrybar { padding: .4rem .8rem .1rem; gap: .15rem .7rem; }
+  .carryword { flex: 1 1 100%; }
+}
+
 /* ---- glass plate ---------------------------------------------------------
    The message is frosted glass laid over the scene. Because it blurs what sits
    behind it, a portrait tucked underneath softens at the boundary on its own. */

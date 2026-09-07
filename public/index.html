@@ -307,6 +307,16 @@
       <div class="initrows" id="initRows"></div>
     </div>
 
+    <!-- This chat has got long, and every turn is resending all of it.
+         An offer by the writing line rather than a dialog over the story: it
+         is a suggestion about money, not something that needs answering, and
+         "not now" makes it go away for this chat. -->
+    <div class="carrybar" id="carryBar" hidden>
+      <span class="carryword" id="carryWord"></span>
+      <button type="button" class="linkish" id="carryGo">Sum up and carry on</button>
+      <button type="button" class="linkish" id="carryNo">Not now</button>
+    </div>
+
     <!-- The composer, to the drawing.
 
          The plus opens the tray: a card joined to the top of the box, its own
@@ -1022,6 +1032,27 @@
             invents a picture, and a weak match changes nothing.</p>
           <label class="check"><input type="checkbox" id="confirm_deletes"> Ask before deleting anything</label>
           <p class="hint">Nothing here can be undone; keep a copy of your data folder either way.</p>
+
+          <h3>Long chats</h3>
+          <label class="check"><input type="checkbox" id="summary_suggest">
+            Offer to sum up and carry on</label>
+          <p class="hint">Every turn resends the whole conversation, so a chat that has
+            run all night costs more per message than it did at the start. When one gets
+            long, a line appears by the writing box offering to write a recap into its
+            memory book and open a fresh chat on the last thing that was said — the cast,
+            the books, the notes and the scene all come with it, and nothing is deleted.
+            It only ever offers.</p>
+          <div id="summaryRows">
+            <label>Offer once a chat reaches <span class="v" id="v_summary_at"></span>
+              <input type="range" id="summary_at" min="0" max="120000" step="2000">
+            </label>
+            <label>Length of the recap <span class="v" id="v_summary_size"></span>
+              <input type="range" id="summary_size" min="100" max="1500" step="50">
+            </label>
+            <p class="hint">A longer recap carries more across and costs more to write, and
+              then sits in every prompt of the new chat. Three hundred is about a good
+              paragraph.</p>
+          </div>
       </section>
 
       <section data-panel="data" class="panel" hidden>

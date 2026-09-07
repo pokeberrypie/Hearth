@@ -253,6 +253,70 @@ constantly and this one throws messages away. Off in a chat with nothing in it.
 The same handler, not a copy — the click listener already took actions from
 inside that tray — so the menu version is gone rather than duplicated.
 
+### Summing up, and carrying on
+
+Every turn resends the whole conversation, so an evening that has run long
+costs more per message than the same evening did at the start — for a
+transcript whose early half nobody is thinking about any more. The standing
+advice is "start a new chat sometimes", and nobody does, because doing it by
+hand means losing the thread.
+
+When a chat gets long a line appears by the writing box saying how big it has
+got and offering to sum up. It is a sentence and two links, on the composer's
+own line — not a dialog over the story. **Not now** makes it go away for that
+chat, and taking the offer stops it coming back on the old one too.
+
+What comes across:
+
+- **A recap of the recent events**, written into the chat's memory book as an
+  entry that is always in the prompt. That is what a memory book is for, so it
+  is applied by the ordinary lore machinery rather than by anything new. A chat
+  that never picked a book gets one made for it.
+- **The last thing that was said, word for word** — copied as a message rather
+  than quoted into the recap, so it keeps its speaker and draws as whoever
+  actually said it, and so the recap does not spend its budget repeating it.
+- **The cast.** `character_id` is only whoever the chat was started with; in a
+  group the room lives in `chat_members`, and dropping it would open a scene
+  with everybody but one person missing — hardest to notice in exactly the
+  chats this is for, since a long evening is usually a full one.
+- The pinned books, the author's note and its depth, the scene, the persona,
+  the wallpaper, the accent and ambience, the campaign, and any fight in
+  progress. It is filed as a child of the old chat, so the story still reads as
+  one story in the fork view.
+
+**Nothing is deleted.** The old chat is left exactly as it was, which is the
+only thing that makes this safe to press. And the recap is written *before*
+anything is created — a half-made chat with no recap in it looks exactly like a
+successful carry-on until you read it, so a model that will not answer leaves
+the library untouched and says so.
+
+Three controls in Behaviour: whether to offer at all, the size a chat has to
+reach, and how long the recap should be. The far end of the threshold slider
+is "never", so it has an off position of its own.
+
+Two details that are not obvious and both matter. The length is asked for in
+words as well as tokens, because a model told "300 tokens" will cheerfully
+write nine hundred — it has no sense of its own tokeniser and does have a sense
+of how long a paragraph is. And there is still a ceiling, so an overshoot gets
+stopped mid-clause; the half-sentence is then dropped, because this text goes
+into *every* prompt of the new chat, and a model handed a hanging "and the
+missing" will oblige by finishing it.
+
+### Two found by pressing that button
+
+**Opening a chat that would not open pointed the app at it anyway.**
+`openChat` set the current chat id from its argument and read the response on
+the next line, so a request that answered `{ error }` — an id deleted in
+another tab, a fork whose creation half failed — left every button afterwards
+acting on a chat that is not there. It threw, which was the visible half; the
+silent half was worse. It now leaves everything as it was and says so.
+
+**The new sliders were hidden on every load.** They are drawn from the switch
+above them, by a function that runs before the loop that puts the switches into
+the state they were stored in. So it read an unticked box, hid two controls
+that should have been showing, and nothing looked again until some other slider
+was moved. The same shape of bug as the dice checkbox above, one layer along.
+
 ### A migration that was never applied on new copies
 
 Found by the above, and older and worse than it.

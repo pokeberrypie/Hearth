@@ -947,6 +947,9 @@ async function showSplash() {
   $("#treeView").hidden = true;
   $("#thread").hidden = false;
   $("#composer").hidden = true;
+  // The offer belongs to a chat. Left up, it stands over the shelf suggesting
+  // something about a conversation nobody is in any more.
+  $("#carryBar").hidden = true;
   $("#chatMenuBtn").hidden = true;
   /*
    * And the menu that button opens, which does not close itself.
@@ -1000,7 +1003,22 @@ async function startChat(character_id) {
 }
 
 async function openChat(id) {
-  const { chat, messages, members } = await api("/chats/" + id);
+  const got = await api("/chats/" + id).catch(() => null);
+  /*
+   * A chat that did not come back leaves everything exactly as it was.
+   *
+   * This used to destructure the response and set S.chatId on the next line,
+   * so a request that answered `{ error }` — an id that has been deleted in
+   * another tab, a fork whose creation half failed — pointed the whole app at
+   * a chat that is not there and *then* threw on the line after. Every button
+   * afterwards acted on that id: the composer, the menu, the strip. The throw
+   * was the visible part and the worst part was silent.
+   */
+  if (!got || got.error || !got.chat) {
+    fail(got?.error ?? "That chat could not be opened.");
+    return;
+  }
+  const { chat, messages, members } = got;
   S.chatId = id;
   renderTogether?.();
   S.charName = chat.character_name;
@@ -1037,6 +1055,7 @@ async function openChat(id) {
   refreshWorld();
   if (!$("#guideRow").hidden) syncGuideActions();
   closeDrawer();
+  paintCarry();
   openingQuestions(chat);
   // Opening a chat always lands at the newest message, whatever the previous
   // chat's scroll position was. (Passing stick straight to rAF would hand it
@@ -3297,6 +3316,9 @@ function done() {
   $("#sendBtn").disabled = false;
   $("#stopBtn").hidden = true;
   stick();
+  // A chat only ever gets longer, so this is the moment to look: the turn
+  // that crossed the line is the turn you would want to be told about.
+  paintCarry();
 }
 
 /**
@@ -6798,7 +6820,8 @@ function buildSwatches() {
   }
 }
 
-const LORE_SETTINGS = ["lore_scan_depth", "lore_budget", "auto_lore_every", "auto_lore_scope"];
+const LORE_SETTINGS = ["lore_scan_depth", "lore_budget", "auto_lore_every", "auto_lore_scope",
+                       "summary_at", "summary_size"];
 const LOOK = ["overlay_opacity", "glow_opacity", "font_scale", "avatar_size", "radius", "banner_width", "measure", "fade_start", "plate_blur", "plate_opacity", "tuck"];
 const TOGGLES = ["bleed", "show_stats", "show_cutoff", "sound", "page_faces"];
 /**
@@ -6817,10 +6840,80 @@ const TOGGLES = ["bleed", "show_stats", "show_cutoff", "sound", "page_faces"];
  * wrote that unticked box back over the setting. Every page load quietly
  * turned dice off again, and nothing said so.
  */
-const PREFS = ["confirm_deletes", "dice_enabled", "scene_follows"];
+const PREFS = ["confirm_deletes", "dice_enabled", "scene_follows", "summary_suggest"];
 
 /** Off unless stored on, except confirming deletes, which is on unless stored off. */
-const PREF_DEFAULT_ON = new Set(["confirm_deletes"]);
+const PREF_DEFAULT_ON = new Set(["confirm_deletes", "summary_suggest"]);
+
+/**
+ * How much of this chat is being resent on every turn.
+ *
+ * The app's one convention for size: four characters to a token, the same
+ * arithmetic the inspector reports with. Only the transcript, because the
+ * transcript is the part that grows — the card and the lore are the same
+ * size on the last turn as on the first.
+ */
+function chatTokens() {
+  let chars = 0;
+  for (const el of $("#thread").querySelectorAll(".msg")) chars += (el.dataset.raw ?? "").length;
+  return Math.round(chars / 4);
+}
+
+/** Chats where the offer has been waved away, for this session. */
+const carryHushed = new Set();
+
+/**
+ * The offer, or not.
+ *
+ * Deliberately quiet about its own arithmetic: "about 24k" rather than a
+ * number to the token, because the point is "this is getting expensive" and a
+ * precise figure invites an argument with it.
+ */
+function paintCarry() {
+  const bar = $("#carryBar");
+  if (!bar) return;
+  const on = $("#summary_suggest")?.checked;
+  const at = Number($("#summary_at")?.value) || 0;
+  const n = S.chatId ? chatTokens() : 0;
+  const many = $("#thread").querySelectorAll(".msg").length >= 6;
+  const show = !!S.chatId && !!on && at > 0 && many && n >= at
+    && !carryHushed.has(S.chatId) && !GUEST.on;
+  bar.hidden = !show;
+  if (!show) return;
+  $("#carryWord").textContent =
+    `This chat is about ${Math.round(n / 1000)}k tokens now, and all of it goes with every message.`;
+}
+
+$("#carryNo").onclick = () => {
+  if (S.chatId) carryHushed.add(S.chatId);
+  $("#carryBar").hidden = true;
+};
+
+$("#carryGo").onclick = async () => {
+  if (!S.chatId) return;
+  const from = S.chatId;
+  const go = $("#carryGo");
+  go.disabled = true;
+  const was = go.textContent;
+  go.textContent = "Writing the recap…";
+  const r = await api(`/chats/${from}/carry-on`, { method: "POST" }).catch((err) => ({
+    error: err?.message ?? "Could not sum this chat up.",
+  }));
+  go.disabled = false;
+  go.textContent = was;
+  if (!r || r.error) return fail(r?.error ?? "Could not sum this chat up.");
+
+  /*
+   * The old chat is left alone, so this offer must not come back the moment
+   * somebody looks at it again — they have answered it, and the answer was
+   * "yes, and I have moved".
+   */
+  carryHushed.add(from);
+  await refreshChats();
+  await refreshLore();
+  await openChat(r.id);
+  toast("Carried on. The recap is in this chat's memory book.");
+};
 
 function applyLook() {
   const r = document.documentElement.style;
@@ -6881,6 +6974,21 @@ function paintLoreSettings() {
   const every = Number($("#auto_lore_every").value) || 0;
   $("#v_autolore").textContent = every ? `${every} messages` : "never";
   $("#autoLoreScopeRow").hidden = !every;
+
+  /*
+   * The far left of the threshold slider is "never".
+   *
+   * Rather than a second switch beside the first one: somebody who wants this
+   * off has the checkbox above, and somebody dragging the slider down to
+   * nothing means the same thing and should not be left with a control that
+   * silently does something else at zero.
+   */
+  const at = Number($("#summary_at").value) || 0;
+  $("#v_summary_at").textContent = at ? `${Math.round(at / 1000)}k tokens` : "never";
+  const size = Number($("#summary_size").value) || 0;
+  $("#v_summary_size").textContent = `${size} tokens`;
+  const rows = $("#summaryRows");
+  if (rows) rows.hidden = !$("#summary_suggest")?.checked;
 }
 let loreTimer;
 function saveLoreSettings() {
@@ -7923,7 +8031,7 @@ async function loadSettings() {
   LOOK.forEach((f) => ($("#" + f).value = s[f]));
   LORE_SETTINGS.forEach((f) => {
     $("#" + f).value = s[f];
-    $("#" + f).oninput = () => { paintLoreSettings(); saveLoreSettings(); };
+    $("#" + f).oninput = () => { paintLoreSettings(); saveLoreSettings(); paintCarry(); };
   });
   paintLoreSettings();
   setMsgStyle(s.message_style || "banner");
@@ -7979,9 +8087,23 @@ async function loadSettings() {
       if (t === "confirm_deletes") askBeforeDelete = el.checked;
       applyToggles();
       saveLook();
+      // The sliders under the switch, and the offer the switch is about.
+      paintLoreSettings();
+      paintCarry();
     };
   });
   askBeforeDelete = $("#confirm_deletes").checked;
+  /*
+   * Again, now the switches are in.
+   *
+   * The sliders under "offer to sum up and carry on" are drawn by
+   * paintLoreSettings, which ran further up — before the loop above had put
+   * the switch into the state it was stored in. So on every load it read an
+   * unticked box and hid two controls that were meant to be showing, and
+   * nothing looked at them again until somebody happened to move a different
+   * slider.
+   */
+  paintLoreSettings();
   try { themeVars = JSON.parse(s.theme_vars || "{}"); } catch { themeVars = {}; }
   applyLook();
   applyTheme();

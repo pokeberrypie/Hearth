@@ -471,6 +471,21 @@ export const DEFAULTS: Record<string, string> = {
   /** "since" the last note, or a "window" of the last `auto_lore_every`. */
   auto_lore_scope: "since",
   lore_budget: "8000",
+
+  /*
+   * Carrying a long chat into a fresh one.
+   *
+   * On by default, because the whole point is that it reaches people who are
+   * not already thinking about their token spend — the ones who are already
+   * counting will find the sliders. It only ever offers; nothing here starts
+   * a new chat on its own.
+   */
+  summary_suggest: "1",
+  /** Transcript size, in tokens, at which the offer appears. 0 is never. */
+  summary_at: "20000",
+  /** How long the recap should be, in tokens. */
+  summary_size: "300",
+
   radius: "10",
   avatar_size: "56",
   overlay_opacity: "0.72",
