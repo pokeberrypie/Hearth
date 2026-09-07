@@ -302,6 +302,48 @@ stopped mid-clause; the half-sentence is then dropped, because this text goes
 into *every* prompt of the new chat, and a model handed a hanging "and the
 missing" will oblige by finishing it.
 
+### The scaffolding folds away
+
+Reported as "the regex for scene plan is fucking up and I keep having script in
+every response".
+
+The big roleplay presets — Lucid Loom, Nemo Engine, DEUS EX MACHINA — all work
+the same way: the model is asked to do its planning in named blocks and write
+the scene in one of its own. A reply arrives as `<scene_plan>`, `<tracker>`,
+`<prose>`, `<status>`, `<threads>`, `<momentum>`, and in SillyTavern a pile of
+regex scripts hides the working. Bring the preset here without those scripts —
+which is the ordinary case, since a preset file does not carry them — and you
+read the whole apparatus in every reply.
+
+Hearth already knew four of these tags. It did not know the rest, and it did
+not know `<prose>`, which is not scaffolding at all: it is the scene.
+
+So `<prose>` is unwrapped and read as what it is, and the planning blocks fold:
+same box the story threads already use, shut by default, with the tag's own
+name on the front. On a real reply that took the visible text from about six
+and a half thousand characters to two thousand — the scene, and five closed
+labels above it.
+
+**Folded, not hidden.** It is genuinely useful to open the plan when a scene
+goes somewhere strange, and quietly deleting a third of what the model said is
+a thing an app should never do on a guess.
+
+Anyone who *has* imported their preset's own regex scripts is untouched: the
+display scripts run first, and this only happens when they changed nothing.
+
+Two details found in a real reply. Presets are not consistent about
+`<summary>` — some write a sentence in there and some write the whole status
+table — so a summary is only used as the closed label if it is short and on one
+line, and the tag name is used otherwise; the text stays in the body either
+way. And the label was being printed twice, once shut and once open, which
+reads as the model repeating itself.
+
+The nesting needed care: a `<prose>` block contains thoughts and coloured spans,
+so rendering it runs the same pass again over what was inside. A single shared
+regex could not do that — `lastIndex` is state on the regex object, and the
+inner pass moves it out from under the outer one, which silently drops
+everything after the first `<prose>` block in the reply.
+
 ### Two found by pressing that button
 
 **Opening a chat that would not open pointed the app at it anyway.**

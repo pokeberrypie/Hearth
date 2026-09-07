@@ -140,12 +140,34 @@ function recall(key, fallback = "") {
 }
 
 /**
+ * Blocks a preset asks the model to plan in, rather than to say.
+ *
+ * The big roleplay presets — Lucid Loom, Nemo, DEUS EX MACHINA — all work the
+ * same way: the model writes its working out into named blocks and the scene
+ * into one of its own. In SillyTavern a pile of regex scripts hides the
+ * working; anybody who brings the preset here without those scripts gets the
+ * whole apparatus in every reply, which is the reader looking at the
+ * scaffolding instead of the building.
+ *
+ * So they fold. Not hidden — folded, because it is genuinely useful to open
+ * the plan when a scene goes somewhere strange, and because silently deleting
+ * a third of what the model said is a thing an app should never do on a guess.
+ */
+const FOLDED = "scene_plan|scene-plan|sceneplan|plan|tracker|status|momentum|analysis|reasoning|notes";
+
+/**
  * Structured tags a model may wrap its answer in. SillyTavern-style prompts ask
  * for these, and a reply full of visible `<true_thoughts>` is the reader seeing
  * the scaffolding instead of the scene. Known tags become real elements; any
  * other tag is stripped and its text kept, so nothing silently disappears.
+ *
+ * `prose` is the odd one and the important one: it is not scaffolding, it is
+ * the scene. It gets unwrapped and read as what it is.
  */
-const TAGGED = /<(true_thoughts|thoughts|threads|thinking)\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+const TAGGED = new RegExp(
+  `<(prose|true_thoughts|thoughts|threads|thinking|${FOLDED})\\b([^>]*)>([\\s\\S]*?)<\\/\\1\\s*>`,
+  "gi",
+);
 
 /** Straight and curly quotes both \u2014 models are not consistent about it. */
 const attr = (attrs, name) =>
@@ -415,15 +437,55 @@ function thoughtEl(attrs, inner) {
     `<span class="ttext">${plain(inner.trim())}</span></aside>`;
 }
 
+/**
+ * One of the model's working-out blocks, folded shut.
+ *
+ * The label comes from the tag, because that is what the preset author called
+ * it and they were describing it to a reader as much as to a model. An inner
+ * `<summary>` — several presets write one — is used instead, since a sentence
+ * beats a noun.
+ */
+function foldEl(tag, inner) {
+  const found = inner.match(/<summary>([\s\S]*?)<\/summary>/i);
+  const one = found?.[1]?.trim().replace(/\s+/g, " ");
+  /*
+   * Only if it is actually a summary.
+   *
+   * Presets are not consistent about this: some write a sentence in there and
+   * some write the whole table, and a `<details>` whose closed label is forty
+   * lines of status block is worse than no label at all. Short and on one line
+   * or the tag's own name is used instead — and the text stays in the body
+   * either way, so nothing is lost by not believing it.
+   */
+  const said = one && one.length <= 80 && !/\n/.test(found[1].trim()) ? one : "";
+  const name = String(tag).replace(/[_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+  // The whole element goes when its text becomes the label, not just its
+  // tags: leaving the text behind printed the summary twice, once shut and
+  // once open, which reads as the model having repeated itself.
+  const body = (said ? inner.replace(found[0], "") : inner)
+    .replace(/<\/?(details|summary)\s*>/gi, "")
+    .trim();
+  return `<details class="threads plan"><summary>${plain(said || name)}</summary>` +
+    `<div class="planbody">${segment(body)}</div></details>`;
+}
+
 function prose(text) {
   const src = String(text ?? "");
   let out = "";
   let last = 0;
   let m;
-  TAGGED.lastIndex = 0;
-  while ((m = TAGGED.exec(src))) {
+  // Its own regex object: `prose` recurses into this function for what is
+  // inside a <prose> block, and a shared `lastIndex` would be trampled by the
+  // inner pass and skip everything after it in the outer one.
+  const re = new RegExp(TAGGED.source, "gi");
+  while ((m = re.exec(src))) {
     out += segment(src.slice(last, m.index));
-    out += /threads/i.test(m[1]) ? threadsEl(m[3]) : thoughtEl(m[2], m[3]);
+    const tag = m[1].toLowerCase();
+    out +=
+      tag === "prose" ? prose(m[3])
+      : tag === "threads" ? threadsEl(m[3])
+      : new RegExp(`^(?:${FOLDED})$`, "i").test(tag) ? foldEl(tag, m[3])
+      : thoughtEl(m[2], m[3]);
     last = m.index + m[0].length;
   }
   return out + segment(src.slice(last));

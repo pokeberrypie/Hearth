@@ -3520,6 +3520,20 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
 .threads ul { margin: .45rem 0 .3rem; padding-left: .2rem; list-style: none; }
 .threads li { margin: .3rem 0; display: flex; gap: .45rem; align-items: baseline; }
 
+/* The model's working out, folded. Same materials as the threads box above,
+   because they are the same kind of thing — something the reply carried that
+   is not the scene. Dimmer inside: it is reference, not prose, and it must
+   never compete with the story it sits next to. */
+.threads.plan { margin: .5rem 0; }
+.threads.plan > summary { text-transform: uppercase; }
+.planbody {
+  margin-top: .4rem;
+  font-size: .95em;
+  color: var(--lumiverse-text-dim);
+  white-space: pre-wrap;
+}
+.planbody em, .planbody strong { color: inherit; }
+
 .tchip {
   flex: 0 0 auto;
   font-size: .68em;
