@@ -197,6 +197,16 @@ function segment(text) {
  * Runs over already-escaped text, like dice, so nothing captured here is
  * escaped again — doing it twice is how "Tom & Jerry" becomes "Tom &amp;amp;".
  */
+/** How a narrator separates a name from the person. Mirrors SPLIT in verbs.ts. */
+const NPC_SPLIT = /\s*(?:[—–]|,|:|;|\s-\s|\()\s*/;
+
+/*
+ * esc() escapes the three characters that matter between tags and leaves the
+ * quote alone, which is right for text and wrong for an attribute value. These
+ * strings are going into one.
+ */
+const quot = (s) => String(s).replace(/"/g, "&quot;");
+
 function verbs(html) {
   return html
     .replace(
@@ -206,9 +216,40 @@ function verbs(html) {
         `<span class="scenewhere">${where}</span>` +
         `<span class="scenerule"></span></span>`,
     )
+    /*
+     * Somebody the narrator decided exists.
+     *
+     * The settled form is only a name — everything about them has moved onto a
+     * card in the scene panel — which left the pill in the prose a dead label:
+     * a gold name you could not press, standing for a description kept
+     * somewhere you had to already know about. "Is this supposed to expand, or
+     * is it intentionally mysterious like this" is how that landed, and
+     * mysterious was not the intention.
+     *
+     * So the pill opens onto who they are, in the chat, where they were named.
+     *
+     * Splitting the payload here rather than trusting the settled form is what
+     * makes that work in both rooms. Verbs are only resolved at the table, so
+     * a story-mode chat still has the whole thing inline — and that half used
+     * to draw as a pill with a sentence crammed inside it if it fitted under
+     * sixty characters, and as raw brackets if it did not. Same feature, three
+     * appearances. Now: the name, and the rest on tap, wherever it came from.
+     */
     .replace(
-      /\[\[npc:\s*([^\]\n]{1,60}?)\s*\]\]/gi,
-      (_whole, name) => `<span class="metnpc">${name}</span>`,
+      /\[\[npc:\s*([^\]\n]{1,240}?)\s*\]\]/gi,
+      (whole, payload) => {
+        const [rawName, ...rest] = String(payload).split(NPC_SPLIT);
+        const name = rawName.trim().replace(/[.!?]+$/, "");
+        // The same bounds readNpc uses. A bracket holding a sentence is a model
+        // describing a moment, not naming a person, and the server leaves those
+        // alone — so this must too, or the two disagree about what is a name.
+        if (!name || name.length > 48 || name.split(/\s+/).length > 5) return whole;
+        const brief = rest.join(", ").trim();
+        return `<span class="metnpc" role="button" tabindex="0"` +
+          ` data-name="${quot(name)}"` +
+          (brief ? ` data-brief="${quot(brief)}"` : "") +
+          `>${name}</span>`;
+      },
     )
     /*
      * The order everyone acts in, once a fight starts.
@@ -889,6 +930,7 @@ async function showSplash() {
   // Whichever room this is. Hardcoding "Hearth" here meant walking into
   // tabletop mode and finding the sign over the door had changed back.
   setBarTitle(MODES[document.body.dataset.mode]?.title ?? "Hearth");
+  paintModeSwitch(true);
   $("#treeView").hidden = true;
   $("#thread").hidden = false;
   $("#composer").hidden = true;
@@ -954,6 +996,8 @@ async function openChat(id) {
     title: chat.parent_title ? `Branched from ${chat.parent_title}` : chat.title ?? "",
     branched: !!chat.parent_chat_id,
   });
+  // In here the bar is a name, not a sign. See paintModeSwitch.
+  paintModeSwitch(false);
   $("#splash").hidden = true;
   $("#treeView").hidden = true;
   $("#thread").hidden = false;
@@ -1761,6 +1805,73 @@ $("#initGrip").onclick = () => {
   $("#initGrip").setAttribute("aria-expanded", String(!trackFolded));
 };
 
+/**
+ * Who the names in the prose belong to.
+ *
+ * A settled [[npc: Andres Vega]] keeps nothing but the name — the description
+ * the narrator wrote went onto his card — so the pill in the message has to
+ * ask somewhere for the rest of him. This is that somewhere: the same cards
+ * the scene panel draws, keyed by name, filled whenever the panel refreshes.
+ *
+ * Lower-cased because the server matches names COLLATE NOCASE when it decides
+ * whether it has met somebody before, and a lookup stricter than the write is
+ * a lookup that misses.
+ */
+const MET = new Map();
+
+function rememberMet(cast) {
+  MET.clear();
+  for (const n of cast ?? []) {
+    if (n?.name && n.brief) MET.set(String(n.name).trim().toLowerCase(), String(n.brief));
+  }
+}
+
+/**
+ * Opens a name onto the person.
+ *
+ * The brief is looked for in three places, nearest first: on the pill itself
+ * (an unresolved bracket carries it inline, which is every story-mode chat),
+ * then the cards already loaded, then the server. The fetch is the slow path
+ * and usually unnecessary — but the panel it would have come from is
+ * tabletop-only and lives behind the drawer, so somebody who has never opened
+ * it would otherwise press a name and get nothing, which is the exact
+ * complaint this is answering.
+ */
+async function openMet(pill) {
+  if (pill.classList.contains("open")) { pill.classList.remove("open"); return; }
+
+  const who = (pill.dataset.name || pill.textContent || "").trim().toLowerCase();
+  let brief = pill.dataset.brief || MET.get(who) || "";
+
+  if (!brief && S.chatId) {
+    try {
+      const data = await api(`/chats/${S.chatId}/npcs`);
+      rememberMet(Array.isArray(data.npcs) ? data.npcs : []);
+      brief = MET.get(who) || "";
+    } catch { /* offline, or a guest with no panel. Say so below. */ }
+  }
+
+  if (!brief) { toast("The narrator only gave a name."); return; }
+  pill.dataset.brief = brief;
+  pill.classList.add("open");
+}
+
+$("#thread").addEventListener("click", (e) => {
+  const pill = e.target.closest?.(".metnpc");
+  // Not while a sweep is running: in there a tap on a message is a tap on the
+  // message, and picking one to delete should not also unfold somebody.
+  if (!pill || $("#thread").classList.contains("picking")) return;
+  openMet(pill);
+});
+
+$("#thread").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const pill = e.target.closest?.(".metnpc");
+  if (!pill || $("#thread").classList.contains("picking")) return;
+  e.preventDefault();
+  openMet(pill);
+});
+
 async function refreshWorld() {
   const section = $("#worldSection");
   if (!section) return;
@@ -1776,6 +1887,7 @@ async function refreshWorld() {
     where = data.location ?? "";
     cast = Array.isArray(data.npcs) ? data.npcs : [];
     fight = data.fight ?? null;
+    rememberMet(cast);
   } catch { section.hidden = true; renderTrack(null); return; }
 
   // The tracker is driven from the same fetch as the panel, so the two can
@@ -2107,10 +2219,33 @@ function wireSheet(sheet) {
   const die = $("#csRoll");
   if (die) die.onclick = () => $("#diceBtn").click();
 
-  const again = $("#sheetReroll");
+  /*
+   * `#csReroll` — the id sheetCard actually writes.
+   *
+   * This asked for an id the sheet has never drawn, so it always found
+   * nothing and the button under the sheet did nothing at all:
+   * no dialog, no error, no clue. Reported by somebody who reasonably assumed
+   * the feature was unfinished rather than the handler unwired.
+   */
+  const again = $("#csReroll");
   if (again) {
     again.onclick = async () => {
-      if (!(await ask("Start again?", "The sheet you have now is replaced."))) return;
+      /*
+       * askDialog rather than ask, because ask() takes a title and nothing
+       * else. The sentence written for this — the one that says what actually
+       * happens — was being passed as a second argument and dropped on the
+       * floor, so the question came up under the stock "This cannot be undone".
+       * Nobody noticed, because until now the button it belongs to never
+       * opened a dialog at all.
+       *
+       * The preference is still honoured: somebody who has turned
+       * confirmations off should not be asked here either.
+       */
+      if (askBeforeDelete && !(await askDialog({
+        title: "Start again?",
+        text: "The sheet you have now is replaced. Your persona stays as they are.",
+        confirmLabel: "Start again",
+      }))) return;
       await api(`/sheets/${activePersonaId}`, { method: "DELETE" });
       await refreshSheet();
     };
@@ -2135,7 +2270,10 @@ const MODES = {
 function applyMode(mode) {
   const m = MODES[mode] ? mode : "story";
   document.body.dataset.mode = m;
-  if ($("#splash").hidden === false || !S.chatId) setBarTitle(MODES[m].title);
+  if ($("#splash")?.hidden === false || !S.chatId) {
+    setBarTitle(MODES[m].title);
+    paintModeSwitch(true);
+  }
   if ($("#modeCardTitle")) paintModeCard();
   if ($("#show_stats")) applyToggles();
   // Who you are is a different answer in each room, so the list and the sheet
@@ -2209,6 +2347,58 @@ function paintModeCard() {
 
 $("#modeCard").onclick = () =>
   setMode(document.body.dataset.mode === "tabletop" ? "story" : "tabletop");
+
+/**
+ * The sign over the door, made into the door.
+ *
+ * Which room you are in is the largest thing on the screen and the only way to
+ * change it was a card most of the way down the menu — so people played in
+ * story mode without ever learning there was a table, or found the table once
+ * and could not find the way back out. Reported by somebody a week in who
+ * assumed they had missed something obvious. They had not; it was hidden.
+ *
+ * Only on the shelf, and only for the person whose Hearth it is. Inside a chat
+ * the bar holds the name of whoever you are sitting with, and a tap there that
+ * walked you out of the room to change worlds would be a far worse bug than a
+ * switch that is hard to find. A guest has no menu and no say in the mode; the
+ * title is the one thing left they could press, so it must stay a title.
+ */
+function paintModeSwitch(on) {
+  const el = $("#barTitle");
+  if (!el) return;
+  const live = !!on && !GUEST.on;
+  el.classList.toggle("switch", live);
+  if (!live) {
+    el.removeAttribute("role");
+    el.removeAttribute("tabindex");
+    el.removeAttribute("aria-label");
+    return;
+  }
+  const hint = document.body.dataset.mode === "tabletop"
+    ? "Leave tabletop mode" : "Tabletop mode";
+  el.setAttribute("role", "button");
+  el.setAttribute("tabindex", "0");
+  el.setAttribute("aria-label", hint);
+  // fit() is what actually writes the tooltip, from the note it was handed —
+  // setting el.title here would be undone by the next resize.
+  el.dataset.note = hint;
+  fitBarTitle();
+}
+
+const barSwitch = () => {
+  if (!$("#barTitle").classList.contains("switch")) return;
+  setMode(document.body.dataset.mode === "tabletop" ? "story" : "tabletop");
+};
+$("#barTitle").addEventListener("click", barSwitch);
+// It is an h1 wearing a button's clothes, so it does not get Enter and Space
+// for nothing. A control you can see but not reach from the keyboard is worse
+// than one that was never announced as a control at all.
+$("#barTitle").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  if (!$("#barTitle").classList.contains("switch")) return;
+  e.preventDefault();
+  barSwitch();
+});
 
 async function setMode(to) {
   await switchMode(to, async () => {

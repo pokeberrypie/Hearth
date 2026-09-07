@@ -3945,6 +3945,35 @@ dialog {
 .title.tight #barTitle { letter-spacing: 0.02em; }
 
 /**
+ * The sign, when it is also the door. Shelf only — see paintModeSwitch.
+ *
+ * An underline rather than a chevron or a caret, because fitBarTitle sizes the
+ * name by measuring how much of it overflows the bar: anything that takes
+ * width takes it from the name, and on a narrow phone the name is already
+ * fighting for the last few pixels. A decoration costs nothing horizontally.
+ *
+ * A shadow rather than an underline, which is the second attempt. The title is
+ * gradient-filled text — `background-clip: text` over a transparent `color` —
+ * and a browser clips text decoration to the glyphs along with everything else
+ * in that layer, so `text-decoration` computed correctly, reported correctly,
+ * and drew nothing at all. A shadow is painted on the box instead, which that
+ * clip does not touch. The box hugs the title, so the rule sits under the word
+ * and not under the bar.
+ */
+#barTitle.switch {
+  cursor: pointer;
+  box-shadow: 0 3px 0 -2px color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+}
+#barTitle.switch:hover {
+  box-shadow: 0 3px 0 -2px var(--lumiverse-primary);
+}
+#barTitle.switch:focus-visible {
+  outline: 2px solid var(--lumiverse-primary);
+  outline-offset: 4px;
+  border-radius: var(--lumiverse-radius-sm);
+}
+
+/**
  * The plate, matted. A framed picture has a line ruled just inside its edge;
  * that one line is most of what separates a frame from a border, and repeated
  * down a thread it is the ornament you actually end up looking at.
@@ -4807,6 +4836,48 @@ body[data-mode="tabletop"] .title .flourish { color: var(--lumiverse-primary); }
   content: "\2726";
   font-size: 0.66em;
   opacity: 0.8;
+}
+
+/* It opens onto who they are, so it has to look like something that opens. */
+.metnpc { cursor: pointer; max-width: 100%; }
+.metnpc:hover {
+  background: color-mix(in srgb, var(--lumiverse-primary) 18%, transparent);
+}
+.metnpc:focus-visible {
+  outline: 2px solid var(--lumiverse-primary);
+  outline-offset: 2px;
+}
+/**
+ * Open, the pill stops being a pill.
+ *
+ * A description does not fit in one, and every way of keeping the chrome was
+ * worse than dropping it: nowrap pushes the plate open, wrapping with the
+ * decoration cloned draws a separate outline around each fragment, and the
+ * inline-flex row centres a two-line name beside a three-line description like
+ * a table nobody asked for. So the box goes and the name is left gold, which
+ * was the only part of it doing any work.
+ *
+ * Parenthesised and italic because the description lands in the middle of the
+ * narrator's sentence — "Theo Marsh tall, nice jaw, the jacket is already
+ * looking at you" has no seam in it, and the reader has to be able to find
+ * where the gloss ends and the prose starts again.
+ */
+.metnpc.open {
+  display: inline;
+  white-space: normal;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+/* The gap was the flex row's; an inline box has to say so itself. */
+.metnpc.open::before { margin-right: 0.3em; }
+.metnpc.open::after {
+  content: " (" attr(data-brief) ")";
+  font-family: var(--lumiverse-font-family);
+  font-size: 1.06em;
+  font-style: italic;
+  letter-spacing: 0;
+  color: var(--lumiverse-text-muted);
 }
 
 /* ---- the scene panel ---- */
