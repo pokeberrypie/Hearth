@@ -34,9 +34,16 @@ export const MARKERS = new Set([
   "authorsNote", "jailbreak",
 ]);
 
-/** The list a preset gets when it has never been given one. */
+/**
+ * The list a preset gets when it has never been given one.
+ *
+ * Character first — the same order as DEFAULT_PARTS in src/prompt.ts and
+ * MARKER_LABEL in public/app.js, which is where the reasoning is written down.
+ * All three are the same decision expressed in three places, so they move
+ * together or the app disagrees with itself about what it sends.
+ */
 export const DEFAULT_BLOCKS: PromptBlock[] = [
-  "main", "worldInfoBefore", "charDescription", "charPersonality", "scenario",
+  "worldInfoBefore", "charDescription", "main", "charPersonality", "scenario",
   "personaDescription", "dialogueExamples", "worldInfoAfter", "authorsNote",
   "chatHistory", "jailbreak",
 ].map((marker) => ({

@@ -91,9 +91,12 @@ export const TABLE_PRESET: PresetData = {
   max_tokens: "700",
 
   blocks: [
-    block("table-main", "Running a game", "system", RUNNING_A_GAME),
+    // The card leads, then the brief. Same order as everywhere else, and the
+    // paragraph above already argued for it: a long brief competes with the
+    // card, and the card is the one that knows whose table this is.
     marker("worldInfoBefore"),
     marker("charDescription"),
+    block("table-main", "Running a game", "system", RUNNING_A_GAME),
     marker("charPersonality"),
     marker("scenario"),
     marker("personaDescription"),

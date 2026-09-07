@@ -747,6 +747,14 @@
           <div class="moremenu" hidden></div>
         </header>
         <p class="hint" id="samplingSource"></p>
+        <!-- Shown only in tabletop mode with the built-in preset on. Naming the
+             two fields it actually takes is the whole point: "a preset is
+             active" tells you nothing about which of these ten controls still
+             works. See paintTableLock(). -->
+        <p class="hint tablenote" id="tableOverride" hidden>The table is running its
+          own preset. Reply length, temperature and the prompt blocks come from
+          it; everything else on this page is still yours. Behaviour has the
+          switch.</p>
 
         <label>Reply length <span class="v" id="v_max_tokens"></span>
           <input type="range" id="max_tokens" min="128" max="32000" step="1">

@@ -51,8 +51,23 @@ describe("buildSystem", () => {
 
   test("a card's own system prompt replaces the default framing", () => {
     const s = buildSystem({ ...char, system_prompt: "Write like a ghost story." }, "Wren", "");
-    expect(s.startsWith("Write like a ghost story.")).toBe(true);
+    expect(s).toContain("Write like a ghost story.");
     expect(s).not.toContain("ongoing collaborative roleplay");
+  });
+
+  test("who they are comes before the instruction to be them", () => {
+    /*
+     * The framing is four lines that read the same for every character in the
+     * library; the description is the only part of the opening that is about
+     * this one. The most attended-to place in a prompt is its beginning, and
+     * it used to be spent on the boilerplate — which is what "the model fights
+     * the card" looks like from the inside.
+     */
+    const s = buildSystem(char, "Wren", "Tired, twenty-nine.");
+    expect(s.indexOf("# Akira\nA letter carrier"))
+      .toBeLessThan(s.indexOf("You are Akira in an ongoing collaborative roleplay"));
+    // And with nothing above it, the card is the first thing in the prompt.
+    expect(s.startsWith("# Akira")).toBe(true);
   });
 
   test("example dialogue is labelled as style, not as events", () => {
@@ -334,16 +349,22 @@ describe("assemble — author's note depth", () => {
 });
 
 describe("assemble — lore and card instructions", () => {
-  // "Before the character" means before the character's description, which is
-  // where SillyTavern's worldInfoBefore sits too — after the framing, not above it.
-  test("a before_char entry lands between the framing and the description", () => {
+  /*
+   * "Before the character" is a position, not a decoration: lore that sets up
+   * a world the card takes for granted has to arrive before the card does.
+   *
+   * It used to sit between the framing and the description. The framing has
+   * since moved below the description — see DEFAULT_PARTS — and this went with
+   * it rather than being left stranded after the thing it introduces.
+   */
+  test("a before_char entry lands above the description it sets up", () => {
     chat = seed();
     addLore({ constant: true, content: "Ashvale is under curfew.", position: 0 });
     const a = assemble(seed0(), "reply", "");
-    expect(a.system.indexOf("collaborative roleplay"))
-      .toBeLessThan(a.system.indexOf("Ashvale is under curfew."));
     expect(a.system.indexOf("Ashvale is under curfew."))
       .toBeLessThan(a.system.indexOf("# Akira\nA letter carrier."));
+    expect(a.system.indexOf("# Akira\nA letter carrier."))
+      .toBeLessThan(a.system.indexOf("collaborative roleplay"));
     expect(a.lore).toHaveLength(1);
     expect(a.lore[0].via).toBe("constant");
   });
@@ -551,7 +572,9 @@ describe("assemble — a preset ordering the whole prompt", () => {
   test("no preset at all still builds the default order", () => {
     db.query("DELETE FROM presets").run();
     const a = assemble(seed0(), "reply", "");
-    expect(a.system.indexOf("collaborative roleplay")).toBeLessThan(a.system.indexOf("# Akira"));
+    // Card, then framing, then the rest of the card. The same order the blocks
+    // editor offers, so a preset made by pressing "save" changes nothing.
+    expect(a.system.indexOf("# Akira")).toBeLessThan(a.system.indexOf("collaborative roleplay"));
     expect(a.system).toContain("# Personality");
   });
 });

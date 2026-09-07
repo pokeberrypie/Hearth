@@ -348,6 +348,36 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
   background: rgba(168, 74, 56, 0.08);
 }
 
+/**
+ * A standing note about the state of the page, not an error.
+ *
+ * Deliberately not `.notice`: that one is danger-red and fades on a tap,
+ * because it is for something that went wrong once. This is a fact that stays
+ * true for as long as the table is running its own preset, and dismissing it
+ * would leave the greyed-out controls with nothing explaining them.
+ */
+.tablenote {
+  margin: 0.8rem 0;
+  padding: 0.6rem 0.85rem;
+  border-left: 2px solid color-mix(in srgb, var(--lumiverse-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-primary) 7%, transparent);
+  border-radius: 0 var(--lumiverse-radius-sm) var(--lumiverse-radius-sm) 0;
+}
+
+/**
+ * A control whose value is not reaching anything right now.
+ *
+ * Dimmed rather than hidden: it still holds the number you chose, and it comes
+ * back the moment the table stops overriding it. Hiding it would look like the
+ * setting had been taken away.
+ */
+.notinuse {
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+}
+.notinuse input,
+.notinuse select { cursor: not-allowed; }
+
 .empty {
   max-width: var(--measure);
   margin: 20vh auto 0;

@@ -79,6 +79,84 @@ split happens in the renderer now, so all three roads end at the same place,
 and the browser splits names with the same rule the server does — there is a
 test that fails if those two ever drift.
 
+### The character leads the prompt now
+
+The system prompt used to open with `main` — four lines of framing that read
+identically for every card in the library — with the description third, behind
+lore. The opening of a prompt is the most attended-to place in it, and it was
+being spent on the one part carrying no information about this character at
+all. Reported as the model "fighting" the card: a generic agreeable assistant
+wearing the name.
+
+So the description leads and the framing follows it. `worldInfoBefore` came up
+with it rather than being stranded, because "before the character" is a
+position — lore that sets up a world the card assumes has to arrive before the
+card does. With no before-lore, which is the ordinary case, the character is
+the first thing in the prompt.
+
+It is only a default: any preset with blocks of its own is untouched, and the
+blocks editor can put it back. The same order is now written in four places —
+the server's assembly, the default block list, the blocks editor, and the
+table's own preset — with a test that fails if they drift apart.
+
+### The table stops pretending it is using your settings
+
+Tabletop mode runs on a built-in preset, so some of the Presets page was being
+ignored while it was on and nothing said which part. Reply length, temperature
+and the preset picker are dimmed and disabled there now, with a line naming
+them.
+
+Only those three, because only those three are actually overridden: `withPreset`
+copies across the fields a preset declares and leaves the rest alone, so the
+context window, top-p, the penalties, streaming and thinking are all still
+yours at the table. Greying them out to make a tidier block would be telling
+people a settings page does not work when it does.
+
+### From a playtest sweep
+
+Three found by walking the app rather than by a report.
+
+**"Let every character roll dice" was turned off by every page load.** It was
+saved but never loaded, so boot left the box unticked whatever was stored — and
+`loadSettings` triggered a save of its own on the way past, through
+`setWallpaper`, which wrote that unticked box back over the setting. Turning
+dice on lasted until the next reload. That is the sort of thing that gets
+reported as "the dice are broken again" rather than as a settings bug, and it
+had been reported that way.
+
+`setWallpaper` no longer saves when it is loadSettings restoring the stored
+wallpaper rather than somebody choosing one — opening the app should not write
+the whole look back before anybody has touched anything.
+
+**"Let the room follow the story" was wired to nothing at all.** Neither saved
+nor loaded. The server has read `scene_follows` since it was written; there was
+simply no way to switch it on. A whole feature behind a dead checkbox.
+
+Both were hand-wired one control at a time, which is how they were missed while
+the third switch on the same page worked perfectly. All three are loaded from
+one list now.
+
+**The chat menu stayed open after you left the chat.** Pressing Home hid the
+button but not the sheet it opens, so it stood on the shelf offering to rename,
+fork or close a chat that was no longer open — every row acting on a null id.
+Nothing threw; the rows just did nothing.
+
+Also: `closeAllMenus` runs on every click in the document and rewrote `hidden`
+and `aria-expanded` on all thirteen panels whether or not any menu was open —
+twenty-six attribute mutations per click, for nothing. It checks first now.
+Nothing was broken by it, but extensions are handed a MutationObserver over the
+same tree and were being woken twenty-six times to be told nothing.
+
+**Not found:** every icon-only control is centred to the pixel, on desktop and
+at 375px — nothing was off by even one. No horizontal overflow at phone width.
+No button in any of the thirteen drawer panels that does nothing when pressed.
+
+**Worth a look, not changed:** tap targets. The icon rail is 34×34, the
+chat-list select buttons 30×30, and "Delete chat" is 28×28 — against the 44×44
+both Apple and Google ask for. Small and destructive is the worst pairing of
+the three. This is a visual decision rather than a bug, so it is left here
+rather than done.
+
 ---
 
 ## Cutting the release

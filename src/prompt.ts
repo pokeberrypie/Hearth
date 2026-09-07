@@ -55,9 +55,29 @@ export type PartId =
   | "main" | "worldInfoBefore" | "charDescription" | "charPersonality"
   | "scenario" | "personaDescription" | "dialogueExamples" | "worldInfoAfter";
 
-/** The order used when a preset has no opinion. */
+/**
+ * The order used when a preset has no opinion.
+ *
+ * Who they are comes first, before the framing that tells the model to be
+ * them. This used to open on `main` — four lines of generic instruction that
+ * are the same for every character in the library — with the card itself
+ * third, behind lore. The opening of a prompt is the most attended-to place in
+ * it, and spending it on boilerplate is spending it on the one part that
+ * carries no information about this character at all.
+ *
+ * Reported as the model "fighting" the card: playing a generic agreeable
+ * assistant wearing the name, rather than the person described.
+ *
+ * `worldInfoBefore` stays above it rather than being left behind, because that
+ * is what it is *for* — "before the character" is the position, and lore that
+ * sets up a world the card assumes has to arrive before the card does. With no
+ * before-lore, which is the ordinary case, the character is first outright.
+ *
+ * Only a default. A preset orders the whole prompt itself, and any preset with
+ * blocks of its own is untouched by this.
+ */
 export const DEFAULT_PARTS: PartId[] = [
-  "main", "worldInfoBefore", "charDescription", "charPersonality",
+  "worldInfoBefore", "charDescription", "main", "charPersonality",
   "scenario", "personaDescription", "dialogueExamples", "worldInfoAfter",
 ];
 

@@ -935,6 +935,15 @@ async function showSplash() {
   $("#thread").hidden = false;
   $("#composer").hidden = true;
   $("#chatMenuBtn").hidden = true;
+  /*
+   * And the menu that button opens, which does not close itself.
+   *
+   * Hiding the button left an open sheet standing on the shelf, offering to
+   * rename, fork, or close a chat that is no longer open — every row acting on
+   * an S.chatId that is now null. Nothing threw; the rows simply did nothing,
+   * which is a worse way to find out than an error would have been.
+   */
+  closeSheet();
   $("#thread").innerHTML = "";
   $("#splash").hidden = false;
   chatMeta = null;
@@ -5085,6 +5094,48 @@ function paintSampling() {
   markCutoff();
 }
 
+/**
+ * What the table has already decided for you.
+ *
+ * Tabletop mode runs on a preset of its own (src/tablepreset.ts), so some of
+ * this page is being ignored while it is on — and there was nothing on screen
+ * saying which part. Somebody could set a temperature at the table, watch it
+ * do nothing, and reasonably conclude the setting was broken.
+ *
+ * Only the two fields TABLE_PRESET actually sets are locked, because only they
+ * are actually overridden. withPreset copies across the fields a preset
+ * defines and leaves the rest alone, so the context window, top-p, the
+ * penalties, streaming and thinking are all still yours at the table — greying
+ * those out to make a tidier block would be telling people a settings page
+ * does not work when it does.
+ *
+ * The preset picker is locked too, and for the harder reason: its list still
+ * loads, its card still draws, and none of it reaches a single reply.
+ */
+function paintTableLock() {
+  const on = document.body.dataset.mode === "tabletop" && !!$("#tabletop_preset")?.checked;
+
+  // Exactly the keys TABLE_PRESET declares. If it ever declares another, this
+  // list has to grow with it or the page starts lying in the other direction.
+  for (const id of ["temperature", "max_tokens"]) {
+    const input = $("#" + id);
+    if (!input) continue;
+    input.disabled = on;
+    input.closest("label")?.classList.toggle("notinuse", on);
+  }
+
+  const pick = $("#presetPick");
+  if (pick) {
+    pick.disabled = on;
+    pick.closest("label")?.classList.toggle("notinuse", on);
+  }
+  $("#presetCard")?.classList.toggle("notinuse", on);
+  // Managing the library — importing, renaming, deleting — is worth doing at
+  // any time, so the fold below stays live. It is what a preset *does* that is
+  // suspended here, not the list of them.
+  if ($("#tableOverride")) $("#tableOverride").hidden = !on;
+}
+
 function showSamplingSource() {
   const el = $("#samplingSource");
   if (!el) return;
@@ -5659,10 +5710,16 @@ const ROLE_DOT = { system: "sys", user: "usr", assistant: "asst" };
  * a preset is an ordering of the whole prompt. They have nothing to edit — only
  * a place in the list and a switch.
  */
+/*
+ * Character first, then the framing. The same order as DEFAULT_PARTS in
+ * src/prompt.ts, and for the same reason — see the comment there. These two
+ * lists have to agree: this one is what a new preset is built from and what
+ * the blocks editor shows, and that one is what a chat with no preset sends.
+ */
 const MARKER_LABEL = {
-  main: "Framing",
   worldInfoBefore: "Lore · before",
   charDescription: "Character",
+  main: "Framing",
   charPersonality: "Personality",
   scenario: "Scene",
   personaDescription: "Your persona",
@@ -6489,7 +6546,26 @@ function buildSwatches() {
 const LORE_SETTINGS = ["lore_scan_depth", "lore_budget", "auto_lore_every", "auto_lore_scope"];
 const LOOK = ["overlay_opacity", "glow_opacity", "font_scale", "avatar_size", "radius", "banner_width", "measure", "fade_start", "plate_blur", "plate_opacity", "tuck"];
 const TOGGLES = ["bleed", "show_stats", "show_cutoff", "sound", "page_faces"];
-const PREFS = ["confirm_deletes", "dice_enabled"];
+/**
+ * Behaviour switches. Saved with the look because they ride the same debounce,
+ * loaded in loadSettings alongside TOGGLES.
+ *
+ * `scene_follows` was missing from this list and from the loading loop, so the
+ * checkbox in Behaviour was wired to nothing at all: it never showed the
+ * stored answer and ticking it never saved one. The feature behind it works —
+ * the server has read `scene_follows` since it was written — and there was no
+ * way to switch it on.
+ *
+ * `dice_enabled` was worse, because it was here and not in the loader. Boot
+ * left the box unticked whatever was stored, and the first saveLook of the
+ * session — which loadSettings used to trigger itself, through setWallpaper —
+ * wrote that unticked box back over the setting. Every page load quietly
+ * turned dice off again, and nothing said so.
+ */
+const PREFS = ["confirm_deletes", "dice_enabled", "scene_follows"];
+
+/** Off unless stored on, except confirming deletes, which is on unless stored off. */
+const PREF_DEFAULT_ON = new Set(["confirm_deletes"]);
 
 function applyLook() {
   const r = document.documentElement.style;
@@ -6622,6 +6698,7 @@ function applyToggles() {
   if ($("#presetTableNote")) {
     $("#presetTableNote").hidden = !(tabletop && $("#tabletop_preset")?.checked);
   }
+  paintTableLock();
   applyEditLock();
   if ($("#diceHint")) {
     $("#diceHint").textContent = tabletop
@@ -6698,12 +6775,22 @@ function applyChatWallpaper() {
   $("#wallpaper").style.backgroundImage = url ? `url("${encodeURI(url)}")` : "";
 }
 
-function setWallpaper(url) {
+/**
+ * `save: false` when this is loadSettings putting the stored wallpaper back,
+ * rather than somebody choosing one.
+ *
+ * Otherwise opening the app writes the whole look back to the server before
+ * anybody has touched anything — which is harmless right up until one of the
+ * fields it writes has not been loaded yet, at which point boot saves a
+ * default over a setting. That is exactly how `dice_enabled` was being turned
+ * off on every page load.
+ */
+function setWallpaper(url, { save = true } = {}) {
   document.body.dataset.wallpaper = url ?? "";
   applyChatWallpaper();
   document.querySelectorAll(".wallgrid button").forEach((b) =>
     b.classList.toggle("on", b.dataset.url === url));
-  saveLook();
+  if (save) saveLook();
 }
 
 let wallpaperCache = [];
@@ -7560,17 +7647,25 @@ async function loadSettings() {
     // Every reply on screen is now allowed a different number of takes.
     for (const bar of document.querySelectorAll(".swipes")) capSwipes(bar);
   };
-  $("#confirm_deletes").checked = s.confirm_deletes !== "0";
+  // Every switch in PREFS, loaded the same way, so adding one to that list is
+  // all it takes. Doing this by hand is how two of the three ended up wired to
+  // nothing while the third worked perfectly.
+  PREFS.forEach((t) => {
+    const el = $("#" + t);
+    if (!el) return;
+    el.checked = PREF_DEFAULT_ON.has(t) ? s[t] !== "0" : s[t] === "1";
+    el.onchange = () => {
+      if (t === "confirm_deletes") askBeforeDelete = el.checked;
+      applyToggles();
+      saveLook();
+    };
+  });
   askBeforeDelete = $("#confirm_deletes").checked;
-  $("#confirm_deletes").onchange = () => {
-    askBeforeDelete = $("#confirm_deletes").checked;
-    saveLook();
-  };
   try { themeVars = JSON.parse(s.theme_vars || "{}"); } catch { themeVars = {}; }
   applyLook();
   applyTheme();
   buildSwatches();
-  setWallpaper(s.wallpaper || "");
+  setWallpaper(s.wallpaper || "", { save: false });
   refreshWallpapers();
   showProvider();
 }
@@ -8688,9 +8783,22 @@ function wirePanelChrome() {
   }
 }
 
+/**
+ * Shuts every panel's "more" menu. Runs on every click in the document, which
+ * is why it checks before it writes.
+ *
+ * Setting `hidden = true` on something already hidden still rewrites the
+ * attribute, and there are thirteen panels — so an unguarded version of this
+ * put twenty-six attribute mutations on the page for every click anywhere in
+ * the app, including clicks with no menu open, which is nearly all of them.
+ * Nothing broke. But extensions are handed a MutationObserver over the same
+ * tree, and they were being woken twenty-six times to be told nothing.
+ */
 function closeAllMenus() {
-  for (const m of document.querySelectorAll(".moremenu")) m.hidden = true;
-  for (const b of document.querySelectorAll(".panelmore")) b.setAttribute("aria-expanded", "false");
+  for (const m of document.querySelectorAll(".moremenu")) if (!m.hidden) m.hidden = true;
+  for (const b of document.querySelectorAll(".panelmore")) {
+    if (b.getAttribute("aria-expanded") === "true") b.setAttribute("aria-expanded", "false");
+  }
 }
 addEventListener("click", closeAllMenus);
 addEventListener("keydown", (e) => {
