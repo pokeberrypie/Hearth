@@ -8303,9 +8303,96 @@ async function guestSheetPanel() {
 
   const sheet = $("#tableSheet");
   if (sheet) sheet.innerHTML = me?.sheet ? sheetCard(me.sheet) : `<p class="hint">You have not made one yet. Everything still works without one; a sheet is what lets the narrator roll against you rather than guess.</p>`;
+  if (me?.sheet) wireGuestSheet(me.sheet);
   const make = $("#tableMake");
   if (make) { make.hidden = false; make.textContent = me?.sheet ? "Roll a new character" : "Make your character"; }
   guestPassport();
+}
+
+/**
+ * A guest's sheet, made to work.
+ *
+ * `sheetCard` draws the host's card: six ability rings, the two hit-point
+ * buttons, a die, and a way to the full sheet. The host wires all of that in
+ * `wireSheet`, which a guest never reaches — so every control on a guest's
+ * character was drawn and connected to nothing. Six rings, both hit-point
+ * buttons, and two more besides: pressed, they did not fail, they did nothing,
+ * which is the version of this that nobody reports because it looks like a
+ * feature that has not been written yet.
+ *
+ * It cannot reuse `wireRolls`, and the reason is the whole architecture: that
+ * one posts to `/sheets/:id/check`, which is a host route and rightly not on
+ * the guest allow-list. A guest rolls on the table's own dice and says the
+ * result as a turn, which is what every other thing a guest does looks like.
+ */
+function wireGuestSheet(sheet) {
+  for (const b of document.querySelectorAll("#tableSheet [data-roll-ability]")) {
+    b.onclick = () => guestCheck(sheet, b.dataset.rollAbility);
+  }
+
+  for (const b of document.querySelectorAll("#tableSheet [data-hp]")) {
+    b.onclick = async () => {
+      const next = Math.max(0, Math.min(sheet.maxHp, sheet.hp + Number(b.dataset.hp)));
+      if (next === sheet.hp) return;
+      sheet.hp = next;
+      // Drawn before it is saved, like the host's, so a tap feels immediate.
+      document.querySelectorAll("#hpNow, #fsHpNow").forEach((el) => (el.textContent = next));
+      document.querySelectorAll(".pips .pip").forEach((p, i) => p.classList.toggle("lit", i < next));
+      const r = await api("/table/sheet", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sheet }),
+      }).catch(() => null);
+      if (r?.error) fail(r.error);
+    };
+  }
+
+  const open = $("#csOpen");
+  if (open) open.onclick = () => {
+    openFullSheet(sheet);
+    // The dialog draws its own copy of the rings, which need the same wiring.
+    for (const b of document.querySelectorAll("#fsBody [data-roll-ability]")) {
+      b.onclick = () => guestCheck(sheet, b.dataset.rollAbility);
+    }
+  };
+
+  const die = $("#csRoll");
+  if (die) die.onclick = () => $("#diceBtn").click();
+
+  /*
+   * Rolling a new character is "Roll a new character", the button directly
+   * under this card. Two of them, worded differently, in the same dialog is
+   * one too many — and the other one is the one that works for a guest.
+   */
+  const again = $("#csReroll");
+  if (again) again.hidden = true;
+}
+
+/**
+ * An ability check, from a guest's seat.
+ *
+ * The modifier is worked out here rather than asked for, because the route
+ * that does that arithmetic on the host's side is a host route. The wording is
+ * matched to `describeCheck` in src/tabletop.ts on purpose: it is the same
+ * sentence the narrator sees when the host rolls, so a check from a guest and
+ * a check from the host read identically in the transcript.
+ *
+ * The die is not shown from here. `/table/roll` announces it to the whole
+ * room and this copy is in that room, so it arrives on the feed like anybody
+ * else's — showing it locally as well would land it twice.
+ */
+async function guestCheck(sheet, ability) {
+  const score = sheet?.abilities?.[ability];
+  if (typeof score !== "number") return;
+  const m = mod(score);
+  const r = await api("/table/roll", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ notation: `1d20${m ? sgn(m) : ""}` }),
+  }).catch(() => null);
+  if (!r || r.error) return void fail(r?.error ?? "Could not roll that.");
+
+  $("#tableDialog")?.close();
+  $("#sheetDialog")?.close();
+  await guestSay(`[[${ABIL_NAME[ability]} check: ${r.die} ${sgn(m)} = ${r.total}]]`);
 }
 
 /**

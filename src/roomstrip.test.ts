@@ -329,3 +329,51 @@ describe("a row's small controls are the same size whatever is in them", () => {
     expect(bico.includes("line-height: 0")).toBe(false);
   });
 });
+
+describe("a guest's character sheet is wired to something", () => {
+  const APP = readFileSync(join(import.meta.dir, "..", "public", "app.js"), "utf8");
+
+  test("the guest panel wires the card it just drew", () => {
+    /*
+     * `sheetCard` draws the host's card — six ability rings, two hit-point
+     * buttons, a die, a way to the full sheet — and the host wires all of it in
+     * `wireSheet`, which a guest never reaches. So every control on a guest's
+     * character was drawn and connected to nothing. Pressed, they did not fail;
+     * they did nothing, which is the version nobody reports because it looks
+     * like a feature that has not been written yet.
+     */
+    expect(APP).toContain("function wireGuestSheet(sheet)");
+    expect(APP).toContain("if (me?.sheet) wireGuestSheet(me.sheet);");
+  });
+
+  test("it rolls on the table's dice, not the host's sheet route", () => {
+    // /sheets/:id/check is a host route and rightly not on the guest allow
+    // list. A guest rolls with /table/roll and says the result as a turn.
+    const fn = APP.slice(APP.indexOf("async function guestCheck("));
+    expect(fn.slice(0, 900)).toContain(`api("/table/roll"`);
+    expect(fn.slice(0, 900)).not.toContain("/sheets/");
+    expect(fn.slice(0, 900)).toContain("guestSay(");
+  });
+
+  test("and its wording matches what the host's check produces", () => {
+    // describeCheck in src/tabletop.ts: "Strength check: 14 +2 = 16". A check
+    // from a guest and a check from the host must read the same in one
+    // transcript, or the narrator is being told two different things.
+    const fn = APP.slice(APP.indexOf("async function guestCheck("));
+    expect(fn.slice(0, 900)).toContain("check: ${r.die} ${sgn(m)} = ${r.total}");
+    const TT = readFileSync(join(import.meta.dir, "tabletop.ts"), "utf8");
+    expect(TT).toContain("check: ${check.die} ${signed(check.modifier)} = ${check.total}");
+  });
+
+  test("hit points are saved through the guest's own route", () => {
+    const fn = APP.slice(APP.indexOf("function wireGuestSheet(sheet)"));
+    expect(fn.slice(0, 1800)).toContain(`api("/table/sheet"`);
+  });
+
+  test("the die is left to the feed rather than shown twice", () => {
+    // /table/roll announces the throw to the whole room and this copy is in
+    // that room, so it arrives like anybody else's.
+    const fn = APP.slice(APP.indexOf("async function guestCheck("));
+    expect(fn.slice(0, 900).includes("showDie(")).toBe(false);
+  });
+});
