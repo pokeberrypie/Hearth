@@ -1271,6 +1271,39 @@ input[type="range"]::-moz-range-thumb {
   background: var(--lumiverse-primary);
 }
 
+/* ---- sliders you can actually move with a thumb --------------------------
+ *
+ * Reported as "the blur and solidity sliders are broken on mobile". They were
+ * not broken; they were unusable, which from the outside is the same thing and
+ * from the inside is two separate problems.
+ *
+ * The first is the gesture. Every one of these sits inside a panel that
+ * scrolls, and a range input has `touch-action: auto` by default — so a drag
+ * that starts on the thumb is a candidate for scrolling the panel, and the
+ * browser resolves that in favour of the scroll. On a mouse there is no
+ * ambiguity to resolve and it has always worked. `touch-action: none` gives
+ * the gesture to the slider, which is what somebody who has put their finger
+ * on a slider meant.
+ *
+ * The second is the target. A 15px thumb in a 22px box is under half what
+ * either phone platform asks for, and these two in particular are the ones
+ * people fiddle with — you set the text size once and you push the blur back
+ * and forth until the wallpaper looks right.
+ *
+ * Only on a coarse pointer, so nothing about the desktop layout moves.
+ */
+input[type="range"] { touch-action: none; }
+
+@media (pointer: coarse) {
+  input[type="range"] { height: 34px; }
+  input[type="range"]::-webkit-slider-thumb {
+    width: 22px; height: 22px;
+    /* Centred on the 3px track: (3 - 22) / 2. */
+    margin-top: -9.5px;
+  }
+  input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; }
+}
+
 /* Buttons that follow a hint paragraph need their own air. */
 .filebtn + .hint, .ghost + .hint { margin-top: 0.5rem; }
 .hint + .ghost, .hint + .filebtn { margin-top: 0.9rem; }

@@ -302,6 +302,37 @@ stopped mid-clause; the half-sentence is then dropped, because this text goes
 into *every* prompt of the new chat, and a model handed a hanging "and the
 missing" will oblige by finishing it.
 
+### The blur and solidity sliders, on a phone
+
+Reported as broken on mobile. They were not broken — they moved and they saved,
+which is why nothing in the wiring looked wrong — they were unusable, and from
+a phone that is the same thing. Three causes, all of which look identical.
+
+**You could not get hold of them.** Every slider in Hearth sits in a panel that
+scrolls, and a range input has `touch-action: auto` by default, so a drag that
+starts on the thumb is a candidate for scrolling the panel and the browser
+settles that in favour of the scroll. With a mouse there is no ambiguity to
+settle, which is why this has always worked on a desktop and never on a phone.
+The sliders own the gesture now.
+
+**And the thumb was too small to aim at.** 15px in a 22px box, against the
+44px both phone platforms ask for. On a coarse pointer it is 22px in a 34px
+box. Nothing about the desktop moves.
+
+**And if your device is set to reduce transparency, these two do nothing** —
+by design, and enforced with `!important`, because it is a stated preference
+and not ours to argue with. What was wrong was doing it in silence: the two
+sliders moved, saved, and changed nothing on screen, which is indistinguishable
+from two dead controls and was reported as exactly that. They are dimmed now,
+with a line under them saying what is overriding them and where to turn it off.
+It watches for the preference changing while the app is open, too.
+
+Worth saying plainly: the first two are certain and are fixed. The third is a
+guess at which of these was actually happening on the phone in question — the
+sliders could not be reproduced misbehaving in a browser at phone size, with
+bleed on, at the same settings. If they still do nothing after this, the note
+under them will now say why.
+
 ### The scaffolding folds away
 
 Reported as "the regex for scene plan is fucking up and I keep having script in

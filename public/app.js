@@ -7005,7 +7005,31 @@ function applyLook() {
   $("#v_blur").textContent = $("#plate_blur").value + "px";
   $("#v_solid").textContent = Math.round($("#plate_opacity").value * 100) + "%";
   $("#v_tuck").textContent = Math.round($("#tuck").value * 100) + "%";
+
+  /*
+   * Say when the system is overruling two of these.
+   *
+   * A device asking for reduced transparency gets solid messages and no blur,
+   * enforced with `!important` in the stylesheet — which is right, it is a
+   * stated preference and not ours to argue with. What was wrong was doing it
+   * without a word: the blur and solidity sliders moved, saved, and changed
+   * nothing on screen, which is indistinguishable from two broken controls and
+   * was reported as exactly that.
+   */
+  const plain = matchMedia("(prefers-reduced-transparency: reduce)").matches;
+  const note = $("#plainNote");
+  if (note) note.hidden = !plain;
+  for (const id of ["plate_blur", "plate_opacity"]) {
+    const el = $("#" + id);
+    if (el) el.closest("label")?.classList.toggle("notinuse", plain);
+  }
 }
+
+// The preference can change while the app is open — a phone dropping into a
+// battery saver, someone turning it on to see what it does.
+matchMedia("(prefers-reduced-transparency: reduce)").addEventListener?.(
+  "change", () => { try { applyLook(); } catch {} },
+);
 
 let lookTimer;
 function saveLook() {
