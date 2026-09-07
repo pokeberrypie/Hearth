@@ -3586,18 +3586,37 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
 #sceneMembers .brow { gap: .55rem; }
 #sceneMembers .medallion, #sceneMembers .face { width: 1.7rem; height: 1.7rem; font-size: .75rem; }
 
-/* The two ways between the panel's pages, drawn as the same control facing
-   opposite directions. */
+/**
+ * The two ways between the panel's pages, drawn as the same control facing
+ * opposite directions.
+ *
+ * Given a border and a ground rather than left as quiet link text: it is the
+ * only way from the scene to the six hundred characters behind it, and a
+ * faint sentence at the bottom of a panel is not where anybody looks for a
+ * door.
+ */
 #sceneAll, #sceneBack {
   display: block;
   width: 100%;
   margin: 1rem 0 .2rem;
-  padding: .5rem;
+  padding: .55rem;
   text-align: center;
-  opacity: .7;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  font-family: var(--lumiverse-font-display);
+  font-size: .92rem;
+  letter-spacing: .02em;
+  opacity: .9;
+  transition: border-color .18s, background .18s, opacity .18s;
 }
-#sceneBack { margin: 0 0 .7rem; }
-#sceneAll:hover, #sceneBack:hover { opacity: 1; }
+#sceneBack { margin: 0 0 .8rem; }
+#sceneAll:hover, #sceneBack:hover,
+#sceneAll:focus-visible, #sceneBack:focus-visible {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-primary) 8%, transparent);
+}
 
 #memberList .brow { gap: .55rem; }
 #memberList .medallion, #memberList .face { width: 1.7rem; height: 1.7rem; font-size: .75rem; }
