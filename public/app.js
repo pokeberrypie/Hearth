@@ -703,8 +703,6 @@ const ICON = {
   folder: `<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.4h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
   up: `<svg viewBox="0 0 24 24"><path d="M12 19V6"/><path d="M6 12l6-6 6 6"/></svg>`,
   branch: `<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2v7.6M8.2 6h4.3a3 3 0 0 1 3 3"/></svg>`,
-  // A card with a scene written on it: the shared premise, not a document.
-  scenario: `<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M7 9.5h7M7 13h10M7 16h5"/></svg>`,
 };
 
 const tools = () =>
@@ -946,6 +944,9 @@ async function showSplash() {
    * which is a worse way to find out than an error would have been.
    */
   closeSheet();
+  // No chat, no scene page. The Cast panel is the library again.
+  castView = "library";
+  paintCastView();
   $("#thread").innerHTML = "";
   $("#splash").hidden = false;
   chatMeta = null;
@@ -1009,6 +1010,9 @@ async function openChat(id) {
   });
   // In here the bar is a name, not a sign. See paintModeSwitch.
   paintModeSwitch(false);
+  // Opening a chat aims the Cast panel at it, whether or not the panel is up.
+  castView = "scene";
+  paintCastView();
   $("#splash").hidden = true;
   $("#treeView").hidden = true;
   $("#thread").hidden = false;
@@ -1062,11 +1066,41 @@ async function askAboutRecord(chat) {
   const dlg = $("#loreWelcome");
   const sel = $("#loreExistingSel");
   const name = $("#loreNewName");
+  const story = $("#storyName");
+
+  /*
+   * The story's own name, asked once, here.
+   *
+   * A chat is created named after the character it is with, so the fourth
+   * story with Jaime is the fourth thing on the shelf called "Jaime
+   * Lannister". This is the moment to fix that and the only moment worth
+   * interrupting for — it is already a question being asked at the top of a
+   * chat, and it is about what this tale is rather than about the person in it.
+   *
+   * Blank rather than prefilled with the character's name: a box holding the
+   * answer you would have got anyway is a box nobody reads. Left empty, the
+   * chat keeps the name it has.
+   */
+  story.value = "";
+  story.placeholder = chat.character_name;
 
   // Named after the game where there is one, since that is what you will be
   // looking for later. The server settles any remaining collision.
   const playing = campaignOf(chatMeta)?.title;
-  name.value = `${playing || chat.character_name} — notes`;
+  const notesFor = (t) => `${t} — notes`;
+  name.value = notesFor(playing || chat.character_name);
+
+  /*
+   * Naming the story renames the chronicle under it, until somebody types
+   * their own — "The night the lamp failed" and "Jaime Lannister — notes" are
+   * two names for one evening, and only one of them was chosen.
+   */
+  let notesTouched = false;
+  name.oninput = () => { notesTouched = true; };
+  story.oninput = () => {
+    if (notesTouched) return;
+    name.value = notesFor(story.value.trim() || playing || chat.character_name);
+  };
 
   let books = [];
   try { books = await api("/lorebooks"); } catch { books = []; }
@@ -1082,6 +1116,29 @@ async function askAboutRecord(chat) {
       : choice === "existing" ? { book_id: sel.value }
       : {};
     dlg.close();
+
+    /*
+     * The name first, and separately: it is the answer to a different question
+     * from the one about notes, and somebody who names their story and then
+     * declines a chronicle should still have named their story.
+     */
+    const told = story.value.trim();
+    if (told && told !== chat.title) {
+      try {
+        await api(`/chats/${chat.id}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: told }),
+        });
+        // Only if it is still the chat on screen — this dialog can be left open
+        // while somebody walks back to the shelf and opens something else.
+        if (S.chatId === chat.id && chatMeta) chatMeta.title = told;
+        chat.title = told;
+        await refreshCast();
+        await refreshChats();
+      } catch { /* Naming is a courtesy; the notes question is the point. */ }
+    }
+
     try {
       await api(`/chats/${chat.id}/autolore`, {
         method: "PUT",
@@ -1350,136 +1407,61 @@ $("#treeCanvas").addEventListener("keydown", (e) => {
 // ---- who is in the room ---------------------------------------------------
 
 /**
- * The strip above a chat: who is in the room, what it is called, and the two
- * things people reach for while reading.
- *
- * It used to appear only for groups of two or more, on the reasoning that a
- * solo chat has no turn to hand out and so nothing to press. That was true of
- * the one job the strip had and false about the room: you still want to fix a
- * line in the card you are talking to, set the scene everyone is standing in,
- * or give the chat a name that is not just the character's.
- *
- * So it is always up, and a face means the useful thing in each case. In a
- * group a face is a turn — press one to hand them the next reply, press it
- * again to hand it back to whoever has been quietest. In a solo chat there is
- * no turn to give, so the face is the character: press it and their card
- * opens. One gesture, the sensible meaning in each room.
- *
- * Everything heavier — muting, dropping someone, the auto-reply switch — stays
- * behind the plus, which is a full-sized dialog with room for it. A strip that
- * grew three buttons per face would be unusable on the phone this is mostly
- * read on, which is the thing to protect here.
+ * The face strip above a group chat. Tapping a face hands them the next turn;
+ * tapping the one already chosen hands it back to whoever has been quietest.
+ * A solo chat has nothing to choose, so the bar stays hidden.
  */
 function renderRoom() {
   const bar = $("#castBar");
   bar.innerHTML = "";
-  bar.hidden = !S.chatId || !S.cast.length;
+  bar.hidden = S.cast.length < 2;
   if (bar.hidden) return;
-
-  const group = S.cast.length > 1;
-  bar.classList.toggle("solo", !group);
-
-  // The faces scroll; nothing after them does. A cast of nine should not push
-  // the chat's name off the end of the strip.
-  const faces = document.createElement("div");
-  faces.className = "castfaces";
 
   S.cast.forEach((m) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "castface" +
       (m.muted ? " muted" : "") +
-      (group && S.speaker === m.id ? " picked" : "");
-    b.title = group
-      ? (m.muted ? `${m.name} — muted` : `${m.name} speaks next`)
-      : `Edit ${m.name}`;
+      (S.speaker === m.id ? " picked" : "");
+    b.title = m.muted ? `${m.name} — muted` : `${m.name} speaks next`;
     b.setAttribute("aria-label", b.title);
     b.innerHTML = medallion(m.avatar, m.name) + `<span class="cn">${esc(m.name)}</span>`;
     b.onclick = () => {
-      if (!group) return editChar(m);
       if (m.muted) return;
       S.speaker = S.speaker === m.id ? null : m.id;
       renderRoom();
     };
-    faces.appendChild(b);
+    bar.appendChild(b);
   });
 
-  // In a solo chat this is the way a second person arrives, which the server
-  // has always supported and nothing in the app ever offered.
-  const add = document.createElement("button");
-  add.type = "button";
-  add.className = "castedit";
-  add.title = group ? "Add or remove someone" : "Add someone to this scene";
-  add.setAttribute("aria-label", add.title);
-  add.innerHTML = ICON.plus;
-  add.onclick = openRoom;
-  faces.appendChild(add);
+  const any = document.createElement("span");
+  any.className = "casthint";
+  any.textContent = S.speaker
+    ? S.cast.find((m) => m.id === S.speaker)?.name + " replies next"
+    : "quietest replies next";
+  bar.appendChild(any);
 
-  bar.appendChild(faces);
-
-  // Whose turn it is, where there is a turn to have.
-  if (group) {
-    const hint = document.createElement("span");
-    hint.className = "casthint";
-    hint.textContent = S.speaker
-      ? `${S.cast.find((m) => m.id === S.speaker)?.name} replies next`
-      : "quietest replies next";
-    bar.appendChild(hint);
-  }
-
-  /*
-   * What this chat is called.
-   *
-   * A new chat is named after the character it is with, so this is never
-   * blank — and it is also why renaming matters: the fourth chat with Marla is
-   * the fourth thing called "Marla" on the shelf. Putting the name here means
-   * a chat can be named the moment it opens, rather than after somebody has
-   * gone looking for the menu that renames it.
-   */
-  const title = (chatMeta?.title ?? "").trim();
-  /*
-   * A chat is created named after the character, and the bar above this one is
-   * already showing that name in inch-high letters. Repeating it here would be
-   * the same word twice with nothing between them.
-   *
-   * So an untouched title is drawn as the invitation it actually is. Which is
-   * also the answer to naming a chat when it opens: the offer is on screen
-   * from the first frame, and it costs a press rather than a prompt nobody
-   * asked for in front of the greeting they did.
-   */
-  const unnamed = !title || S.cast.some((m) => m.name === title);
-  const name = document.createElement("button");
-  name.type = "button";
-  name.className = "castname" + (unnamed ? " unnamed" : "");
-  name.title = unnamed ? "Give this chat a name" : "Rename this chat";
-  name.setAttribute("aria-label", unnamed ? "Give this chat a name" : `Rename this chat, currently ${title}`);
-  name.innerHTML =
-    `<span class="cnm">${unnamed ? "Name this chat" : esc(title)}</span>${ICON.edit}`;
-  // Wrapped, not passed: an onclick handler is called with the event, and
-  // renameChat's first parameter is a chat id.
-  name.onclick = () => renameChat();
-  bar.appendChild(name);
-
-  const scene = document.createElement("button");
-  scene.type = "button";
-  scene.className = "castscene";
-  scene.title = "The scenario everyone is standing in";
-  scene.setAttribute("aria-label", "The scenario everyone is standing in");
-  scene.innerHTML = ICON.scenario;
-  scene.onclick = openScenario;
-  bar.appendChild(scene);
+  // Adding or dropping someone should not require hunting through the menu.
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "castedit";
+  edit.title = "Add or remove someone";
+  edit.setAttribute("aria-label", "Add or remove someone from this scene");
+  edit.innerHTML = ICON.plus;
+  edit.onclick = openRoom;
+  bar.appendChild(edit);
 }
 
 /**
- * Naming a chat. Three places ask for it — the strip, the chat menu, and the
- * row for any chat in "Manage chat files" — and they are one function because
- * they were three, and the three had already drifted: two refused an empty
- * name by treating cancel and cleared-box the same, and none of them redrew
- * the strip that is now showing the name.
+ * Naming a chat. Three places ask for it — this scene's page in the Cast
+ * panel, the chat menu, and the row for any chat in "Manage chat files" — and
+ * they are one function because they were three, and the three had already
+ * drifted: two refused an empty name by treating a cancelled prompt and a
+ * cleared box as the same answer.
  *
  * Defaults to the open chat, so the two callers that mean "this one" say
- * nothing. Returns whether anything changed, for the caller that has its own
- * list to redraw.
+ * nothing. Returns whether anything changed, for the callers that have their
+ * own list to redraw.
  */
 async function renameChat(id = S.chatId, current = chatMeta?.title ?? "") {
   if (!id) return false;
@@ -1497,7 +1479,7 @@ async function renameChat(id = S.chatId, current = chatMeta?.title ?? "") {
   });
   if (id === S.chatId) {
     if (chatMeta) chatMeta.title = next;
-    renderRoom();
+    paintCastView();
   }
   await refreshCast();
   await refreshChats();
@@ -1505,33 +1487,142 @@ async function renameChat(id = S.chatId, current = chatMeta?.title ?? "") {
   return true;
 }
 
-/**
- * The scenario, on its own.
+/* ---- this scene, in the Cast panel -----------------------------------------
+ * Everything about the room you are in, in the panel that is already about
+ * people — rather than piled on top of the story you are reading.
  *
- * It lives at the bottom of the members dialog too, which is where it was
- * born — but it is the field in there that actually changes mid-story, and
- * reaching it meant opening a dialog about who is in the room and reading past
- * the mute switches to get to it.
+ * The Cast panel has two pages now. With a chat open it shows this one first,
+ * because that is what you came in for; the whole library is one press away
+ * and stays one press away. With no chat open there is only the library, and
+ * none of this exists.
  */
-function openScenario() {
-  if (!S.chatId) return;
-  $("#sc_text").value = chatMeta?.scenario ?? "";
-  $("#scenarioDialog").showModal();
+
+/** Which page the Cast panel is showing: "scene" or "library". */
+let castView = "library";
+
+function paintCastView() {
+  if (!$("#sceneNow")) return;
+  const inChat = !!S.chatId;
+  const scene = inChat && castView === "scene";
+  $("#sceneNow").hidden = !scene;
+  $("#castLibrary").hidden = scene;
+  // The way back exists exactly when there is somewhere to go back to.
+  $("#sceneBack").hidden = !inChat;
+  if (scene) renderScene();
 }
 
-$("#scenarioForm").addEventListener("submit", async (e) => {
-  if (e.submitter?.value !== "save" || !S.chatId) return;
-  const next = $("#sc_text").value;
-  await api("/chats/" + S.chatId, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scenario: next }),
+$("#sceneAll").onclick = () => { castView = "library"; paintCastView(); };
+$("#sceneBack").onclick = () => { castView = "scene"; paintCastView(); };
+$("#sceneTitleBtn").onclick = () => renameChat();
+
+/**
+ * Draws the scene page: what this story is called, who is standing in it, and
+ * the premise they are standing in.
+ *
+ * Redrawn rather than patched after every change, because each of these edits
+ * can change the others — dropping somebody can turn a group back into a solo
+ * chat, which changes what the mute switches mean.
+ */
+async function renderScene() {
+  if (!S.chatId) return;
+
+  $("#sceneTitleBtn").querySelector(".snm").textContent =
+    (chatMeta?.title ?? "").trim() || "Name this story";
+
+  await loadRoom();
+  const group = S.cast.length > 1;
+
+  const box = $("#sceneMembers");
+  box.innerHTML = "";
+  S.cast.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "blockrow" + (m.muted ? " off" : "");
+    row.innerHTML =
+      `<div class="brow">` +
+      medallion(m.avatar, m.name) +
+      `<span class="b-fixed">${esc(m.name)}</span>` +
+      `<span class="btools">` +
+        // Muting and dropping are group questions. In a solo chat there is
+        // nobody to take the turn instead and nobody left if they go.
+        (group
+          ? `<label class="switch" title="Let them speak"><input type="checkbox" class="m-on"><span></span></label>`
+          : "") +
+        `<button type="button" class="bico" data-edit-member title="Edit ${esc(m.name)}"` +
+        ` aria-label="Edit ${esc(m.name)}">${ICON.edit}</button>` +
+        (group
+          ? `<button type="button" class="bico danger" data-drop title="Remove from the scene"` +
+            ` aria-label="Remove ${esc(m.name)} from this scene">&minus;</button>`
+          : "") +
+      `</span></div>`;
+
+    const on = row.querySelector(".m-on");
+    if (on) {
+      on.checked = !m.muted;
+      on.onchange = async () => {
+        await api(`/chats/${S.chatId}/members`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mute: { id: m.id, on: !on.checked } }),
+        });
+        renderScene();
+      };
+    }
+    row.querySelector("[data-edit-member]").onclick = () => editChar(m);
+    const drop = row.querySelector("[data-drop]");
+    if (drop) {
+      drop.onclick = async () => {
+        if (S.cast.length < 2) return void toast("A scene needs someone in it.");
+        await api(`/chats/${S.chatId}/members`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ remove: m.id }),
+        });
+        renderScene();
+        refreshChats();
+      };
+    }
+    box.appendChild(row);
   });
-  if (chatMeta) chatMeta.scenario = next;
-  // The members dialog holds the same field; keep it from showing a stale copy.
-  if ($("#roomScenario")) $("#roomScenario").value = next;
-  toast(next.trim() ? "Scenario set." : "Scenario cleared.");
-});
+
+  // Adding to a solo chat is how it becomes a group — the server has always
+  // done that, and this is the way in.
+  const here = new Set(S.cast.map((m) => m.id));
+  const all = await api("/characters");
+  $("#scene_search").value = "";
+  wirePicker(
+    $("#scene_search"), $("#scene_results"),
+    (Array.isArray(all) ? all : []).filter((c) => !here.has(c.id)),
+    async (id) => {
+      await api(`/chats/${S.chatId}/members`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ add: id }),
+      });
+      renderScene();
+      refreshChats();
+    },
+  );
+
+  const auto = $("#sceneAuto");
+  auto.closest("label").hidden = !group;
+  auto.checked = !!Number(chatMeta?.auto_reply ?? 0);
+  auto.onchange = async () => {
+    await api(`/chats/${S.chatId}/auto`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ on: auto.checked }),
+    });
+    if (chatMeta) chatMeta.auto_reply = auto.checked ? 1 : 0;
+  };
+
+  const sc = $("#sceneScenario");
+  sc.value = chatMeta?.scenario ?? "";
+  sc.onchange = async () => {
+    await api("/chats/" + S.chatId, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scenario: sc.value }),
+    });
+    if (chatMeta) chatMeta.scenario = sc.value;
+    // The members dialog holds the same field and is only filled when opened.
+    if ($("#roomScenario")) $("#roomScenario").value = sc.value;
+  };
+}
 
 async function loadRoom() {
   const list = await api(`/chats/${S.chatId}/members`);
@@ -4580,6 +4671,9 @@ function pickPanel(tab) {
    */
   if (tab === "kinds") refreshKits();
   if (tab === "together") refreshTogether();
+  // The Cast panel opens on the scene while there is one. Going to the library
+  // is a decision; it lasts as long as the panel is open and no longer.
+  if (tab === "cast") paintCastView();
   // Lives in Connection now: it is about reaching this Hearth, which is the
   // same question as the rest of that panel asked from the other side.
   if (tab === "connection") paintSelfLinks();

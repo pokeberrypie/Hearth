@@ -480,6 +480,29 @@
           <div id="worldBody"></div>
         </div>
 
+        <!-- The room you are in, in the panel that is about people.
+             Shown only while a chat is open, and shown first: when you open
+             the Cast with a scene running, the scene is what you came for. The
+             whole library is one press away and stays that way. -->
+        <div id="sceneNow" hidden>
+          <button type="button" class="scenename" id="sceneTitleBtn" title="Name this story">
+            <span class="snm"></span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 6.5l3 3"/></svg>
+          </button>
+          <div id="sceneMembers" class="list"></div>
+          <label>Add someone
+            <input id="scene_search" type="text" placeholder="Search characters…" autocomplete="off">
+          </label>
+          <div id="scene_results" class="pickresults" hidden></div>
+          <label>Scenario<textarea id="sceneScenario" rows="4" placeholder="The shared premise everyone in the scene is standing in. Replaces each character's own scene text while it's set."></textarea></label>
+          <label class="check"><input type="checkbox" id="sceneAuto"> Let the quietest character reply on their own when I send a message</label>
+          <button type="button" class="linkish wide" id="sceneAll">All your characters &rsaquo;</button>
+        </div>
+
+        <div id="castLibrary">
+        <!-- Only while a chat is open, so the way back exists exactly when
+             there is somewhere to go back to. -->
+        <button type="button" class="linkish wide" id="sceneBack" hidden>&lsaquo; This scene</button>
         <div class="searchrow">
           <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
           <input type="search" id="castSearch" placeholder="Search your cast" autocomplete="off" aria-label="Search characters">
@@ -507,6 +530,7 @@
                at a time, rather than opening onto everybody you have ever made. -->
           <button class="linkish" id="bringOverBtn" hidden>Bring someone over</button>
         </div>
+        </div><!-- /castLibrary -->
       </section>
 
       <section data-panel="you" class="panel" hidden>
@@ -1176,6 +1200,16 @@
   <p class="welcomeline">Now and again Hearth can set down what has changed — what was sworn, what was
     lost, where you now stand — and keep it somewhere the story will find it again.</p>
 
+  <!-- Asked here because this is the one moment it is worth asking: a chat is
+       named after its character, and the fourth story with the same person is
+       the fourth thing on the shelf called their name. Optional — leaving it
+       alone keeps the character's name, which is what happened before. -->
+  <label class="wname">
+    <span class="wtitle">Name your story</span>
+    <input type="text" id="storyName" class="wfield" autocomplete="off" maxlength="120"
+           placeholder="The night the lamp failed">
+  </label>
+
   <div class="wopts">
     <label class="wopt">
       <input type="radio" name="loreChoice" value="new" checked>
@@ -1546,22 +1580,6 @@
     <label>Scenario<textarea id="roomScenario" rows="4" placeholder="The shared premise everyone in the scene is standing in. Replaces each character's own scene text while it's set."></textarea></label>
     <label class="check"><input type="checkbox" id="autoReply"> Let the quietest character reply on their own when I send a message</label>
     <div class="actions"><button value="close" class="solid">Done</button></div>
-  </form>
-</dialog>
-
-<!-- The scenario on its own, because it is the one field in "Who is in this
-     scene" that gets changed mid-story. Reaching it used to mean opening the
-     members dialog and reading past the mute switches to the bottom. -->
-<dialog id="scenarioDialog">
-  <form method="dialog" id="scenarioForm">
-    <h2>The scenario</h2>
-    <p class="hint">The shared premise everyone in this scene is standing in.
-      While it is set it replaces each character's own scene text.</p>
-    <label>Scenario<textarea id="sc_text" rows="7" placeholder="The lamp has failed three nights running, and the supply boat is late."></textarea></label>
-    <div class="actions">
-      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
-      <button value="save" class="solid">Save</button>
-    </div>
   </form>
 </dialog>
 

@@ -3488,31 +3488,16 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
 /* ---- who is in the room ------------------------------------------------- */
 /* The face strip over a group chat. Tapping a face hands them the next turn. */
 
-/**
- * The strip above a chat.
- *
- * The faces scroll and nothing after them does — with the whole strip
- * scrolling, a cast of nine pushed the chat's name and the scenario button off
- * the end, where there was no reason to think they existed.
- */
 .castbar {
   display: flex;
   align-items: center;
   gap: .5rem;
   padding: .35rem .7rem;
-  overflow: hidden;
-  border-bottom: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .08));
-}
-.castfaces {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  flex: 1 1 auto;
-  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+  border-bottom: 1px solid var(--lcs-glass-border, rgba(255, 255, 255, .08));
 }
-.castfaces::-webkit-scrollbar { display: none; }
+.castbar::-webkit-scrollbar { display: none; }
 
 .castface {
   display: flex;
@@ -3539,95 +3524,62 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
 .castface.muted { opacity: .28; cursor: default; }
 .castface.muted .cn { text-decoration: line-through; }
 
-.casthint {
-  font-size: .74em;
-  opacity: .45;
-  white-space: nowrap;
-  flex: 0 0 auto;
-  padding-left: .5rem;
-}
+.casthint { font-size: .74em; opacity: .45; white-space: nowrap; margin-left: auto; padding-left: .5rem; }
 
-/**
- * The chat's name, in the strip, because that is where somebody is when they
- * decide this one needs a name of its own.
- *
- * It shrinks before it truncates and truncates before it wraps: the strip is
- * one line, and a long chat title must not be allowed to push the scenario
- * button out of the room.
- */
-.castname {
+/* ---- this scene, in the Cast panel ---------------------------------------
+   The Cast panel's first page while a chat is open. Same materials as the
+   library page under it — the two are pages of one panel, not two panels. */
+
+/* The story's name, at the top, as the heading it is. A press renames it. */
+.scenename {
   display: flex;
   align-items: center;
-  gap: .3rem;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 42%;
-  padding: .25rem .4rem;
-  background: none;
-  border: 0;
-  border-radius: var(--lumiverse-radius-sm);
-  color: inherit;
+  gap: .45rem;
+  width: 100%;
+  margin: 0 0 .8rem;
+  padding: .5rem .6rem;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-left: 3px solid color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  border-radius: var(--lumiverse-radius);
+  color: var(--lumiverse-text);
   font-family: var(--lumiverse-font-display);
-  font-size: .82em;
+  font-size: 1rem;
   letter-spacing: .02em;
+  text-align: left;
   cursor: pointer;
-  opacity: .55;
-  transition: opacity .15s ease, background .15s ease;
+  transition: border-color .18s, background .18s;
 }
-.castname .cnm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* An offer rather than a name: quieter, and italic so it does not read as a
-   chat that somebody has actually called "Name this chat". */
-.castname.unnamed { opacity: .38; }
-.castname.unnamed .cnm { font-style: italic; font-family: var(--lumiverse-font-family); }
-/* The pencil says the name is a control. It fades up rather than appearing, so
-   the strip does not twitch when the pointer crosses it. */
-.castname svg {
-  width: .9em; height: .9em;
+.scenename:hover { border-color: var(--lumiverse-border-hover); }
+.scenename .snm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scenename svg {
+  width: 1rem; height: 1rem;
   flex: none;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: .5;
 }
-.castname:hover,
-.castname:focus-visible { opacity: 1; background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent); }
-.castname:hover svg { opacity: .9; }
+.scenename:hover svg { opacity: .95; }
 
-/* The scenario, one press from the chat rather than at the bottom of a dialog
-   about who is standing in it. */
-.castscene {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  background: none;
-  border: 0;
-  border-radius: var(--lumiverse-radius-sm);
-  color: inherit;
-  cursor: pointer;
-  opacity: .5;
-  transition: opacity .15s ease, background .15s ease;
-}
-.castscene svg {
-  width: 1.05rem; height: 1.05rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.castscene:hover,
-.castscene:focus-visible { opacity: 1; background: color-mix(in srgb, var(--lumiverse-primary) 10%, transparent); }
+#sceneMembers { margin-bottom: .9rem; }
+#sceneMembers .brow { gap: .55rem; }
+#sceneMembers .medallion, #sceneMembers .face { width: 1.7rem; height: 1.7rem; font-size: .75rem; }
 
-/* On a narrow screen the sentence goes before anything you can press does. */
-@media (max-width: 620px) {
-  .casthint { display: none; }
-  .castname { max-width: 34%; }
+/* The two ways between the panel's pages, drawn as the same control facing
+   opposite directions. */
+#sceneAll, #sceneBack {
+  display: block;
+  width: 100%;
+  margin: 1rem 0 .2rem;
+  padding: .5rem;
+  text-align: center;
+  opacity: .7;
 }
+#sceneBack { margin: 0 0 .7rem; }
+#sceneAll:hover, #sceneBack:hover { opacity: 1; }
 
 #memberList .brow { gap: .55rem; }
 #memberList .medallion, #memberList .face { width: 1.7rem; height: 1.7rem; font-size: .75rem; }
@@ -4226,6 +4178,23 @@ body[data-msgstyle="portrait"] .plate {
   line-height: 1.6;
   color: var(--lumiverse-text-muted);
 }
+
+/**
+ * Naming the story, above the question about notes.
+ *
+ * Deliberately not a `.wopt`: those are a set of choices you pick one of, and
+ * this is not one of them — it is a separate answer that happens to be asked
+ * in the same breath. So it gets no radio, no lit edge, and a rule under it
+ * to say the choices start below.
+ */
+.wname {
+  display: block;
+  margin: 0 0 1rem;
+  padding: 0 0 1rem;
+  border-bottom: 1px solid var(--lumiverse-border);
+}
+.wname .wtitle { display: block; }
+.wname .wfield { grid-column: auto; }
 
 .wopts { display: flex; flex-direction: column; gap: 0.5rem; }
 
