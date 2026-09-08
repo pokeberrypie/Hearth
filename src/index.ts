@@ -2460,6 +2460,58 @@ export function assemble(
   }
 
   /*
+   * Everybody at this table, named, whichever mode it is being played in.
+   *
+   * Without it a shared chat is a narrator running a story for one person
+   * while somebody else types into it: the other turns arrive signed with a
+   * name it has never been told, attached to a person it does not know exists,
+   * and it writes around them or invents them from scratch.
+   *
+   * Two things this used to get wrong.
+   *
+   * It only existed in tabletop mode, so a shared *story* chat had nothing at
+   * all — the guests were invisible and the narrator answered the host for
+   * every turn anybody took. A story told by three people is as shared as a
+   * game played by three, and the narrator needs the same list either way.
+   *
+   * And it listed the guests and not the host. The `players` table is seats at
+   * the share; the person running it has a persona instead, described further
+   * up under a heading of its own. So the narrator was told "more than one
+   * person is playing" and then handed exactly one name, with the host's
+   * persona floating unattached somewhere above — which reads as one player
+   * and one narrator, not two players. Whoever owns the chat is at the table
+   * too, and goes first, because they are the one whose turns arrive unsigned.
+   */
+  const openTable = db
+    .query("SELECT * FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1")
+    .get(chat.id) as any;
+  let roster = "";
+  if (openTable) {
+    const seats = db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at")
+      .all(openTable.id) as any[];
+    if (seats.length) {
+      const mine = sheetFor(me.id);
+      const party = [
+        mine
+          ? sheetForPrompt(me.name, mine)
+          : `${me.name} — whose chat this is. Their turns are the ones that arrive without a name in front of them.`,
+        ...seats.map((p) => {
+          const sh = sheetFor(p.id);
+          return sh ? sheetForPrompt(p.name, sh) : `${p.name} — at the table, no character sheet yet.`;
+        }),
+      ];
+      roster =
+        `# Who is playing\nThis is being played by more than one person: ` +
+        `${[me.name, ...seats.map((p) => p.name)].join(", ")}. Their turns are signed with their ` +
+        `names — those names are who acted, and they are different people.\n\n` +
+        `Answer whoever has just acted, by name. If two of them acted before you replied, ` +
+        `answer both in the one turn rather than picking one and leaving the other standing ` +
+        `there. Never write a turn, a line of speech or a decision for any of them, and never ` +
+        `attribute what one of them did to another.\n\n${party.join("\n\n")}`;
+    }
+  }
+
+  /*
    * Whether the human turns need names on them: only when more than one person
    * is writing them. See buildMessages.
    */
@@ -2590,36 +2642,8 @@ ${DICE_BRIEF}` : DICE_BRIEF;
      */
     table.push(difficultyForPrompt(s.tabletop_difficulty));
 
-    /*
-     * And everybody else at the table, if anybody else is.
-     *
-     * Without this a shared game is a narrator running a story for one person
-     * while three others type into it: their turns arrive signed with names it
-     * has never been told, attached to characters it does not know exist, and
-     * it writes around them or invents them from scratch. The party is the
-     * first thing a person at a real table knows.
-     */
-    const openTable = db
-      .query("SELECT * FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1")
-      .get(chat.id) as any;
-    if (openTable) {
-      const party = (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at")
-        .all(openTable.id) as any[])
-        .map((p) => {
-          const s = sheetFor(p.id);
-          return s ? sheetForPrompt(p.name, s) : `${p.name} — at the table, no character sheet yet.`;
-        });
-      if (party.length) {
-        table.push(
-          `# Who is playing\nThis game is being played by more than one person. Their turns are ` +
-          `signed with their names — those names are who acted, and they are different people.\n\n` +
-          `Answer whoever has just acted, by name. If two of them acted before you replied, ` +
-          `answer both in the one turn rather than picking one and leaving the other standing ` +
-          `there. Never write a turn, a line of speech or a decision for any of them, and never ` +
-          `attribute what one of them did to another.\n\n${party.join("\n\n")}`,
-        );
-      }
-    }
+    // Who is playing, built above and shared with story mode — see whoIsPlaying.
+    if (roster) table.push(roster);
 
     /*
      * Where everyone is, and who is standing there.
@@ -2661,6 +2685,17 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     if (last?.role === "user") last.content += `\n\n[${block}]`;
     else messages.push({ role: "user", content: `[${block}]` });
     note("The table", block);
+  } else if (roster) {
+    /*
+     * A shared story chat gets the roster on its own, in the same place the
+     * table's block goes: after the transcript, where an instruction is read
+     * rather than skimmed past. There is no table to fold it into here, but
+     * the reason for it is identical — somebody else is typing.
+     */
+    const last = messages[messages.length - 1];
+    if (last?.role === "user") last.content += `\n\n[${roster}]`;
+    else messages.push({ role: "user", content: `[${roster}]` });
+    note("Who is playing", roster);
   }
 
   /*
@@ -5474,9 +5509,22 @@ api.get("/table/live", (c) => {
 
       emit("hello", tableState(share, g.player));
       const off = subscribe(share.id, emit);
-      // Same reason as the generation stream: a quiet table must not be
-      // mistaken for a dropped one.
-      const beat = setInterval(() => push(": keep-alive\n\n"), 15_000);
+      /*
+       * A heartbeat the browser can see, not just one the socket can feel.
+       *
+       * This used to be an SSE comment — `: keep-alive` — which keeps the
+       * connection warm and is invisible to the page: the EventSource parser
+       * eats comment lines without firing anything. So a guest had no way to
+       * tell a quiet table from a dead socket, and on iOS that difference is
+       * the whole feature. Safari suspends and reaps these connections on its
+       * own schedule, and the readyState it leaves behind can still say OPEN
+       * while nothing will ever arrive again — which looks exactly like a
+       * table where nobody is talking, until you reload and find six replies
+       * waiting.
+       *
+       * As an event, the page can time it. See the watchdog in app.js.
+       */
+      const beat = setInterval(() => emit("ping", { at: Date.now() }), 15_000);
 
       const stop = () => {
         alive = false;

@@ -7995,8 +7995,26 @@ function tgListen() {
  * Somebody at the table has taken a turn.
  *
  * Their message is already written down — this copy only has to show it and
- * then let the narrator answer. `silent` rather than `reply` because the turn
- * is in the transcript already; sending it again would say it twice.
+ * then let the narrator answer.
+ *
+ * `reply` with nothing to say, and *not* `silent`, which is what this used to
+ * do. The reasoning was sound and the effect was not: the turn is already in
+ * the transcript, so there is nothing to send, and `silent` is the mode that
+ * sends nothing. But `silent` does not mean "no message attached", it means
+ * "the person whose persona this is has chosen not to speak" — and it says so
+ * in the system prompt, by name.
+ *
+ * So every time a guest took a turn, the narrator was told the *host* had
+ * stayed quiet, and wrote the scene accordingly. It came out as replies
+ * beginning "Bing Us has said nothing. The Gamekeeper fills the silence." —
+ * the host's persona named as silent while the guest's actual message, sitting
+ * right there in the history, went unanswered. From the guest's side that is
+ * indistinguishable from the app not registering that they had spoken at all,
+ * which is exactly how it was reported.
+ *
+ * `reply` with an empty body writes no message down (see POST /generate, which
+ * only stores one when there is content) and adds no framing of its own. It
+ * just answers what is there.
  *
  * Guarded, because two people typing at once is two announcements, and two
  * generations on one chat is two narrators talking over each other.
@@ -8015,7 +8033,7 @@ async function tgAnswer(evt) {
   if (TG.answering || S.generating) { TG.pending = true; return; }
   TG.answering = true;
   try {
-    await run("silent");
+    await run("reply");
   } finally {
     TG.answering = false;
     if (TG.pending) { TG.pending = false; setTimeout(() => tgAnswer(evt), 250); }
@@ -8353,7 +8371,7 @@ $("#composer").addEventListener("submit", (e) => { e.preventDefault(); send(); }
  * 200 means guest, anything else means host. The host is not a guest — the
  * gate refuses them this route too — so this cannot answer wrongly.
  */
-const GUEST = { on: false, state: null, feed: null };
+const GUEST = { on: false, state: null, feed: null, heard: 0 };
 
 async function guestBoot(state) {
   GUEST.on = true;
@@ -8526,9 +8544,31 @@ function guestPaint() {
  * happens next, and what you actually missed is everything that happened while
  * the phone was in a pocket.
  */
+/**
+ * Whether the line has gone quiet for longer than it can honestly be quiet.
+ *
+ * The server pings every fifteen seconds, so silence past forty is not a table
+ * where nobody is talking — it is a socket that is not going to deliver
+ * anything again. This is the only reliable test there is: `readyState` is the
+ * browser's opinion and on iOS it is routinely wrong, still reading OPEN long
+ * after the connection has been reaped.
+ */
+const HEARD_STALE = 40_000;
+const guestStale = () => Date.now() - (GUEST.heard ?? 0) > HEARD_STALE;
+
 function guestWake() {
   if (!GUEST.on) return;
-  const dead = !GUEST.feed || GUEST.feed.readyState === EventSource.CLOSED;
+  /*
+   * Stale counts as dead.
+   *
+   * This used to reconnect only when the browser admitted the socket was
+   * CLOSED, which misses the failure that actually strands people: iOS hands
+   * back a connection that claims to be open and never delivers again. Coming
+   * back to the tab then re-read the table once — so you saw what you had
+   * missed — and left you on the same dead line, to be stranded again by the
+   * very next reply.
+   */
+  const dead = !GUEST.feed || GUEST.feed.readyState === EventSource.CLOSED || guestStale();
   if (dead) guestListen();
   guestSync();
 }
@@ -8545,10 +8585,39 @@ addEventListener("focus", guestWake);
 addEventListener("online", guestWake);
 addEventListener("pageshow", guestWake);
 
+/**
+ * And a watchdog, because the events above are not enough on a phone.
+ *
+ * All four of them fire when something happens *to the tab* — it was hidden
+ * and came back, the window took focus, the network returned. None of them
+ * fire in the case that actually strands somebody: the tab is open, in front
+ * of them, and the connection underneath it has quietly died. iOS does this
+ * routinely, and the readyState left behind can still read OPEN, so there is
+ * nothing to notice by inspection. From the guest's side the table simply
+ * stops: no error, no reconnect, just a scene that never moves again until
+ * they pull down to refresh — reported, exactly, as "unless he refreshes every
+ * round his isn't being updated".
+ *
+ * So: the server sends a ping every fifteen seconds, and if forty go by with
+ * nothing at all — not a reply, not a roll, not a ping — the line is treated
+ * as dead however healthy it claims to be. Reconnect, and re-read the whole
+ * table, because a fresh socket only carries what happens next and what was
+ * missed is everything that happened while it was gone.
+ */
+setInterval(() => {
+  // A hidden tab is left alone: its timers are throttled or frozen anyway, and
+  // coming back fires visibilitychange, which does all of this.
+  if (!GUEST.on || document.hidden || !guestStale()) return;
+  GUEST.heard = Date.now();   // don't stampede while the reconnect is in flight
+  guestListen();
+  guestSync();
+}, 10_000);
+
 function guestListen() {
   GUEST.feed?.close();
   const feed = new EventSource("/api/table/live");
   GUEST.feed = feed;
+  GUEST.heard = Date.now();
   feed.onerror = () => {
     // The browser retries an EventSource on its own, but not always, and not
     // from a suspended tab. One reconnect of our own, once it has given up.
@@ -8561,7 +8630,11 @@ function guestListen() {
   // types itself out here exactly as it does there.
   let streaming = null;
   feed.onmessage = (e) => {
+    // Anything at all counts as the line being alive, including the server's
+    // own heartbeat. The watchdog below reads this and nothing else.
+    GUEST.heard = Date.now();
     let evt; try { evt = JSON.parse(e.data); } catch { return; }
+    if (evt.event === "ping") return;
 
     if (evt.event === "hello") {
       GUEST.state = evt;
