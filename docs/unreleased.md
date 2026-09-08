@@ -4,26 +4,13 @@ What is on `main` and not in the newest tag. Everything here is finished,
 tested and running — it simply has not been cut into a release and uploaded
 yet, so nobody who downloaded Hearth has it.
 
-**Last release: `v0.2.3`.** Next one is `v0.2.4`.
+**Last release: `v0.2.4`.** Next one is `v0.2.5`.
 
 ---
 
-## In v0.2.4, when it is cut
+## In v0.2.5, when it is cut
 
-### Behaviour has an icon of its own
-
-Presets and Behaviour were both drawn as faders — horizontal lines with dots
-sitting on them — one row apart on the same rail. At nineteen pixels they were
-the same icon.
-
-Behaviour is the page of switches, so it is a switch now: a capsule with the
-knob thrown over to the right. Nothing else on the rail has a capsule
-silhouette, which is the point.
-
-The knob is filled, and it is the only filled shape among the rail icons —
-everything there is stroke-only. Drawn hollow it read at nineteen pixels as a
-squashed version of Together's two rings, which is the original complaint moved
-along by one. Compared at the real size against its neighbours before choosing.
+Nothing yet.
 
 ---
 
