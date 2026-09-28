@@ -8103,9 +8103,12 @@ const FIELDS = [
 
 let providerMeta = {};
 let keys = {};
+/** Set by the phone's server when it had to rebuild a damaged database. */
+let recoveryNotice = "";
 
 async function loadSettings() {
   const s = await api("/settings");
+  recoveryNotice = s.recovery_notice || "";
   providerMeta = s.providers;
   const sel = $("#provider");
   sel.innerHTML = "";
@@ -8998,6 +9001,28 @@ async function boot() {
     catch (err) { console.error(`Hearth: ${label} failed to load`, err); }
   }
   openTheHearth();
+  tellOfRecovery();
+}
+
+/**
+ * Says, once, that the library was rebuilt from a damaged file.
+ *
+ * Only the phone's server ever sets this. Losing the newest few messages
+ * without a word would look like the app quietly eating them; being told
+ * lets someone go and check, and know where the original went.
+ */
+async function tellOfRecovery() {
+  if (!recoveryNotice) return;
+  const text = recoveryNotice;
+  recoveryNotice = "";
+  await askDialog({ title: "Your library was repaired", text, confirmLabel: "OK" });
+  try {
+    await api("/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ recovery_notice: "" }),
+    });
+  } catch {}
 }
 
 /**

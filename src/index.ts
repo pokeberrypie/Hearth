@@ -2170,6 +2170,15 @@ api.get("/backup/export", async (c) => {
 
   add("hearth.db", join(DATA, "hearth.db"));
   for (const extra of [".env", "lumiverse.identity"]) add(extra, join(DATA, extra));
+  // A phone that had to rebuild a damaged database keeps the original beside
+  // it, with a report (mobile/server/db.mobile.ts). The phone's storage is
+  // out of reach without a cable, so a backup is how that file gets to a
+  // computer, where better tools can have another go at it.
+  try {
+    for (const f of readdirSync(DATA)) {
+      if (/^hearth\.db\.damaged-|^recovery-.*\.txt$/.test(f)) add(`recovery/${f}`, join(DATA, f));
+    }
+  } catch {}
 
   const walk = (dir: string, prefix: string) => {
     let entries: string[] = [];
