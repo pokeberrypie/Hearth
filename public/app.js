@@ -4703,7 +4703,7 @@ $("#sceneSave").onclick = async () => {
   await openChat(S.chatId);
 
   $("#sceneDialog").close();
-  toast("Scene saved.");
+  toast("Chat settings saved.");
 };
 
 // ---- chat files ---------------------------------------------------------
@@ -9865,7 +9865,7 @@ function applyChatRoom() {
   if (!want) { ambience.stop(); return; }
   // Already awake means a press happened at some point in this session, so
   // carrying the sound from chat to chat is a continuation rather than a
-  // surprise. Otherwise it waits for the Scene dialog.
+  // surprise. Otherwise it waits for Chat settings.
   if (ambience.awake) ambience.play(want);
 }
 
@@ -10223,7 +10223,7 @@ $("#newApocBtn").onclick = async () => {
   if (made) openApoc(made);
 };
 
-/* In the Scene dialog: which story this chat follows, where it has got to, and
+/* In Chat settings: which story this chat follows, where it has got to, and
    the one button that matters while playing — this scene is done. All of it
    takes effect at once rather than waiting for Save, because it is the
    chat's place in a book, not a setting of the room. */
@@ -10356,7 +10356,7 @@ showWing(shelfWing);
 /* ---- where a chat's notes go -------------------------------------------------
    Asked once when a chat begins, and until now never again: a chat whose book
    had been replaced by a corrected copy had no way to be pointed at it. This
-   is that way, in the Scene dialog, and as a button on any book taken off the
+   is that way, in Chat settings, and as a button on any book taken off the
    shelf. */
 
 const NEW_NOTES = "__new__";
