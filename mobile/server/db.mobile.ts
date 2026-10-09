@@ -52,16 +52,22 @@ let healthy = false;
 /** What this start-up rebuilt, if it rebuilt anything; null otherwise. */
 export let lastRecovery: string | null = null;
 
-/** Hearth's schema and migrations, the same ones src/db.ts runs. */
-function setup(d: SqlJsDatabase) {
+/**
+ * Hearth's schema and migrations, the same ones src/db.ts runs — and in the
+ * same order: every CREATE, then the migrations. An ALTER against a table
+ * that does not exist yet throws, the throw is swallowed on purpose because
+ * that is how "already applied" is detected, and the column is then missing
+ * for good on every fresh install. The desktop hit this with `shares`.
+ */
+export function setup(d: SqlJsDatabase) {
   d.run("PRAGMA foreign_keys = ON;");
   d.run(CREATE_TABLES);
-  for (const stmt of ALTER_TABLES) {
-    try { d.run(stmt); } catch {}
-  }
   d.run(CREATE_CHAT_MEMBERS);
   d.run(CREATE_SHARES);
   d.run(CREATE_KITS);
+  for (const stmt of ALTER_TABLES) {
+    try { d.run(stmt); } catch {}
+  }
 }
 
 /**
@@ -153,7 +159,11 @@ function open(SQL: SqlJsStatic): SqlJsDatabase {
   // line would be rewriting the only evidence of what was there.
   copyFileSync(DB_PATH, join(DATA_DIR, keptAs));
 
-  const snapshot = existsSync(GOOD_PATH) ? readFileSync(GOOD_PATH) : null;
+  // The build that first repaired a phone kept its once-a-launch copy as
+  // hearth.db.prev. A phone updated from it has that and no .good yet.
+  const PREV_PATH = join(DATA_DIR, "hearth.db.prev");
+  const snapshot = existsSync(GOOD_PATH) ? readFileSync(GOOD_PATH)
+    : existsSync(PREV_PATH) ? readFileSync(PREV_PATH) : null;
   const result = recover(SQL, bytes, snapshot, setup);
   const report = describe(result, problem, keptAs);
   console.error(report);

@@ -23,10 +23,10 @@ const loadSql = async () => {
 function setup(d: any) {
   d.run("PRAGMA foreign_keys = ON;");
   d.run(CREATE_TABLES);
-  for (const s of ALTER_TABLES) { try { d.run(s); } catch {} }
   d.run(CREATE_CHAT_MEMBERS);
   d.run(CREATE_SHARES);
   d.run(CREATE_KITS);
+  for (const s of ALTER_TABLES) { try { d.run(s); } catch {} }
 }
 
 const MESSAGES = 4000;
@@ -186,5 +186,21 @@ describe.skipIf(!have)("opening the database on the phone", () => {
     const saved = new SQL.Database(readFileSync(join(dir, "hearth.db")));
     expect(saved.exec("SELECT COUNT(*) FROM messages")[0].values[0][0]).toBe(MESSAGES);
     saved.close();
+  });
+});
+
+describe.skipIf(!have)("the phone's schema", () => {
+  test("a fresh database gets every migrated column, including on tables created last", async () => {
+    const SQL = await loadSql();
+    const d = new SQL.Database();
+    // The phone's own, not this file's copy of it.
+    (await import("./db.mobile")).setup(d);
+    const cols = (t: string) => (d.exec(`PRAGMA table_info(${t})`)[0]?.values ?? []).map((r: any[]) => r[1]);
+    // Every ALTER that names a table must have landed.
+    for (const stmt of ALTER_TABLES) {
+      const m = stmt.match(/ALTER TABLE (\w+) ADD COLUMN (\w+)/i);
+      if (m) expect(cols(m[1])).toContain(m[2]);
+    }
+    d.close();
   });
 });
