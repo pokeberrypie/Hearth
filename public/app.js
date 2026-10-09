@@ -1363,33 +1363,6 @@ async function showTree() {
   const { placed, links } = layoutTree(nodes);
   const depth = Math.max(...placed.map((p) => p.depth)) + 1;
 
-  const COL = 210, ROW = 150, PAD = 40, BASE = 70, LABEL = 112;
-  // Room under the root for the trunk to reach the ground, or it is cut off at
-  // the bottom edge.
-  const H = depth * ROW + PAD * 2 + BASE;
-  const groundY = H - PAD;
-
-  /*
-   * Sized to what was actually drawn, rather than to the slots it was laid out
-   * in. The layout leaves a spare column after every trunk so two unrelated
-   * stories do not look joined, and counting that gap into the width left a
-   * dead column on the right — which is a tree sitting half a column
-   * off-centre. Measuring the placed nodes and shifting them into the middle
-   * is right whatever the layout does next.
-   */
-  const raw = new Map(placed.map((p) => [p.node.id, {
-    x: p.x * COL + wiggle(p.node.id, 26),
-    y: groundY - BASE - p.depth * ROW,
-  }]));
-  const xs = [...raw.values()].map((p) => p.x);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  // The labels are centred on their node and stick out either side, so the
-  // margin has to clear a label, not a twig.
-  const W = (maxX - minX) + (PAD + LABEL) * 2;
-  const shift = LABEL + PAD - minX;
-  const pos = new Map([...raw].map(([id, p]) => [id, { x: p.x + shift, y: p.y }]));
-  const widthAt = (d) => Math.max(3, 17 * Math.pow(0.62, d));
-
   /*
    * Chats are usually named after the character, so a column of them reads
    * "Jamie Lannister - 2026-08-…" fifteen times with the only distinguishing
@@ -1417,6 +1390,54 @@ async function showTree() {
     return rest.replace(/^[\s—–:_-]+/, "").trim() || title;
   };
 
+  const labelOf = (node) => {
+    const own = ownTitle(node.title);
+    // Short enough that a row of them stays narrow; the whole title is the
+    // branch's tooltip, and the chat's own heading once it is open.
+    return own.length > 17 ? own.slice(0, 16) + "…" : own;
+  };
+
+  /*
+   * Spacing, measured rather than guessed.
+   *
+   * It used to be a fixed 210 across and 150 up, which was wrong both ways at
+   * once: a generation needs about 90px for its leaves and two lines of label,
+   * so a long chain of branches was mostly empty stem — while a full label in
+   * the display face runs to 225px, wider than its own column before the
+   * jitter moved neighbours closer still, so names ran into each other. Now a
+   * column is as wide as the longest label actually on this tree needs (about
+   * 11.5px a character at the phone's size), and a row is what a node is.
+   */
+  const longest = Math.max(4, ...placed.filter((p) => !p.node.trunk).map((p) => labelOf(p.node).length));
+  const COL = Math.max(120, Math.round(longest * 11.5) + 28);
+  const ROW = 104, PAD = 40, BASE = 70, LABEL = Math.ceil(COL / 2);
+  // Room under the root for the trunk to reach the ground, or it is cut off at
+  // the bottom edge.
+  const H = depth * ROW + PAD * 2 + BASE;
+  const groundY = H - PAD;
+
+  /*
+   * Sized to what was actually drawn, rather than to the slots it was laid out
+   * in. The layout leaves a spare column after every trunk so two unrelated
+   * stories do not look joined, and counting that gap into the width left a
+   * dead column on the right — which is a tree sitting half a column
+   * off-centre. Measuring the placed nodes and shifting them into the middle
+   * is right whatever the layout does next.
+   */
+  const raw = new Map(placed.map((p) => [p.node.id, {
+    // A little life in the columns, kept smaller than the gap between labels.
+    x: p.x * COL + wiggle(p.node.id, 10),
+    y: groundY - BASE - p.depth * ROW,
+  }]));
+  const xs = [...raw.values()].map((p) => p.x);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  // The labels are centred on their node and stick out either side, so the
+  // margin has to clear a label, not a twig.
+  const W = (maxX - minX) + (PAD + LABEL) * 2;
+  const shift = LABEL + PAD - minX;
+  const pos = new Map([...raw].map(([id, p]) => [id, { x: p.x + shift, y: p.y }]));
+  const widthAt = (d) => Math.max(3, 17 * Math.pow(0.62, d));
+
   const parts = [];
 
   // The trunk continues below the root, into the ground.
@@ -1437,11 +1458,11 @@ async function showTree() {
     if (p.node.trunk) continue;
     const here = p.node.id === S.chatId;
     const tilt = wiggle(p.node.id, 40);
-    const own = ownTitle(p.node.title);
-    const label = own.length > 20 ? own.slice(0, 19) + "…" : own;
+    const label = labelOf(p.node);
     parts.push(
       `<g class="bud${here ? " here" : ""}" data-chat="${p.node.id}" tabindex="0" role="button" ` +
       `aria-label="Open ${esc(p.node.title)}">` +
+        `<title>${esc(p.node.title)}</title>` +
         `<circle class="hit" cx="${o.x}" cy="${o.y}" r="46"/>` +
         `<g transform="translate(${o.x} ${o.y}) rotate(${tilt})">` +
           `<path class="leaf" d="M0 0c-11-4-19-13-21-25 12 2 21 10 25 21z"/>` +
