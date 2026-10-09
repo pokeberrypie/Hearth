@@ -24,7 +24,7 @@ import {
 import { join } from "node:path";
 import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from "sql.js";
 import { ALTER_TABLES, CREATE_CHAT_MEMBERS, CREATE_KITS, CREATE_SHARES, CREATE_TABLES, DEFAULTS, KEY_FIELDS } from "../../src/schema";
-import { describe, inspectHeader, quickCheck, recover, summarise } from "./dbrecover";
+import { copyAll, describe, inspectHeader, quickCheck, recover, summarise } from "./dbrecover";
 
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 mkdirSync(DATA_DIR, { recursive: true });
@@ -171,8 +171,11 @@ function open(SQL: SqlJsStatic): SqlJsDatabase {
   return recovered;
 }
 
+let sqlModule: SqlJsStatic;
+
 function load() {
   ready = initSqlJs({ locateFile: () => wasmPath }).then((SQL) => {
+    sqlModule = SQL;
     sqldb = open(SQL);
     healthy = true;
   });
@@ -212,6 +215,32 @@ export function flush() {
   // stand as the known-good copy — just not on every flush, which would
   // double the writing for no gain.
   if (Date.now() - lastGood > GOOD_EVERY_MS) { lastGood = Date.now(); refreshGood(bytes); }
+}
+
+/**
+ * Brings a whole Hearth database — a restored backup's — into this one. Same
+ * contract as src/db.ts: the backup's rows win where both have the same key,
+ * and the answer is how many rows each table took.
+ *
+ * Read with the same walker that rescues damaged files, so a backup with a
+ * bad page still gives up everything else rather than nothing.
+ */
+export function mergeDatabase(bytes: Uint8Array): { counts: Record<string, number>; notes: string[] } {
+  const notes: string[] = [];
+  sqldb.run("PRAGMA foreign_keys = OFF;");
+  let results;
+  try {
+    results = copyAll(sqlModule, bytes, sqldb, "backup", notes, "REPLACE");
+  } finally {
+    sqldb.run("PRAGMA foreign_keys = ON;");
+  }
+  flush();
+  const counts: Record<string, number> = {};
+  for (const r of results) {
+    counts[r.table] = r.rows;
+    if (r.gaps || r.unreadable) notes.push(`${r.table}: some rows in the backup could not be read`);
+  }
+  return { counts, notes };
 }
 
 // ---- bun:sqlite-shaped surface ------------------------------------------

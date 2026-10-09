@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { writeFile } from "./fsx";
-import { db, uid, now, getSettings, setSettings, KEY_FIELDS } from "./db";
+import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase } from "./db";
 import { generate, PROVIDERS } from "./providers";
 
 /**
@@ -20,7 +20,7 @@ function connectionFrom(s: Record<string, string>, provider = s.provider) {
   };
 }
 import { dirname, join } from "node:path";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { buildParts, buildMessages, buildPostHistory, macros, stripSpeakerLabel, type Character } from "./prompt";
 import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNote, NOTE_SYSTEM, type Scope } from "./autolore";
 import { CARRY_SYSTEM, carryEntry, carryPrompt, carriedTitle, cleanSummary, recentFor, tailBudget } from "./carryon";
@@ -4526,6 +4526,76 @@ api.get("/fs/places", (c) => c.json(places()));
  * browser sends each with its relative path, and zips are expanded in place.
  * Streams progress, since a large library takes a while.
  */
+/**
+ * Restores one of Hearth's own backups — the zip /backup/export makes, with
+ * hearth.db and the uploads folder at its root — from wherever it has been
+ * unpacked to.
+ *
+ * This is what makes a backup worth having. The import beside it only ever
+ * understood SillyTavern's layout, so Hearth could write a backup it could
+ * not read: exporting, reinstalling and importing — the obvious way to move a
+ * library, and the only way onto a phone whose old copy was signed with a key
+ * that is gone — brought back nothing at all.
+ *
+ * Merged rather than swapped in: the backup's rows win where both copies have
+ * the same one, and anything only this copy has is left where it is.
+ */
+async function restoreHearth(root: string, send: (o: unknown) => void) {
+  send({ stage: "Restoring your Hearth backup", done: 0, total: 1 });
+
+  // A fresh install seeds its own narrator. If it has never been written to
+  // and the backup brings its own, the library would hold two.
+  const untouched = (db.query(
+    `SELECT c.id FROM characters c WHERE c.name = ? AND NOT EXISTS (
+       SELECT 1 FROM messages m JOIN chats ch ON ch.id = m.chat_id
+       WHERE ch.character_id = c.id AND m.role = 'user')`,
+  ).all(STARTER.name) as { id: string }[]).map((r) => r.id);
+
+  const { counts, notes } = mergeDatabase(new Uint8Array(readFileSync(join(root, "hearth.db"))));
+
+  if (untouched.length) {
+    const marks = untouched.map(() => "?").join(", ");
+    const theirs = (db.query(
+      `SELECT COUNT(*) AS n FROM characters WHERE name = ? AND id NOT IN (${marks})`,
+    ).get(STARTER.name, ...untouched) as { n: number }).n;
+    if (theirs > 0) for (const id of untouched) db.query("DELETE FROM characters WHERE id = ?").run(id);
+  }
+
+  send({ stage: "Restoring your pictures", done: 0, total: 1 });
+  let pictures = 0;
+  const copyTree = (from: string, to: string) => {
+    let names: string[] = [];
+    try { names = readdirSync(from); } catch { return; }
+    for (const n of names) {
+      const src = join(from, n);
+      const dest = join(to, n);
+      try {
+        if (statSync(src).isDirectory()) { copyTree(src, dest); continue; }
+        mkdirSync(to, { recursive: true });
+        copyFileSync(src, dest);
+        pictures++;
+      } catch {}
+    }
+  };
+  copyTree(join(root, "uploads"), UPLOADS);
+
+  const n = (t: string) => counts[t] ?? 0;
+  send({
+    finished: true,
+    // Settings came in too — theme, look, keys — and the page only reads
+    // those as it loads.
+    reload: true,
+    count: {
+      characters: n("characters"), chats: n("chats"), messages: n("messages"),
+      personas: n("personas"), lorebooks: n("lorebooks"), presets: n("presets"), pictures,
+    },
+    notes: notes.slice(0, 12),
+  });
+}
+
+/** Where a Hearth backup's database sits once its archive is unpacked. */
+const hearthBackupIn = (dir: string) => existsSync(join(dir, "hearth.db"));
+
 api.post("/import/backup", async (c) => {
   /**
    * Restoring reads the whole body into memory and then inflates every entry
@@ -4603,7 +4673,13 @@ api.post("/import/backup", async (c) => {
             return dest;
           });
           send({ stage: `Unpacked ${taken} of ${seen} files`, done: 0, total: 1 });
+          if (hearthBackupIn(stage)) { await restoreHearth(stage, send); return; }
           if (!entries.length) throw new Error("Nothing importable was found in that archive.");
+        } else if (localPath && hearthBackupIn(localPath)) {
+          // The phone unpacks an archive itself (ZipImport.java) and sends the
+          // folder; a Hearth backup arrives here that way.
+          await restoreHearth(localPath, send);
+          return;
         } else if (localPath) {
           send({ stage: `Reading ${localPath}`, done: 0, total: 1 });
           const got = collect(localPath);
@@ -4613,8 +4689,24 @@ api.post("/import/backup", async (c) => {
 
         for (const { file, path } of incoming) {
           const raw = new Uint8Array(await file.arrayBuffer());
-          if (/\.zip$/i.test(path)) entries.push(...readZip(raw));
-          else entries.push({ path, read: () => raw });
+          if (/\.zip$/i.test(path)) {
+            const inside = readZip(raw);
+            if (inside.some((e) => e.path === "hearth.db")) {
+              // A Hearth backup uploaded from a browser: lay it out on disk
+              // the way the other two routes find it, and restore from there.
+              stage = join(DATA, "import-staging", uid());
+              for (const e of inside) {
+                const safe = e.path.split("/").filter((p) => p && p !== "." && p !== "..").join("/");
+                if (!safe) continue;
+                const dest = join(stage, safe);
+                mkdirSync(dirname(dest), { recursive: true });
+                writeFileSync(dest, e.read());
+              }
+              await restoreHearth(stage, send);
+              return;
+            }
+            entries.push(...inside);
+          } else entries.push({ path, read: () => raw });
         }
         const plan = planBackup(entries);
 

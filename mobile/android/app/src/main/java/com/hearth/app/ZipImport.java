@@ -44,6 +44,9 @@ final class ZipImport {
     Pattern.compile("(^|/)(openai settings|textgen settings|presets)/[^/]+\\.json$", Pattern.CASE_INSENSITIVE),
     Pattern.compile("(^|/)backgrounds/[^/]+\\.(png|jpe?g|webp)$", Pattern.CASE_INSENSITIVE),
     Pattern.compile("(^|/)chats/.+\\.jsonl$", Pattern.CASE_INSENSITIVE),
+    // Hearth's own backup: the database and its pictures, at the archive's root.
+    Pattern.compile("^hearth\\.db$"),
+    Pattern.compile("^uploads/.+\\.(png|jpe?g|webp|gif)$", Pattern.CASE_INSENSITIVE),
   };
 
   private static boolean wanted(String name) {

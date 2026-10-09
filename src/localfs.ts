@@ -110,6 +110,9 @@ export const WANTED = [
   /(^|\/)(openai settings|textgen settings|presets)\/[^/]+\.json$/i,
   /(^|\/)backgrounds\/[^/]+\.(png|jpe?g|webp)$/i,
   /(^|\/)chats\/.+\.jsonl$/i,
+  // Hearth's own backup: the database and its pictures, at the archive's root.
+  /^hearth\.db$/,
+  /^uploads\/.+\.(png|jpe?g|webp|gif)$/i,
 ];
 const SKIP = /(^|\/)(thumbnails|_uploads|uploads|backups|node_modules|\.git)(\/|$)/i;
 

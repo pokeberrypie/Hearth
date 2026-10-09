@@ -6332,6 +6332,9 @@ async function runImport(files, prepared, label) {
         (result.notes?.length ? ` Skipped ${result.notes.length} unreadable files.` : "")
       : "Nothing recognisable was found.";
 
+    // A Hearth backup brings its settings and look with it, and those are
+    // only read as the page loads.
+    if (result.reload) { setTimeout(() => location.reload(), 2500); return; }
     await Promise.all([refreshCast(), refreshPersonas(), refreshPresets(), refreshChats(), refreshWallpapers()]);
     await showSplash();
     setTimeout(() => (bar.hidden = true), 1800);

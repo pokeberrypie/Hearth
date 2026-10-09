@@ -171,5 +171,20 @@ describe.skipIf(!have)("opening the database on the phone", () => {
     const again = new SQL.Database(readFileSync(join(dir, "hearth.db")));
     expect(again.exec("SELECT value FROM settings WHERE key = 'model'")[0].values[0][0]).toBe("after");
     again.close();
+
+    // A backup restored into the phone's database: its rows win, and rows only
+    // the phone has stay.
+    mobile.db.query("INSERT INTO characters (id, name, created_at) VALUES ('phone-only', 'Kept', 1)").run();
+    const backup = new SQL.Database(bytes);
+    backup.run("UPDATE settings SET value = 'from-backup' WHERE key = 'model'");
+    const { counts } = mobile.mergeDatabase(backup.export());
+    backup.close();
+    expect(counts.messages).toBe(MESSAGES);
+    expect(mobile.getSetting("model")).toBe("from-backup");
+    expect(mobile.db.query("SELECT name FROM characters WHERE id = 'phone-only'").get()).toBeTruthy();
+    // And it reached the disk.
+    const saved = new SQL.Database(readFileSync(join(dir, "hearth.db")));
+    expect(saved.exec("SELECT COUNT(*) FROM messages")[0].values[0][0]).toBe(MESSAGES);
+    saved.close();
   });
 });

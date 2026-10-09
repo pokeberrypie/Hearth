@@ -253,11 +253,13 @@ function tablesOf(db: Database): { name: string; sql: string }[] {
  * Copies every row of `table` in `src` that can still be read into the same
  * table of `dst`, and says how many made it.
  *
- * Rows already in `dst` with the same key win — `INSERT OR IGNORE` — which is
- * what lets a second, older source fill in holes without undoing anything the
- * first one supplied.
+ * By default rows already in `dst` with the same key win — `INSERT OR IGNORE`
+ * — which is what lets a second, older source fill in holes without undoing
+ * anything the first one supplied. A restore wants the opposite, and says so.
  */
-function copyTable(src: Database, dst: Database, table: string): TableResult {
+function copyTable(
+  src: Database, dst: Database, table: string, conflict: "IGNORE" | "REPLACE" = "IGNORE",
+): TableResult {
   const wanted = new Set(columnsOf(dst, table));
   let rows = 0;
   let insert: ReturnType<Database["prepare"]> | null = null;
@@ -268,7 +270,7 @@ function copyTable(src: Database, dst: Database, table: string): TableResult {
         insertCols = names.filter((n) => wanted.has(n));
         if (!insertCols.length) return;
         insert = dst.prepare(
-          `INSERT OR IGNORE INTO ${q(table)} (${insertCols.map(q).join(", ")}) VALUES (${insertCols.map(() => "?").join(", ")})`,
+          `INSERT OR ${conflict} INTO ${q(table)} (${insertCols.map(q).join(", ")}) VALUES (${insertCols.map(() => "?").join(", ")})`,
         );
       }
       insert.run(insertCols.map((c) => values[names.indexOf(c)]));
@@ -277,6 +279,67 @@ function copyTable(src: Database, dst: Database, table: string): TableResult {
     return { table, rows, gaps, unreadable };
   } finally {
     try { insert?.free(); } catch {}
+  }
+}
+
+/**
+ * Every readable row of the database in `bytes`, copied into `dst` table by
+ * table. Tables `dst` lacks are made from the source's own SQL rather than
+ * dropped; anything that goes wrong is said in `notes`, not thrown, so one
+ * bad table never costs the others.
+ *
+ * The caller decides about foreign keys: rows arrive in whatever order the
+ * file has them, so a message can land before its chat.
+ */
+export function copyAll(
+  SQL: SqlJsStatic,
+  bytes: Uint8Array | null,
+  dst: Database,
+  label: string,
+  notes: string[],
+  conflict: "IGNORE" | "REPLACE" = "IGNORE",
+): TableResult[] {
+  if (!bytes || bytes.length === 0) return [];
+  let src: Database;
+  try {
+    src = new SQL.Database(bytes);
+    /*
+     * Without this, a file whose schema has lost a page cannot be asked
+     * anything at all — every statement loads the schema first and fails
+     * with it, which is exactly the error the phone showed. With it, SQLite
+     * carries on with as much of the schema as it could read. The database
+     * is sql.js's in-memory copy, so nothing here can reach the file.
+     */
+    src.run("PRAGMA writable_schema = ON;");
+  } catch (e) {
+    notes.push(`${label}: could not be opened at all (${(e as Error).message})`);
+    return [];
+  }
+  try {
+    let tables: { name: string; sql: string }[];
+    try {
+      tables = tablesOf(src);
+    } catch (e) {
+      notes.push(`${label}: its list of tables is unreadable (${(e as Error).message})`);
+      return [];
+    }
+    const have = new Set(tablesOf(dst).map((t) => t.name));
+    const out: TableResult[] = [];
+    dst.run("BEGIN");
+    for (const t of tables) {
+      if (!have.has(t.name)) {
+        // Not one of Hearth's — something an extension or an older version
+        // made. Keep it as it was rather than dropping it on the floor.
+        try { dst.run(t.sql); have.add(t.name); }
+        catch (e) { notes.push(`${label}: table ${t.name} could not be recreated (${(e as Error).message})`); continue; }
+      }
+      try { out.push(copyTable(src, dst, t.name, conflict)); }
+      catch (e) { notes.push(`${label}: table ${t.name} failed (${(e as Error).message})`); }
+    }
+    dst.run("COMMIT");
+    return out;
+  } finally {
+    try { src.close(); } catch {}
   }
 }
 
@@ -302,50 +365,7 @@ export function recover(
   // message can land before its chat. Checking that is for afterwards.
   dst.run("PRAGMA foreign_keys = OFF;");
 
-  const drain = (bytes: Uint8Array | null, label: string): TableResult[] => {
-    if (!bytes || bytes.length === 0) return [];
-    let src: Database;
-    try {
-      src = new SQL.Database(bytes);
-      /*
-       * Without this, a file whose schema has lost a page cannot be asked
-       * anything at all — every statement loads the schema first and fails
-       * with it, which is exactly the error the phone showed. With it, SQLite
-       * carries on with as much of the schema as it could read. The database
-       * is sql.js's in-memory copy, so nothing here can reach the file.
-       */
-      src.run("PRAGMA writable_schema = ON;");
-    } catch (e) {
-      notes.push(`${label}: could not be opened at all (${(e as Error).message})`);
-      return [];
-    }
-    try {
-      let tables: { name: string; sql: string }[];
-      try {
-        tables = tablesOf(src);
-      } catch (e) {
-        notes.push(`${label}: its list of tables is unreadable (${(e as Error).message})`);
-        return [];
-      }
-      const have = new Set(tablesOf(dst).map((t) => t.name));
-      const out: TableResult[] = [];
-      dst.run("BEGIN");
-      for (const t of tables) {
-        if (!have.has(t.name)) {
-          // Not one of Hearth's — something an extension or an older version
-          // made. Keep it as it was rather than dropping it on the floor.
-          try { dst.run(t.sql); have.add(t.name); }
-          catch (e) { notes.push(`${label}: table ${t.name} could not be recreated (${(e as Error).message})`); continue; }
-        }
-        try { out.push(copyTable(src, dst, t.name)); }
-        catch (e) { notes.push(`${label}: table ${t.name} failed (${(e as Error).message})`); }
-      }
-      dst.run("COMMIT");
-      return out;
-    } finally {
-      try { src.close(); } catch {}
-    }
-  };
+  const drain = (bytes: Uint8Array | null, label: string) => copyAll(SQL, bytes, dst, label, notes);
 
   const fromDamaged = drain(damaged && wholePages(damaged), "damaged file");
   const fromSnapshot = drain(snapshot, "snapshot");
