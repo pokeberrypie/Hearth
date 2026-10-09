@@ -2934,13 +2934,21 @@ body[data-msgstyle="portrait"] .plate {
   min-height: 5.5rem;
 }
 
-/* Solid enough to read against a bright wallpaper even at low opacity. */
+/* Solid enough to read against a bright wallpaper even at low opacity.
+ *
+ * Only just, though. The floor here used to be 55%, which meant the solidity
+ * slider's whole bottom half did nothing — 0% still drew a plate more than
+ * half opaque, and the default came out at nine tenths. With that much in
+ * front of the wallpaper the blur behind it barely shows either, so both
+ * sliders looked stuck, worst of all on a phone, where the plates cover most
+ * of the screen. 15% keeps text off a bare bright wallpaper and leaves the
+ * rest of the range to the slider. */
 body[data-msgstyle="banner"] .plate,
 body[data-msgstyle="portrait"] .plate,
 body[data-msgstyle="page"] #thread {
   background-color: color-mix(in srgb,
     var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%),
-    color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent));
+    color-mix(in srgb, var(--lumiverse-bg-deep) 15%, transparent));
 }
 
 /* ---- chat options sheet -------------------------------------------------- */

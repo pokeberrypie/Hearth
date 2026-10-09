@@ -4407,7 +4407,13 @@ $("#sceneSave").onclick = async () => {
   await api("/chats/" + S.chatId, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ wallpaper: chatMeta.wallpaper ?? "", persona_id }),
+    // Everything the dialog lets you pick. Gilt and sound were left out, and
+    // openChat() below reloads the chat from the server — so both reverted
+    // the moment Save was pressed, and only the wallpaper ever stuck.
+    body: JSON.stringify({
+      wallpaper: chatMeta.wallpaper ?? "", persona_id,
+      accent: chatMeta.accent ?? "", ambience: chatMeta.ambience ?? "",
+    }),
   });
   chatMeta.persona_id = persona_id || null;
 
