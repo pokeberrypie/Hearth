@@ -4285,6 +4285,9 @@ dialog {
 #barTitle.switch:hover {
   box-shadow: 0 3px 0 -2px var(--lumiverse-primary);
 }
+/* Renaming is quieter than changing worlds: no rule under it, just a hand. */
+#barTitle.renames { cursor: pointer; }
+#barTitle.renames:focus-visible,
 #barTitle.switch:focus-visible {
   outline: 2px solid var(--lumiverse-primary);
   outline-offset: 4px;

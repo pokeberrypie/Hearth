@@ -2976,6 +2976,19 @@ function paintModeSwitch(on) {
   if (!el) return;
   const live = !!on && !GUEST.on;
   el.classList.toggle("switch", live);
+  /*
+   * Inside a chat the name is a way to rename the chat instead — it is the
+   * first thing anyone tries, and it used to do nothing at all. It never
+   * leaves the room, which is what the comment above is guarding against.
+   */
+  const renames = !live && !!S.chatId && !GUEST.on;
+  el.classList.toggle("renames", renames);
+  if (renames) {
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", "Rename this chat");
+    return;
+  }
   if (!live) {
     el.removeAttribute("role");
     el.removeAttribute("tabindex");
@@ -2993,8 +3006,19 @@ function paintModeSwitch(on) {
   fitBarTitle();
 }
 
-const barSwitch = () => {
-  if (!$("#barTitle").classList.contains("switch")) return;
+const barSwitch = async () => {
+  const el = $("#barTitle");
+  if (el.classList.contains("renames")) {
+    // The bar shows whose chat this is; the chat's own name is its tooltip,
+    // so that is what has to change after a rename (a branch keeps saying
+    // where it came from instead).
+    if (await renameChat() && chatMeta && !chatMeta.parent_chat_id) {
+      el.dataset.note = chatMeta.title;
+      fitBarTitle();
+    }
+    return;
+  }
+  if (!el.classList.contains("switch")) return;
   setMode(document.body.dataset.mode === "tabletop" ? "story" : "tabletop");
 };
 $("#barTitle").addEventListener("click", barSwitch);
@@ -3003,7 +3027,8 @@ $("#barTitle").addEventListener("click", barSwitch);
 // than one that was never announced as a control at all.
 $("#barTitle").addEventListener("keydown", (e) => {
   if (e.key !== "Enter" && e.key !== " ") return;
-  if (!$("#barTitle").classList.contains("switch")) return;
+  const el = $("#barTitle");
+  if (!el.classList.contains("switch") && !el.classList.contains("renames")) return;
   e.preventDefault();
   barSwitch();
 });
@@ -4055,13 +4080,6 @@ document.addEventListener("click", async (e) => {
     case "tree":
       showTree();
       break;
-
-    case "rename": {
-      // The strip has the same job now; both go through one function so they
-      // cannot drift into asking slightly different questions.
-      await renameChat();
-      break;
-    }
 
     case "cast": openRoom(); break;
     case "files": openFiles(); break;
