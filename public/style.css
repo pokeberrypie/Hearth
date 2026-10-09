@@ -1807,6 +1807,25 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 /* The steer went into the box, so the actions hold the card on their own and
    sit where the field used to leave them: hard right. */
 .hc-guided-actions { display: flex; align-items: center; gap: 7px; flex: none; margin-left: auto; }
+/* The story's own pair, on the left: they move the plan, not the reply. */
+.hc-scenes { display: flex; align-items: center; gap: 7px; flex: none; }
+.hc-scenes[hidden] { display: none; }
+/* Two more buttons than the row was drawn for. On a phone that is the delete
+   button pushed off the edge, so while the pair is showing the spacing gives
+   way first — the buttons themselves stay full size, since they are the
+   things a thumb has to hit. */
+@media (max-width: 480px) {
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) { gap: 6px; padding-left: 10px; padding-right: 10px; }
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-guided-actions,
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-scenes { gap: 4px; }
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-round--apart { margin-left: 6px; }
+}
+/* A smaller phone still needs a few pixels more, and only the buttons have
+   them left to give: 30px is still a comfortable thumb. */
+@media (max-width: 400px) {
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-round { width: 30px; height: 30px; }
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-round svg { width: 15px; height: 15px; }
+}
 
 /* ---- the box ---- */
 

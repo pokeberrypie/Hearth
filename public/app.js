@@ -1030,6 +1030,7 @@ async function showSplash() {
   chatMeta = null;
   applyChatWallpaper();
   applyChatRoom();
+  refreshTaleNav();
   renderLoreList();
   setMsgSelect(false);
 
@@ -1093,6 +1094,7 @@ async function openChat(id) {
   chatMeta = chat;
   applyChatWallpaper();
   applyChatRoom();
+  refreshTaleNav();
   renderLoreList();
   renderRoom();
   $("#chatMenuBtn").hidden = false;
@@ -9830,6 +9832,7 @@ function renderPulledApoc() {
       if (r.error) return toast(r.error);
       followedApoc = a.id;
       renderApocShelf();
+      refreshTaleNav();
       return toast(`This chat now follows ${a.name}.`);
     }
     if (e.target.closest("[data-del]")) {
@@ -9837,6 +9840,7 @@ function renderPulledApoc() {
       await api(`/apocrypha/${a.id}`, { method: "DELETE" });
       pulledApoc = null;
       await refreshApocrypha();
+      refreshTaleNav();
       toast("Story deleted.");
     }
   };
@@ -9998,6 +10002,64 @@ const taleChanged = (r) => {
   sceneTale = r;
   followedApoc = r.book?.id ?? null;
   drawTaleScenes();
+  paintTaleNav();
+};
+
+/* In the composer tray: back a scene, and on to the next. Only there while
+   the open chat follows a story, so a chat that does not is not asked to make
+   room for two buttons it has no use for. */
+
+const sceneList = (book) => book.chapters.flatMap((c) => c.scenes);
+const sceneName = (sc) => sc?.title?.trim() || "an untitled scene";
+
+function paintTaleNav() {
+  const nav = $("#taleNav");
+  if (!nav) return;
+  const { book, mark } = sceneTale;
+  nav.hidden = !(S.chatId && book && mark);
+  if (nav.hidden) return;
+  const all = sceneList(book);
+  const at = all.findIndex((sc) => sc.id === mark.scene);
+  const now = at >= 0 ? all[at] : null;
+  // Before the first scene there is nothing to go back to; once the book has
+  // run out, back means the last scene.
+  $("#talePrev").disabled = at === 0 || !all.length;
+  $("#taleNext").disabled = !now;
+  $("#talePrev").title = "Previous scene";
+  $("#taleNext").title = now ? `Scene done — next (now: ${sceneName(now)})` : "Every scene has been played";
+}
+
+/** Asked of the server whenever a different chat opens. */
+async function refreshTaleNav() {
+  if (!S.chatId) { sceneTale = { book: null, mark: null }; paintTaleNav(); return; }
+  const r = await api(`/chats/${S.chatId}/apocrypha`);
+  sceneTale = r && !r.error ? r : { book: null, mark: null };
+  paintTaleNav();
+}
+
+$("#taleNext").onclick = async () => {
+  const r = await api(`/chats/${S.chatId}/apocrypha/advance`, {
+    method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ how: "done" }),
+  });
+  if (r.error) return toast(r.error);
+  taleChanged(r);
+  const now = sceneList(r.book).find((sc) => sc.id === r.mark.scene);
+  toast(now ? `Now: ${sceneName(now)}` : "That was the last scene. The story is yours from here.");
+};
+
+$("#talePrev").onclick = async () => {
+  const { book, mark } = sceneTale;
+  if (!book || !mark) return;
+  const all = sceneList(book);
+  const at = all.findIndex((sc) => sc.id === mark.scene);
+  const back = at > 0 ? all[at - 1] : at < 0 ? all[all.length - 1] : null;
+  if (!back) return;
+  const r = await api(`/chats/${S.chatId}/apocrypha`, {
+    method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ book: book.id, scene: back.id }),
+  });
+  if (r.error) return toast(r.error);
+  taleChanged(r);
+  toast(`Back to: ${sceneName(back)}`);
 };
 
 $("#sceneTale").onchange = async () => {

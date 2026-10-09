@@ -148,3 +148,13 @@ describe("in a chat", () => {
     expect(await headed()).toBeUndefined();
   });
 });
+
+describe("the tray", () => {
+  test("has back and next for the story, hidden until a chat follows one", async () => {
+    const html = await Bun.file(new URL("../public/index.html", import.meta.url)).text();
+    const tray = html.slice(html.indexOf('class="hc-guided-inner"'), html.indexOf('class="hc-guided-actions"'));
+    expect(tray).toContain('id="taleNav" hidden');
+    expect(tray).toContain('id="talePrev"');
+    expect(tray).toContain('id="taleNext"');
+  });
+});
