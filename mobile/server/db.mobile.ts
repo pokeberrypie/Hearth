@@ -228,6 +228,15 @@ export function flush() {
 }
 
 /**
+ * Makes the file on disk the whole library, for something about to copy it —
+ * a backup. Changes reach the disk up to 400 ms after they are made; this
+ * writes them now.
+ */
+export function settle() {
+  flush();
+}
+
+/**
  * Brings a whole Hearth database — a restored backup's — into this one. Same
  * contract as src/db.ts: the backup's rows win where both have the same key,
  * and the answer is how many rows each table took.

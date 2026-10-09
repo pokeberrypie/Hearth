@@ -66,6 +66,17 @@ export function setSettings(patch: Record<string, string>) {
   tx(Object.entries(patch).map(([k, v]) => [k, String(v)]));
 }
 
+// ---- backups ---------------------------------------------------------------
+
+/**
+ * Makes the file on disk the whole library, for something about to copy it.
+ * Here that means folding the write-ahead log back in; the phone's version
+ * writes out what it holds in memory.
+ */
+export function settle() {
+  try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+}
+
 // ---- restoring a backup ---------------------------------------------------
 
 /**

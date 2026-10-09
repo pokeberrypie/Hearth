@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { writeFile } from "./fsx";
-import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase } from "./db";
+import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
 import { generate, PROVIDERS } from "./providers";
 
 /**
@@ -2155,17 +2155,31 @@ api.post("/wipe", async (c) => {
 
 // ---- export ---------------------------------------------------------------
 
-/** The database plus every uploaded image, as one downloadable archive. */
-api.get("/backup/export", async (c) => {
-  const { zipSync } = await import("fflate");
-  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+/**
+ * The database plus every uploaded image, as one downloadable archive.
+ *
+ * Streamed, a megabyte at a time, and stored rather than compressed. It used
+ * to build the whole zip in memory before sending a byte — every picture, the
+ * database, and the compressed copy of all of it at once. A 190 MB library
+ * took the server to 770 MB to export, which a desktop shrugs at and a phone
+ * does not: Android kills the app, or the zip takes so long to build on a
+ * phone's processor that the download gives up waiting for its first byte.
+ * Either way "export" did nothing at all, on exactly the device where a
+ * backup matters most. Now the first bytes leave at once and memory stays
+ * around one chunk, whatever the library weighs. The pictures are already
+ * compressed, so storing them costs nothing; the database is the only thing
+ * that would shrink, and it is not worth a phone's minute of CPU.
+ */
+api.get("/backup/export", async () => {
+  const { Zip, ZipPassThrough } = await import("fflate");
+  const { closeSync, openSync, readSync, readdirSync, statSync } = await import("node:fs");
 
-  // Fold the write-ahead log back in so the copied file is complete.
-  try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+  // Everything still in memory or in a write-ahead log, onto disk first.
+  settle();
 
-  const files: Record<string, Uint8Array> = {};
+  const files: [name: string, path: string][] = [];
   const add = (name: string, path: string) => {
-    try { files[name] = new Uint8Array(readFileSync(path)); } catch {}
+    try { if (statSync(path).isFile()) files.push([name, path]); } catch {}
   };
 
   add("hearth.db", join(DATA, "hearth.db"));
@@ -2193,9 +2207,58 @@ api.get("/backup/export", async (c) => {
   };
   walk(UPLOADS, "uploads/");
 
-  const zipped = zipSync(files, { level: 6 });
+  // fflate hands over finished zip bytes here; pull() below passes them on.
+  const ready: Uint8Array[] = [];
+  let done = false;
+  let failed: Error | null = null;
+  const zip = new Zip((err, chunk, final) => {
+    if (err) { failed = err; return; }
+    ready.push(chunk);
+    if (final) done = true;
+  });
+
+  let next = 0;
+  let open: { entry: InstanceType<typeof ZipPassThrough>; fd: number } | null = null;
+  const buf = new Uint8Array(1 << 20);
+
+  const body = new ReadableStream<Uint8Array>({
+    // Called only when the reader wants more, so nothing piles up: each call
+    // reads until it has something to hand over, and no further.
+    pull(controller) {
+      try {
+        while (!ready.length && !done && !failed) {
+          if (!open) {
+            if (next >= files.length) { zip.end(); continue; }
+            const [name, path] = files[next++];
+            let fd: number;
+            try { fd = openSync(path, "r"); } catch { continue; }
+            const entry = new ZipPassThrough(name);
+            zip.add(entry);
+            open = { entry, fd };
+          }
+          const n = readSync(open.fd, buf, 0, buf.length, null);
+          if (n > 0) open.entry.push(buf.slice(0, n), false);
+          else {
+            closeSync(open.fd);
+            open.entry.push(new Uint8Array(0), true);
+            open = null;
+          }
+        }
+        if (failed) return controller.error(failed);
+        while (ready.length) controller.enqueue(ready.shift()!);
+        if (done) controller.close();
+      } catch (e) {
+        if (open) { try { closeSync(open.fd); } catch {} open = null; }
+        controller.error(e);
+      }
+    },
+    cancel() {
+      if (open) { try { closeSync(open.fd); } catch {} open = null; }
+    },
+  });
+
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  return new Response(zipped, {
+  return new Response(body, {
     headers: {
       "content-type": "application/zip",
       "content-disposition": `attachment; filename="hearth-backup-${stamp}.zip"`,
