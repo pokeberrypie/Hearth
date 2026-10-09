@@ -1265,7 +1265,22 @@ async function askAboutRecord(chat) {
  * because that is the one visual convention nobody needs explained.
  */
 
-/** Tidy layout: children spread along x, parents centred over them, depth = y. */
+/**
+ * Compact layout: children spread along x, parents centred over them, depth = y.
+ *
+ * It used to give every chat at the end of a branch a whole column of its
+ * own, top to bottom — so a stub one row tall claimed as much width as a
+ * branch five rows tall, and a character with a handful of short tellings
+ * came out several screens wide with nothing above most of them. Labels only
+ * collide with labels on the same row, so each subtree now records, row by
+ * row, how far left and right it reaches, and the next one along is moved in
+ * until the two would touch on some row they share. A short telling tucks in
+ * beneath its taller neighbour's branches instead of standing apart from them.
+ *
+ * A node also keeps the row just above itself clear. Without that, a twig of
+ * the neighbouring subtree could land directly on top of a leaf and read as
+ * growing out of it — the one thing a tree of who-came-from-what cannot do.
+ */
 function layoutTree(nodes) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const kids = new Map();
@@ -1280,24 +1295,69 @@ function layoutTree(nodes) {
   const childrenOf = (id) => (kids.get(id) ?? []).sort((a, b) => a.created - b.created);
   roots.sort((a, b) => a.created - b.created);
 
-  const placed = new Map();
-  let slot = 0;
-
-  const walk = (node, depth) => {
-    const children = childrenOf(node.id);
-    let x;
-    if (!children.length) {
-      x = slot++;
-    } else {
-      const xs = children.map((c) => walk(c, depth + 1));
-      x = (xs[0] + xs[xs.length - 1]) / 2;
-    }
-    placed.set(node.id, { node, x, depth });
-    return x;
+  /** Row -> [leftmost, rightmost] x, for everything in a subtree. */
+  const reach = (contour, depth, x) => {
+    const r = contour.get(depth);
+    if (!r) contour.set(depth, [x, x]);
+    else { r[0] = Math.min(r[0], x); r[1] = Math.max(r[1], x); }
   };
-  // A gap between separate trunks, so two unrelated stories do not look joined.
-  for (const r of roots) { walk(r, 0); slot += 1; }
 
+  /** How far `next` must move right so that it clears `sofar` on every shared row. */
+  const clearance = (sofar, next, gap) => {
+    let shift = -Infinity;
+    for (const [d, [lo]] of next) {
+      const r = sofar.get(d);
+      if (r) shift = Math.max(shift, r[1] - lo + gap);
+    }
+    return shift;
+  };
+
+  /** Lays out a subtree with its own root at x = 0. */
+  const build = (node, depth) => {
+    const children = childrenOf(node.id);
+    const items = [];
+    const contour = new Map();
+    if (children.length) {
+      const subs = children.map((c) => build(c, depth + 1));
+      let at = 0;
+      const merged = new Map();
+      const roots = [];
+      subs.forEach((sub, i) => {
+        if (i) at = Math.max(at + 0, clearance(merged, sub.contour, 1));
+        if (!Number.isFinite(at)) at = roots[roots.length - 1] + 1;
+        for (const it of sub.items) items.push({ ...it, x: it.x + at });
+        for (const [d, [lo, hi]] of sub.contour) { reach(merged, d, lo + at); reach(merged, d, hi + at); }
+        roots.push(at);
+      });
+      // The parent sits over the middle of its children; everything is moved
+      // so that the parent is at 0, which is what its own parent expects.
+      const mid = (roots[0] + roots[roots.length - 1]) / 2;
+      for (const it of items) it.x -= mid;
+      for (const [d, [lo, hi]] of merged) contour.set(d, [lo - mid, hi - mid]);
+    }
+    items.push({ node, x: 0, depth });
+    reach(contour, depth, 0);
+    // Keep the row above clear, so nothing appears to grow out of this node.
+    if (!children.length) reach(contour, depth + 1, 0);
+    return { items, contour };
+  };
+
+  // Separate trunks side by side, with a column between, so two unrelated
+  // stories do not look joined.
+  const placedList = [];
+  const forest = new Map();
+  let at = 0;
+  roots.forEach((r, i) => {
+    const t = build(r, 0);
+    if (i) {
+      const need = clearance(forest, t.contour, 2);
+      at = Number.isFinite(need) ? need : at + 2;
+    }
+    for (const it of t.items) placedList.push({ ...it, x: it.x + at });
+    for (const [d, [lo, hi]] of t.contour) { reach(forest, d, lo + at); reach(forest, d, hi + at); }
+  });
+
+  const placed = new Map(placedList.map((p) => [p.node.id, p]));
   const links = [];
   for (const [id, p] of placed) {
     const parent = byId.get(p.node.parent);
@@ -1409,11 +1469,41 @@ async function showTree() {
    * 11.5px a character at the phone's size), and a row is what a node is.
    */
   const longest = Math.max(4, ...placed.filter((p) => !p.node.trunk).map((p) => labelOf(p.node).length));
-  const COL = Math.max(120, Math.round(longest * 11.5) + 28);
-  const ROW = 104, PAD = 40, BASE = 70, LABEL = Math.ceil(COL / 2);
+  const LABEL_W = Math.max(120, Math.round(longest * 11.5) + 28);
+
+  /*
+   * Staggered, so a row can be half as wide.
+   *
+   * The widest row decides the width of the whole tree, and a row of seven
+   * labels side by side is seven labels wide however tightly it is packed —
+   * a long thin strip on a screen that is tall and narrow, with most of the
+   * phone empty above and below it. So neighbours on a crowded row stand at
+   * two heights, every other one lifted, and their labels can overlap in x
+   * without touching. Columns are a little over half a label wide; a row is
+   * tall enough that a lifted node clears the row above it.
+   */
+  const COL = Math.ceil(LABEL_W * 0.6);
+  const LIFT = 50;
+  const ROW = 146, PAD = 40, BASE = 70, LABEL = Math.ceil(LABEL_W / 2);
+
+  // Which nodes stand higher: only where a neighbour on the same row is
+  // closer than a label's width, alternating along the row.
+  const lifted = new Set();
+  const rows = new Map();
+  for (const p of placed) {
+    if (!rows.has(p.depth)) rows.set(p.depth, []);
+    rows.get(p.depth).push(p);
+  }
+  for (const row of rows.values()) {
+    row.sort((a, b) => a.x - b.x);
+    row.forEach((p, i) => {
+      const prev = row[i - 1];
+      if (prev && (p.x - prev.x) * COL < LABEL_W && !lifted.has(prev.node.id)) lifted.add(p.node.id);
+    });
+  }
   // Room under the root for the trunk to reach the ground, or it is cut off at
   // the bottom edge.
-  const H = depth * ROW + PAD * 2 + BASE;
+  const H = depth * ROW + LIFT + PAD * 2 + BASE;
   const groundY = H - PAD;
 
   /*
@@ -1427,7 +1517,7 @@ async function showTree() {
   const raw = new Map(placed.map((p) => [p.node.id, {
     // A little life in the columns, kept smaller than the gap between labels.
     x: p.x * COL + wiggle(p.node.id, 10),
-    y: groundY - BASE - p.depth * ROW,
+    y: groundY - BASE - p.depth * ROW - (lifted.has(p.node.id) ? LIFT : 0),
   }]));
   const xs = [...raw.values()].map((p) => p.x);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -1623,9 +1713,18 @@ const treeCam = (() => {
 
   /** Centres a point of the tree on screen, at a size that can be read. */
   cam.focus = (at) => {
-    // Readable rather than all of it: a whole wide tree on a phone is a
-    // drawing of a tree with no names. Pinch out, or press fit, for the shape.
-    cam.s = Math.max(fit(), Math.min(1, 0.7));
+    // All of it when all of it can still be read; opening on a corner of a
+    // tree that would fit reads as half the tree being missing. Only a tree
+    // too big to read whole opens on your chat instead — pinch out, or press
+    // fit, for the shape of that one.
+    const whole = fit();
+    if (whole >= 0.3) {
+      cam.s = whole;
+      clamp();
+      apply();
+      return;
+    }
+    cam.s = Math.max(whole, 0.7);
     cam.x = box.clientWidth / 2 - at.x * cam.s;
     cam.y = box.clientHeight * 0.55 - at.y * cam.s;
     clamp();
