@@ -834,12 +834,13 @@ let following = true;
  * than guessed from length, because the same number of letters is a different
  * width in every name.
  */
-function setBarTitle(text, { title = "", branched = false } = {}) {
+function setBarTitle(text, { title = "", branched = false, wrap = false } = {}) {
   const el = $("#barTitle");
   // The fit is redone whenever the bar changes width, long after this call, so
   // the name it started from has to be kept somewhere it can be read back.
   el.dataset.full = text;
   el.dataset.note = title;
+  el.dataset.wrap = wrap ? "1" : "";
   el.classList.toggle("branched", branched);
   fitBarTitle();
 }
@@ -851,14 +852,21 @@ function fitBarTitle() {
   if (!el.dataset.full) return;
   fitting = true;
   try {
-    fit(el, el.parentElement, el.dataset.full, el.dataset.note ?? "");
+    fit(el, el.parentElement, el.dataset.full, el.dataset.note ?? "", el.dataset.wrap === "1");
   } finally {
     fitting = false;
   }
 }
 
-function fit(el, title, full, note) {
-  const fits = () => el.scrollWidth <= el.clientWidth + 1;
+function fit(el, title, full, note, wrap = false) {
+  // Height only matters once the name is allowed a second line; a single line
+  // is as tall as its type, and the odd descender would fail it for nothing.
+  //
+  // No slack on the width. It used to allow a pixel, and the browser does not:
+  // a name 179px wide in a 178px box was counted as fitting and then drawn as
+  // "Wrenhollo…" — cut off by the ellipsis, the one thing this is here to stop.
+  const fits = () => el.scrollWidth <= el.clientWidth &&
+    (!el.classList.contains("twoline") || el.scrollHeight <= el.clientHeight + 1);
   const shrinkTo = (from, to) => {
     for (let size = from; size >= to; size -= 0.05) {
       el.style.fontSize = `${size.toFixed(2)}rem`;
@@ -875,6 +883,7 @@ function fit(el, title, full, note) {
 
   el.textContent = full;
   title.classList.remove("tight");
+  el.classList.remove("twoline", "threeline");
   if (shrinkTo(1.7, 1.2)) return done(false);
 
   /**
@@ -887,6 +896,24 @@ function fit(el, title, full, note) {
    */
   title.classList.add("tight");
   if (shrinkTo(1.7, 0.85)) return done(false);
+
+  /**
+   * A chat's own name, rather than a person's, does not get cut down.
+   *
+   * The first-name rung below is right for "Joffrey Baratheon" and useless
+   * for "The night the lamp failed", whose first word is "The". So a name
+   * like that goes onto two lines instead, at whatever size lets both fit in
+   * the bar's height, and every word of it stays.
+   */
+  if (wrap) {
+    el.classList.add("twoline");
+    if (shrinkTo(1.2, 0.8)) return done(false);
+    // A third line only for a name that will not go into two at a size worth
+    // reading; still every word of it, which a first word alone would not be.
+    el.classList.add("threeline");
+    if (shrinkTo(0.9, 0.62)) return done(false);
+    el.classList.remove("twoline", "threeline");
+  }
 
   /**
    * And on the narrowest phones, not even that is enough: the two pairs of
@@ -1099,10 +1126,7 @@ async function openChat(id) {
   renderRoom();
   $("#chatMenuBtn").hidden = false;
   setMsgSelect(false);
-  setBarTitle(chat.character_name, {
-    title: chat.parent_title ? `Branched from ${chat.parent_title}` : chat.title ?? "",
-    branched: !!chat.parent_chat_id,
-  });
+  paintChatTitle();
   // In here the bar is a name, not a sign. See paintModeSwitch.
   paintModeSwitch(false);
   // Opening a chat aims the Cast panel at it, whether or not the panel is up.
@@ -1813,6 +1837,28 @@ function renderRoom() {
  * nothing. Returns whether anything changed, for the callers that have their
  * own list to redraw.
  */
+/**
+ * What the bar says inside a chat.
+ *
+ * Whose chat it is, for a chat with one character. A group's founder is just
+ * whoever happened to be added first, and the bar saying "Jaime Lannister"
+ * over a scene with six people in it describes nothing — so a group shows
+ * its own name, and keeps all of it (see fit).
+ */
+function paintChatTitle() {
+  const chat = chatMeta;
+  if (!chat) return;
+  const group = !!chat.is_group && !!chat.title?.trim();
+  setBarTitle(group ? chat.title : chat.character_name, {
+    title: chat.parent_title ? `Branched from ${chat.parent_title}`
+      : group ? `Started with ${chat.character_name}` : chat.title ?? "",
+    branched: !!chat.parent_chat_id,
+    wrap: group,
+  });
+  // setBarTitle rewrites the element; whether it renames is set separately.
+  paintModeSwitch(false);
+}
+
 async function renameChat(id = S.chatId, current = chatMeta?.title ?? "") {
   if (!id) return false;
   const title = await askFor("Name this chat", current);
@@ -1830,6 +1876,7 @@ async function renameChat(id = S.chatId, current = chatMeta?.title ?? "") {
   if (id === S.chatId) {
     if (chatMeta) chatMeta.title = next;
     paintCastView();
+    paintChatTitle();
   }
   await refreshCast();
   await refreshChats();
@@ -3012,10 +3059,7 @@ const barSwitch = async () => {
     // The bar shows whose chat this is; the chat's own name is its tooltip,
     // so that is what has to change after a rename (a branch keeps saying
     // where it came from instead).
-    if (await renameChat() && chatMeta && !chatMeta.parent_chat_id) {
-      el.dataset.note = chatMeta.title;
-      fitBarTitle();
-    }
+    await renameChat();
     return;
   }
   if (!el.classList.contains("switch")) return;

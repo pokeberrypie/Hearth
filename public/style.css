@@ -4261,6 +4261,17 @@ dialog {
    look carved. When a name is fighting for the last few pixels, half of that
    space is worth more as letters than as air between them. */
 .title.tight #barTitle { letter-spacing: 0.02em; }
+/* A group chat's own name, on two lines rather than cut short. The bar's
+   height is the limit fitBarTitle measures against, so no third line. */
+#barTitle.twoline {
+  white-space: normal;
+  text-overflow: clip;
+  text-align: center;
+  line-height: 1.08;
+  max-height: 2.2em;
+  overflow-wrap: anywhere;
+}
+#barTitle.twoline.threeline { max-height: 3.3em; }
 
 /**
  * The sign, when it is also the door. Shelf only — see paintModeSwitch.
