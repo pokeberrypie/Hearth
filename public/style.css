@@ -1796,6 +1796,8 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 .hc-guided-inner {
   display: flex;
   align-items: center;
+  /* Centred, with the same margin on both sides, whatever is in the row. */
+  justify-content: center;
   gap: 12px;
   margin: 0 2px -1px;                 /* sits flush on the box */
   padding: 9px 14px 11px;
@@ -1806,7 +1808,7 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 }
 /* The steer went into the box, so the actions hold the card on their own and
    sit where the field used to leave them: hard right. */
-.hc-guided-actions { display: flex; align-items: center; gap: 7px; flex: none; margin-left: auto; }
+.hc-guided-actions { display: flex; align-items: center; gap: 7px; flex: none; }
 /* The story's own pair, on the left: they move the plan, not the reply. */
 .hc-scenes { display: flex; align-items: center; gap: 7px; flex: none; }
 .hc-scenes[hidden] { display: none; }
@@ -1823,8 +1825,8 @@ body[data-msgstyle="portrait"] .tools { left: 0.7rem; }
 /* A smaller phone still needs a few pixels more, and only the buttons have
    them left to give: 30px is still a comfortable thumb. */
 @media (max-width: 400px) {
-  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-round { width: 30px; height: 30px; }
-  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-round svg { width: 15px; height: 15px; }
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-round { width: 28px; height: 28px; }
+  .hc-guided-inner:has(.hc-scenes:not([hidden])) .hc-round svg { width: 14px; height: 14px; }
 }
 
 /* ---- the box ---- */
