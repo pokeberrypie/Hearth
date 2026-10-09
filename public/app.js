@@ -1470,14 +1470,148 @@ async function showTree() {
   $("#composer").hidden = true;
   $("#treeView").hidden = false;
 
-  // Put the chat you are in on screen rather than the top-left corner.
-  const mineNow = pos.get(S.chatId);
-  if (mineNow) {
-    const sc = $("#scroll");
-    sc.scrollTop = Math.max(0, mineNow.y - sc.clientHeight * 0.6);
-    sc.scrollLeft = Math.max(0, mineNow.x - sc.clientWidth / 2);
-  }
+  // Opened on the chat you are in, at a size you can read, rather than on
+  // the top-left corner of a tree three screens wide.
+  treeCam.w = W;
+  treeCam.h = H;
+  treeCam.focus(pos.get(S.chatId) ?? { x: W / 2, y: H - PAD });
 }
+
+/* ---- moving about the tree ---------------------------------------------------
+   A tree with a few forks is wider than a phone, and it used to sit in a box
+   that only scrolled sideways: names cut off at both edges, and no way to see
+   the whole shape at once, which is the one thing the page is for. So it is a
+   canvas now. One finger drags it, two pinch it, a double tap goes between
+   the whole tree and full size, and the wheel zooms on a desktop. A press that
+   turned into a drag never opens the chat it started on. */
+
+const treeCam = (() => {
+  const box = $("#treeCanvas");
+  const cam = { s: 1, x: 0, y: 0, w: 0, h: 0 };
+  const MAX = 3;
+  const fit = () => Math.min(1, (box.clientWidth - 16) / cam.w, (box.clientHeight - 16) / cam.h);
+  const floor = () => Math.min(fit(), 1);
+
+  function apply() {
+    const svg = box.querySelector("svg");
+    if (svg) svg.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
+  }
+
+  /* Never lets the tree be thrown off the screen. Smaller than the box, it
+     sits in the middle; bigger, an edge can come in only so far. */
+  function clamp() {
+    const edge = 48;
+    for (const [pos, size, room] of [["x", cam.w * cam.s, box.clientWidth], ["y", cam.h * cam.s, box.clientHeight]]) {
+      cam[pos] = size <= room ? (room - size) / 2 : Math.min(edge, Math.max(room - size - edge, cam[pos]));
+    }
+  }
+
+  /** Scales by `by`, keeping the point under (px, py) where it is. */
+  function zoomAt(px, py, by) {
+    const s = Math.min(MAX, Math.max(floor(), cam.s * by));
+    cam.x = px - (px - cam.x) * (s / cam.s);
+    cam.y = py - (py - cam.y) * (s / cam.s);
+    cam.s = s;
+    clamp();
+    apply();
+  }
+
+  const local = (e) => {
+    const r = box.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  const pointers = new Map();
+  let dragged = false;
+  let travel = 0;
+  let pinch = null;
+  let lastTap = 0;
+
+  box.addEventListener("pointerdown", (e) => {
+    pointers.set(e.pointerId, local(e));
+    if (pointers.size === 1) { dragged = false; travel = 0; }
+    pinch = null;
+  });
+
+  box.addEventListener("pointermove", (e) => {
+    const prev = pointers.get(e.pointerId);
+    if (!prev) return;
+    const now = local(e);
+    pointers.set(e.pointerId, now);
+
+    if (pointers.size === 1) {
+      cam.x += now.x - prev.x;
+      cam.y += now.y - prev.y;
+      travel += Math.abs(now.x - prev.x) + Math.abs(now.y - prev.y);
+      if (travel > 8) dragged = true;
+      clamp();
+      apply();
+      return;
+    }
+
+    // Two fingers: the gap between them sets the scale, and the point between
+    // them carries the tree along, so it zooms where you are looking.
+    const [a, b] = [...pointers.values()];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const gap = Math.hypot(a.x - b.x, a.y - b.y);
+    dragged = true;
+    if (pinch) {
+      cam.x += mid.x - pinch.mid.x;
+      cam.y += mid.y - pinch.mid.y;
+      zoomAt(mid.x, mid.y, gap / pinch.gap);
+    }
+    pinch = { mid, gap };
+  });
+
+  const lift = (e) => {
+    pointers.delete(e.pointerId);
+    pinch = null;
+  };
+  box.addEventListener("pointerup", lift);
+  box.addEventListener("pointercancel", lift);
+  box.addEventListener("pointerleave", lift);
+
+  // Capturing, so a drag that ends over a branch does not open it.
+  box.addEventListener("click", (e) => {
+    if (dragged) { e.stopPropagation(); e.preventDefault(); dragged = false; return; }
+    // Two taps close together: the whole tree, or back to full size.
+    const t = Date.now();
+    if (t - lastTap < 320 && !e.target.closest("[data-chat]")) {
+      const p = local(e);
+      zoomAt(p.x, p.y, (cam.s < 0.98 ? 1 : fit()) / cam.s);
+    }
+    lastTap = t;
+  }, true);
+
+  box.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const p = local(e);
+    zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0015));
+  }, { passive: false });
+
+  // The buttons, for anyone who would rather press than pinch.
+  $("#treeZoom").onclick = (e) => {
+    const b = e.target.closest("[data-zoom]");
+    if (!b) return;
+    const cx = box.clientWidth / 2, cy = box.clientHeight / 2;
+    if (b.dataset.zoom === "fit") zoomAt(cx, cy, fit() / cam.s);
+    else zoomAt(cx, cy, b.dataset.zoom === "in" ? 1.4 : 1 / 1.4);
+  };
+
+  addEventListener("resize", () => { if (!$("#treeView").hidden) { clamp(); apply(); } });
+
+  /** Centres a point of the tree on screen, at a size that can be read. */
+  cam.focus = (at) => {
+    // Readable rather than all of it: a whole wide tree on a phone is a
+    // drawing of a tree with no names. Pinch out, or press fit, for the shape.
+    cam.s = Math.max(fit(), Math.min(1, 0.7));
+    cam.x = box.clientWidth / 2 - at.x * cam.s;
+    cam.y = box.clientHeight * 0.55 - at.y * cam.s;
+    clamp();
+    apply();
+  };
+  return cam;
+})();
 
 function hideTree() {
   $("#treeView").hidden = true;

@@ -4495,14 +4495,26 @@ body[data-msgstyle="portrait"] .plate {
   color: var(--lumiverse-text-muted);
 }
 
-/* A wide tree scrolls sideways in its own box rather than pushing the page
-   about. */
-.treecanvas { overflow-x: auto; overflow-y: hidden; padding: 0.5rem 0 1rem; }
+/* A canvas you move about in, rather than a strip that scrolls sideways:
+   dragged with a finger, pinched with two. touch-action: none hands every
+   gesture on it to the script, which is what keeps a pinch from zooming the
+   whole page instead of the tree. */
+.treebox { position: relative; }
+.treecanvas {
+  position: relative;
+  height: clamp(320px, 72dvh, 1100px);
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+.treecanvas:active { cursor: grabbing; }
 /* Everything in here is an icon by default — 22px square, unfilled, stroked in
    the current colour. A drawing is none of those things, so it has to say so. */
 .treecanvas svg {
   display: block;
-  margin: 0 auto;
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: 0 0;
   width: auto;
   height: auto;
   fill: initial;
@@ -7041,3 +7053,17 @@ body.guest #guideBtn { display: none !important; }
   padding-bottom: 1.1rem;
   border-bottom: 1px solid var(--lumiverse-border);
 }
+
+/* Zoom, for a press instead of a pinch. Bottom corner, out of the tree's way. */
+.treezoom {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 80%, transparent);
+}
+.treezoom .ico { width: 34px; height: 34px; }
