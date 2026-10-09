@@ -1946,10 +1946,8 @@ api.post("/chats/:id/carry-on", async (c) => {
    * gets one made for it: refusing to carry on because of a question nobody
    * answered would be a strange place to stop.
    */
-  let bookId: string | null = src.auto_lore_book_id ?? null;
-  if (bookId && !db.query("SELECT id FROM lorebooks WHERE id = ? AND deleted_at IS NULL").get(bookId)) {
-    bookId = null;
-  }
+  // Including a book that was replaced by a re-imported copy of itself.
+  let bookId: string | null = notesBookOf(src.id);
   if (!bookId) {
     bookId = uid();
     db.query("INSERT INTO lorebooks (id, name, entries, created_at, world) VALUES (?,?,?,?,?)")
@@ -3284,6 +3282,51 @@ api.post("/lorebooks/delete", async (c) => {
    without a provider. */
 
 /**
+ * The book this chat's notes go into, found again if it has gone.
+ *
+ * A chat remembers its book by id, and an id does not survive the obvious way
+ * of fixing a book: export it, correct it, import it, delete the old one. The
+ * import is a new book with a new id and the same name, the old one is gone,
+ * and the chat used to respond by quietly forgetting it had a book at all —
+ * no more notes, no word about it, and never asked again. Or, carrying on,
+ * by making yet another "— notes" book beside the one you had just fixed.
+ *
+ * So a missing book is looked for by name first: a live book called what the
+ * old one was called is, in every case anyone has hit, the same book come
+ * back. It is adopted and attached to the chat. Only if there is none does
+ * the chat let go — and then it asks again next time it is opened, rather
+ * than keeping notes nowhere in silence.
+ */
+function notesBookOf(chatId: string): string | null {
+  const chat = db.query("SELECT auto_lore_book_id FROM chats WHERE id = ?").get(chatId) as any;
+  const id = chat?.auto_lore_book_id;
+  if (!id) return null;
+  if (db.query("SELECT id FROM lorebooks WHERE id = ? AND deleted_at IS NULL").get(id)) return id;
+
+  const gone = db.query("SELECT name FROM lorebooks WHERE id = ?").get(id) as any;
+  const heir = gone?.name
+    ? (db.query(
+        "SELECT id FROM lorebooks WHERE name = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
+      ).get(gone.name) as any)
+    : null;
+  if (heir) {
+    db.query("UPDATE chats SET auto_lore_book_id = ? WHERE id = ?").run(heir.id, chatId);
+    attachToChat(heir.id, chatId);
+    return heir.id;
+  }
+  db.query("UPDATE chats SET auto_lore_book_id = NULL, auto_lore_asked = 0 WHERE id = ?").run(chatId);
+  return null;
+}
+
+/** Links a book to one chat, once. */
+function attachToChat(bookId: string, chatId: string) {
+  db.query("DELETE FROM lorebook_links WHERE book_id = ? AND scope = 'chat' AND ifnull(target_id,'') = ?")
+    .run(bookId, chatId);
+  db.query("INSERT INTO lorebook_links (id, book_id, scope, target_id) VALUES (?,?,?,?)")
+    .run(uid(), bookId, "chat", chatId);
+}
+
+/**
  * Writes a note for this chat if enough has happened since the last one.
  *
  * Deliberately quiet: every failure path leaves the chat exactly as it was and
@@ -3291,17 +3334,10 @@ api.post("/lorebooks/delete", async (c) => {
  * because the note-taker had a bad day.
  */
 async function takeNote(chatId: string) {
+  const bookId = notesBookOf(chatId);
+  if (!bookId) return;
   const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
-  if (!chat?.auto_lore_book_id) return;
-
-  const book = db
-    .query("SELECT * FROM lorebooks WHERE id = ? AND deleted_at IS NULL")
-    .get(chat.auto_lore_book_id) as any;
-  // The book was deleted out from under the chat; stop pointing at it.
-  if (!book) {
-    db.query("UPDATE chats SET auto_lore_book_id = NULL WHERE id = ?").run(chatId);
-    return;
-  }
+  const book = db.query("SELECT * FROM lorebooks WHERE id = ?").get(bookId) as any;
 
   const s = getSettings();
   const every = Number(s.auto_lore_every) || 0;
@@ -3414,24 +3450,33 @@ api.put("/chats/:id/autolore", async (c) => {
     bookId = found.id;
   }
 
-  if (bookId) {
-    // A book nothing reads is a book nothing reads: attach it to this chat so
-    // the notes it collects actually come back into the story.
-    db.query("DELETE FROM lorebook_links WHERE book_id = ? AND scope = 'chat' AND ifnull(target_id,'') = ?")
-      .run(bookId, chatId);
-    db.query("INSERT INTO lorebook_links (id, book_id, scope, target_id) VALUES (?,?,?,?)")
-      .run(uid(), bookId, "chat", chatId);
-  }
+  // A book nothing reads is a book nothing reads: attach it to this chat so
+  // the notes it collects actually come back into the story.
+  if (bookId) attachToChat(bookId, chatId);
 
-  // Start the clock now, so the first note covers what happens next rather
-  // than everything that came before the question was answered.
+  /*
+   * Start the clock now, so the first note covers what happens next rather
+   * than everything that came before the question was answered — but only
+   * the first time. Moving the notes to a different book later is a change
+   * of where they go, not a fresh start: resetting here would quietly skip
+   * everything that happened since the last note.
+   */
+  const before = db.query("SELECT auto_lore_book_id, auto_lore_at FROM chats WHERE id = ?").get(chatId) as any;
   const last = db
     .query("SELECT created_at FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
     .get(chatId) as any;
+  const clock = before?.auto_lore_book_id && before?.auto_lore_at ? before.auto_lore_at : last?.created_at ?? 0;
   db.query("UPDATE chats SET auto_lore_book_id = ?, auto_lore_asked = 1, auto_lore_at = ? WHERE id = ?")
-    .run(bookId, last?.created_at ?? 0, chatId);
+    .run(bookId, clock, chatId);
 
   return c.json({ ok: true, book_id: bookId });
+});
+
+/** Where this chat's notes go — found again by name if the book was replaced. */
+api.get("/chats/:id/autolore", (c) => {
+  const id = notesBookOf(c.req.param("id"));
+  const book = id ? (db.query("SELECT id, name FROM lorebooks WHERE id = ?").get(id) as any) : null;
+  return c.json({ book });
 });
 
 /** Attach or detach a book from everything, a character, or one chat. */

@@ -4252,10 +4252,21 @@ function renderPulled() {
     `</div>` +
     `<div class="pulledacts">` +
     `<button class="ghost" data-edit>Open and edit</button>` +
+    (S.chatId
+      ? (chatMeta?.auto_lore_book_id === b.id
+          ? `<button class="ghost" disabled>This chat's notes go here</button>`
+          : `<button class="ghost" data-notes>Take this chat's notes here</button>`)
+      : "") +
     `<button class="ghost" data-export>Export</button>` +
     `<button class="ghost danger" data-del>Delete</button>` +
     `</div>`;
-  box.onclick = (e) => loreRowClick(e, b);
+  box.onclick = async (e) => {
+    if (e.target.closest("[data-notes]")) {
+      await sendNotesTo(b.id);
+      return renderPulled();
+    }
+    loreRowClick(e, b);
+  };
 }
 
 let loreSelection = null;
@@ -4652,6 +4663,7 @@ async function openScene() {
   };
 
   renderTale();
+  renderNotesPick();
   $("#sceneDialog").showModal();
 }
 
@@ -10340,3 +10352,44 @@ $("#sceneTaleDone").onclick = () => advanceTale("done");
 $("#sceneTaleSkip").onclick = () => advanceTale("skipped");
 
 showWing(shelfWing);
+
+/* ---- where a chat's notes go -------------------------------------------------
+   Asked once when a chat begins, and until now never again: a chat whose book
+   had been replaced by a corrected copy had no way to be pointed at it. This
+   is that way, in the Scene dialog, and as a button on any book taken off the
+   shelf. */
+
+const NEW_NOTES = "__new__";
+
+async function renderNotesPick() {
+  if (!S.chatId) return;
+  const [list, now] = await Promise.all([api("/lorebooks"), api(`/chats/${S.chatId}/autolore`)]);
+  const current = now?.book?.id ?? "";
+  const shelf = Array.isArray(list) ? list : [];
+  $("#sceneNotes").innerHTML =
+    `<option value=""${current ? "" : " selected"}>Don't take notes in this chat</option>` +
+    shelf.map((b) => `<option value="${b.id}"${b.id === current ? " selected" : ""}>${esc(b.name)}</option>`).join("") +
+    `<option value="${NEW_NOTES}">A new lorebook…</option>`;
+}
+
+async function sendNotesTo(choice) {
+  let body = {};
+  if (choice === NEW_NOTES) {
+    const name = await askFor("Name the new lorebook", `${chatMeta?.title || chatMeta?.character_name || "This tale"} — notes`);
+    if (name === null) return false;
+    body = { name: name.trim() || "Notes" };
+  } else if (choice) body = { book_id: choice };
+  const r = await api(`/chats/${S.chatId}/autolore`, {
+    method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(body),
+  });
+  if (r.error) { toast(r.error); return false; }
+  if (chatMeta) chatMeta.auto_lore_book_id = r.book_id ?? null;
+  toast(choice ? "This chat's notes go there from now on." : "This chat will not take notes.");
+  refreshLore();
+  return true;
+}
+
+$("#sceneNotes").onchange = async () => {
+  await sendNotesTo($("#sceneNotes").value);
+  renderNotesPick();
+};

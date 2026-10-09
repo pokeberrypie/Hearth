@@ -7013,7 +7013,7 @@ body.guest #guideBtn { display: none !important; }
 .apocscene { margin: 0.4rem 0; }
 
 /* The chat's place in its story, in the Scene dialog. */
-#sceneTale { width: 100%; margin-bottom: 0.5rem; }
+#sceneTale, #sceneNotes { width: 100%; margin-bottom: 0.5rem; }
 .talescenes { display: flex; flex-direction: column; gap: 0.25rem; }
 .talechapter {
   margin: 0.55rem 0 0.15rem;
