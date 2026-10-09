@@ -6950,3 +6950,73 @@ body.guest #guideBtn { display: none !important; }
 
 .guidedadd { display: flex; gap: 0.4rem; align-items: center; }
 .guidedadd input { flex: 1; min-width: 0; }
+
+/* ---- apocrypha --------------------------------------------------------------
+   The second shelf. Everything here is drawn from the theme's own variables,
+   so it follows a chat's gilt like the rest of the room. */
+
+.shelfwings { margin: 0 0 0.9rem; }
+.shelfwings button { letter-spacing: 0.06em; }
+
+/* An omen: an idea not yet a book. Slimmer, paler, and a little apart. */
+.spine.omen { filter: saturate(0.55) brightness(0.92); opacity: 0.85; }
+
+.apocdialog label { display: block; margin: 0.5rem 0; }
+.apocchapter {
+  margin: 0.9rem 0;
+  padding: 0.7rem 0.75rem 0.5rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 40%, transparent);
+}
+.apocchead { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.4rem; }
+.apocchead input {
+  flex: 1; min-width: 0;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1rem;
+  color: var(--lumiverse-primary);
+}
+.apocchapter > textarea { width: 100%; box-sizing: border-box; margin-bottom: 0.4rem; }
+.apocscene { margin: 0.4rem 0; }
+
+/* The chat's place in its story, in the Scene dialog. */
+#sceneTale { width: 100%; margin-bottom: 0.5rem; }
+.talescenes { display: flex; flex-direction: column; gap: 0.25rem; }
+.talechapter {
+  margin: 0.55rem 0 0.15rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-dim);
+}
+.talescene {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  color: var(--lumiverse-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.talescene em { font-style: normal; font-size: 0.75rem; letter-spacing: 0.06em; color: var(--lumiverse-text-dim); }
+.talescene.now {
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-primary) 14%, transparent);
+  color: var(--lumiverse-primary);
+  cursor: default;
+}
+.talescene.now em { color: var(--lumiverse-primary); }
+.talescene.done span, .talescene.skipped span { opacity: 0.6; }
+.talescene.skipped span { text-decoration: line-through; }
+/* Well clear of Cancel and Save: these act at once, and a thumb aiming for
+   one should not land on the other. */
+.taleacts {
+  display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap;
+  margin: 0.6rem 0 1.4rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--lumiverse-border);
+}

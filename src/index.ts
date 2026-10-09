@@ -45,6 +45,7 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
          startFight, stateOf, type Fight } from "./fight";
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
+import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, startBookmark, type Apocryphon, type Bookmark } from "./apocrypha";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -1762,15 +1763,19 @@ api.post("/messages/:id/branch", (c) => {
   const t = now();
   db.query(
     `INSERT INTO chats (id, character_id, title, created_at, updated_at, parent_chat_id, branch_note,
-                        author_note, note_depth, auto_lore_book_id, auto_lore_asked, auto_lore_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+                        author_note, note_depth, auto_lore_book_id, auto_lore_asked, auto_lore_at,
+                        apocrypha)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(newId, src.character_id, `${src.title} — branch`, t, t, src.id,
         (m.content ?? "").slice(0, 80), src.author_note ?? "", src.note_depth ?? 2,
         // A branch is the same story told again from a fork, so it keeps its
         // parent's record-keeping. Without this, every branch asks where to
         // file its notes all over again — and branching is exactly the moment
         // you least want to be interrupted with a question you have answered.
-        src.auto_lore_book_id ?? null, src.auto_lore_asked ?? 0, src.auto_lore_at ?? 0);
+        src.auto_lore_book_id ?? null, src.auto_lore_asked ?? 0, src.auto_lore_at ?? 0,
+        // And its place in the plan, as a copy: from here the two go their
+        // own ways through the same book.
+        src.apocrypha ?? "");
 
   /*
    * Lorebooks pinned to the chat come along too.
@@ -1886,8 +1891,8 @@ api.post("/chats/:id/carry-on", async (c) => {
     `INSERT INTO chats (id, character_id, title, created_at, updated_at, parent_chat_id, branch_note,
                         author_note, note_depth, wallpaper, persona_id, is_group, auto_reply, scenario,
                         location, fight, campaign, campaign_asked, accent, ambience,
-                        auto_lore_book_id, auto_lore_asked, auto_lore_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                        auto_lore_book_id, auto_lore_asked, auto_lore_at, apocrypha)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     newId, src.character_id, carriedTitle(src.title || char.name), t, t, src.id,
     "Summed up and carried on",
@@ -1900,6 +1905,8 @@ api.post("/chats/:id/carry-on", async (c) => {
     // transcript this chat does not have: with the old timestamp every message
     // in the new chat would read as already covered.
     0,
+    // Still in the same scene of the same plan: carrying on is not starting over.
+    src.apocrypha ?? "",
   );
 
   /*
@@ -2671,6 +2678,9 @@ ${DICE_BRIEF}` : DICE_BRIEF;
    * — facts before the notation that uses them, so a sheet that does not exist
    * takes its instruction with it instead of teaching a roll against nothing.
    */
+  // The plan this chat follows, if any: only ever the scene being played.
+  const tale = taleBrief(chat.id);
+
   if (s.mode === "tabletop") {
     const table: string[] = [];
 
@@ -2699,6 +2709,9 @@ ${DICE_BRIEF}` : DICE_BRIEF;
       ).get(chat.id) as any)?.n ?? 0;
       table.push(started ? campaignForPrompt(game) : `${campaignForPrompt(game)}\n\n${openingBrief(game)}`);
     }
+    // A plan of the player's own sits beside the campaign: what the game is,
+    // then the scene of it being played.
+    if (tale) table.push(tale);
 
     table.push(DICE_BRIEF);
 
@@ -2757,17 +2770,23 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     if (last?.role === "user") last.content += `\n\n[${block}]`;
     else messages.push({ role: "user", content: `[${block}]` });
     note("The table", block);
-  } else if (roster) {
+  } else if (roster || tale) {
     /*
      * A shared story chat gets the roster on its own, in the same place the
      * table's block goes: after the transcript, where an instruction is read
      * rather than skimmed past. There is no table to fold it into here, but
      * the reason for it is identical — somebody else is typing.
+     *
+     * The scene from an apocryphon goes here too, for the same reason: it is
+     * the instruction about this part of the story, and last is where an
+     * instruction holds.
      */
+    const block = [roster, tale].filter(Boolean).join("\n\n");
     const last = messages[messages.length - 1];
-    if (last?.role === "user") last.content += `\n\n[${roster}]`;
-    else messages.push({ role: "user", content: `[${roster}]` });
-    note("Who is playing", roster);
+    if (last?.role === "user") last.content += `\n\n[${block}]`;
+    else messages.push({ role: "user", content: `[${block}]` });
+    if (roster) note("Who is playing", roster);
+    if (tale) note("Where the story is headed", tale);
   }
 
   /*
@@ -3036,6 +3055,128 @@ api.get("/lorebooks/:id/export", (c) => {
     };
   });
   return download(`${b.name}.json`, { name: b.name, entries: out });
+});
+
+// ---- apocrypha --------------------------------------------------------------
+//
+// The other half of the bookshelf: plans for a story rather than facts about a
+// world. See src/apocrypha.ts for why the two are kept apart, and why a chat
+// holds its own place in a book instead of the book holding one for everyone.
+
+const apocryphonFrom = (r: any): Apocryphon & { created_at: number; updated_at: number } => {
+  let chapters: unknown = [];
+  try { chapters = JSON.parse(r.chapters || "[]"); } catch {}
+  return { id: r.id, name: r.name, premise: r.premise, chapters: normaliseChapters(chapters),
+           created_at: r.created_at, updated_at: r.updated_at };
+};
+
+const apocryphon = (id: string) => {
+  const r = db.query("SELECT * FROM apocrypha WHERE id = ?").get(id);
+  return r ? apocryphonFrom(r) : null;
+};
+
+/**
+ * A chat's book and its place in it, or nulls.
+ *
+ * Mended on the way out: a scene that has since been deleted from the book
+ * cannot be the one being played, so the chat moves on to the first open
+ * scene rather than sitting on a bookmark that points at nothing.
+ */
+function taleOf(chatId: string): { book: Apocryphon | null; mark: Bookmark | null } {
+  const row = db.query("SELECT apocrypha FROM chats WHERE id = ?").get(chatId) as { apocrypha?: string } | undefined;
+  const mark = readBookmark(row?.apocrypha);
+  if (!mark) return { book: null, mark: null };
+  const book = apocryphon(mark.book);
+  if (!book) return { book: null, mark: null };
+  const ids = new Set(scenesOf(book).map(({ scene }) => scene.id));
+  if (mark.scene && !ids.has(mark.scene)) {
+    const done = mark.done.filter((x) => ids.has(x));
+    const skipped = mark.skipped.filter((x) => ids.has(x));
+    const scene = [...ids].find((x) => !done.includes(x) && !skipped.includes(x)) ?? "";
+    const fixed = { book: book.id, scene, done, skipped };
+    setTale(chatId, fixed);
+    return { book, mark: fixed };
+  }
+  return { book, mark };
+}
+
+const setTale = (chatId: string, mark: Bookmark | null) =>
+  db.query("UPDATE chats SET apocrypha = ? WHERE id = ?").run(mark ? JSON.stringify(mark) : "", chatId);
+
+/** What the model is told about the plan this chat follows, if it follows one. */
+function taleBrief(chatId: string): string | null {
+  const { book, mark } = taleOf(chatId);
+  return book ? briefFor(book, mark) : null;
+}
+
+api.get("/apocrypha", (c) => {
+  const rows = db.query("SELECT * FROM apocrypha ORDER BY updated_at DESC").all();
+  return c.json(rows.map(apocryphonFrom));
+});
+
+api.post("/apocrypha", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const id = uid();
+  const t = now();
+  db.query("INSERT INTO apocrypha (id, name, premise, chapters, created_at, updated_at) VALUES (?,?,?,?,?,?)")
+    .run(id, String(b.name ?? "").trim().slice(0, 200) || "An untold story",
+         String(b.premise ?? "").slice(0, 20000), JSON.stringify(normaliseChapters(b.chapters)), t, t);
+  return c.json({ id });
+});
+
+api.put("/apocrypha/:id", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const r = db.query("UPDATE apocrypha SET name = ?, premise = ?, chapters = ?, updated_at = ? WHERE id = ?").run(
+    String(b.name ?? "").trim().slice(0, 200) || "An untold story",
+    String(b.premise ?? "").slice(0, 20000),
+    JSON.stringify(normaliseChapters(b.chapters)), now(), c.req.param("id"));
+  if (!r.changes) return c.json({ error: "That book is not on the shelf any more." }, 404);
+  return c.json({ ok: true });
+});
+
+api.delete("/apocrypha/:id", (c) => {
+  const id = c.req.param("id");
+  db.query("DELETE FROM apocrypha WHERE id = ?").run(id);
+  // Chats that were following it are following nothing now, and should say so.
+  const following = db.query("SELECT id, apocrypha FROM chats WHERE apocrypha LIKE ?").all(`%${id}%`) as any[];
+  for (const ch of following) if (readBookmark(ch.apocrypha)?.book === id) setTale(ch.id, null);
+  return c.json({ ok: true });
+});
+
+/** Which book this chat follows, and where it has got to. */
+api.get("/chats/:id/apocrypha", (c) => c.json(taleOf(c.req.param("id"))));
+
+/**
+ * Following a book, choosing a scene, or putting the book down.
+ *
+ * `{ book }` opens one at its first scene — or carries on from wherever this
+ * chat already was in it. `{ book, scene }` moves the bookmark by hand. An
+ * empty `book` stops following anything.
+ */
+api.put("/chats/:id/apocrypha", async (c) => {
+  const chatId = c.req.param("id");
+  if (!db.query("SELECT id FROM chats WHERE id = ?").get(chatId)) return c.json({ error: "Chat not found." }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const wanted = String(b.book ?? "");
+  if (!wanted) { setTale(chatId, null); return c.json({ book: null, mark: null }); }
+  const book = apocryphon(wanted);
+  if (!book) return c.json({ error: "That book is not on the shelf any more." }, 404);
+  const current = taleOf(chatId).mark;
+  let mark = current?.book === book.id ? current : startBookmark(book);
+  if (b.scene) mark = jumpTo(book, mark, String(b.scene));
+  setTale(chatId, mark);
+  return c.json({ book, mark });
+});
+
+/** The scene is over, one way or the other; on to the next. */
+api.post("/chats/:id/apocrypha/advance", async (c) => {
+  const chatId = c.req.param("id");
+  const { book, mark } = taleOf(chatId);
+  if (!book || !mark) return c.json({ error: "This chat is not following a story." }, 400);
+  const b = await c.req.json().catch(() => ({}));
+  const moved = advance(book, mark, b.how === "skipped" ? "skipped" : "done");
+  setTale(chatId, moved);
+  return c.json({ book, mark: moved });
 });
 
 // ---- lorebooks ------------------------------------------------------------

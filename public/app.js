@@ -3882,6 +3882,8 @@ async function refreshLore() {
   if (!Array.isArray(r)) return;
   books = r;
   renderLoreList();
+  // The other shelf in the same case, kept in step with whichever chat is open.
+  if (shelfWing === "apocrypha") refreshApocrypha();
 }
 
 /** Drawn separately, because which scope buttons exist depends on whether a
@@ -4393,6 +4395,7 @@ async function openScene() {
     ambience.play(chatMeta.ambience);
   };
 
+  renderTale();
   $("#sceneDialog").showModal();
 }
 
@@ -9708,3 +9711,316 @@ addEventListener("keydown", (e) => {
 });
 
 wirePanelChrome();
+
+/* ---- apocrypha ---------------------------------------------------------------
+   The second shelf in the bookcase. The Archives are the lorebooks — what is
+   so. The Apocrypha are stories not yet told: a premise, then chapters and
+   scenes, for a chat to follow one scene at a time. See src/apocrypha.ts for
+   why the model only ever sees the scene it is in.
+
+   A book with no scenes is an omen: an idea, standing slimmer on the shelf
+   until it is given a chapter. */
+
+let apocrypha = [];
+let pulledApoc = null;
+let editingApoc = null;
+/** Which book the open chat follows, so its spine can wear the ribbon. */
+let followedApoc = null;
+let shelfWing = "archives";
+try { if (localStorage.getItem("hearth.shelfWing") === "apocrypha") shelfWing = "apocrypha"; } catch {}
+
+const JSON_HEADERS = { "content-type": "application/json" };
+const sceneCount = (a) => a.chapters.reduce((n, c) => n + c.scenes.length, 0);
+// Not crypto.randomUUID: that only exists in a secure context, and a guest
+// reaching a hosted table over plain http is not one. The server gives every
+// chapter and scene a proper id on save anyway.
+const draftId = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+function showWing(w) {
+  shelfWing = w;
+  try { localStorage.setItem("hearth.shelfWing", w); } catch {}
+  for (const b of document.querySelectorAll(".shelfwings [data-wing]")) {
+    const on = b.dataset.wing === w;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", String(on));
+  }
+  $("#archivesWing").hidden = w !== "archives";
+  $("#apocWing").hidden = w !== "apocrypha";
+  if (w === "apocrypha") refreshApocrypha();
+}
+document.querySelector(".shelfwings").onclick = (e) => {
+  const b = e.target.closest("[data-wing]");
+  if (b) showWing(b.dataset.wing);
+};
+
+async function refreshApocrypha() {
+  const r = await api("/apocrypha");
+  if (!Array.isArray(r)) return;
+  apocrypha = r;
+  const t = S.chatId ? await api(`/chats/${S.chatId}/apocrypha`) : null;
+  followedApoc = t?.book?.id ?? null;
+  renderApocShelf();
+}
+
+function apocSpine(a) {
+  const seed = spineSeed(a.name);
+  const n = sceneCount(a);
+  const omen = n === 0;
+  const w = omen ? 18 + (seed % 3) * 3 : 30 + (seed % 5) * 5;
+  const h = (omen ? 110 : 132) + ((seed >> 3) % 6) * 9;
+  const leather = LEATHERS[(seed >> 7) % LEATHERS.length];
+  const what = omen ? "an omen — no scenes yet" : `${n} scene${n === 1 ? "" : "s"}`;
+  return `<div role="button" tabindex="0" class="spine${omen ? " omen" : ""}${a.id === followedApoc ? " inplay" : ""}"
+      data-apoc="${a.id}" style="--w:${w}px;--h:${h}px;--leather:${leather}" title="${esc(a.name)} — ${what}">
+      <span class="band"></span>
+      <span class="spinetitle">${esc(a.name)}</span>
+      <span class="band"></span>
+      ${omen ? "" : `<span class="spinecount">${n}</span>`}
+    </div>`;
+}
+
+function renderApocShelf() {
+  const shelf = $("#apocShelf");
+  if (!shelf) return;
+  shelf.innerHTML = apocrypha.length
+    ? apocrypha.map(apocSpine).join("")
+    : `<p class="hint">No stories on this shelf yet.</p>`;
+  for (const s of shelf.querySelectorAll("[data-apoc]")) {
+    s.classList.toggle("pulled", s.dataset.apoc === pulledApoc);
+    s.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); s.click(); }
+    };
+    s.onclick = () => {
+      pulledApoc = pulledApoc === s.dataset.apoc ? null : s.dataset.apoc;
+      renderApocShelf();
+    };
+  }
+  renderPulledApoc();
+}
+
+function renderPulledApoc() {
+  const box = $("#apocDetail");
+  const a = apocrypha.find((x) => x.id === pulledApoc);
+  if (!a) { box.hidden = true; return; }
+  const n = sceneCount(a);
+  const chapters = a.chapters.length;
+  box.hidden = false;
+  box.innerHTML =
+    `<div class="pulledhead">` +
+    `<span class="pulledname">${esc(a.name)}</span>` +
+    `<span class="pulledcount">${n
+      ? `${chapters} chapter${chapters === 1 ? "" : "s"} · ${n} scene${n === 1 ? "" : "s"}`
+      : "An omen"}</span>` +
+    `</div>` +
+    (a.premise ? `<p class="hint">${esc(a.premise)}</p>` : "") +
+    `<div class="pulledacts">` +
+    `<button class="ghost" data-edit>Open and edit</button>` +
+    (S.chatId && n
+      ? `<button class="ghost" data-follow>${a.id === followedApoc ? "Followed in this chat" : "Follow in this chat"}</button>`
+      : "") +
+    `<button class="ghost danger" data-del>Delete</button>` +
+    `</div>`;
+  box.onclick = async (e) => {
+    if (e.target.closest("[data-edit]")) return openApoc(a);
+    if (e.target.closest("[data-follow]")) {
+      if (a.id === followedApoc) return;
+      const r = await api(`/chats/${S.chatId}/apocrypha`, {
+        method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ book: a.id }),
+      });
+      if (r.error) return toast(r.error);
+      followedApoc = a.id;
+      renderApocShelf();
+      return toast(`This chat now follows ${a.name}.`);
+    }
+    if (e.target.closest("[data-del]")) {
+      if (!(await ask(`Delete “${a.name}”?`))) return;
+      await api(`/apocrypha/${a.id}`, { method: "DELETE" });
+      pulledApoc = null;
+      await refreshApocrypha();
+      toast("Story deleted.");
+    }
+  };
+}
+
+/* The editor: a premise, then chapters, each a run of scenes. Every field is
+   optional — a scene can be no more than a title — and every placeholder says
+   what the model will make of it, because "beats" written as a script get
+   played as a script. */
+
+const SCENE_FIELDS = [
+  ["title", "Scene", "input", "A Lion Cornered"],
+  ["setting", "Where and when", "input", "The Red Keep, that evening"],
+  ["cast", "Who is meant to be there", "input", "Jaime, Cersei"],
+  ["purpose", "What the scene is for", "textarea", "What changes because of it"],
+  ["beats", "Things that could happen", "textarea", "Possibilities, not a script — the player can always go elsewhere"],
+  ["ending", "Roughly where it ends", "textarea", "Where it tends to stop, not a goal to drive toward"],
+];
+const blankScene = () => ({ id: draftId(), title: "", setting: "", cast: "", purpose: "", beats: "", ending: "" });
+
+function openApoc(a) {
+  editingApoc = JSON.parse(JSON.stringify(a));
+  $("#ap_name").value = a.name;
+  $("#ap_premise").value = a.premise;
+  renderApocChapters();
+  $("#apocDialog").showModal();
+}
+
+function renderApocChapters() {
+  $("#ap_omen").hidden = sceneCount(editingApoc) > 0;
+  $("#ap_chapters").innerHTML = editingApoc.chapters.map((ch, ci) =>
+    `<section class="apocchapter">` +
+    `<div class="apocchead">` +
+    `<input data-ci="${ci}" data-f="title" value="${esc(ch.title)}" placeholder="Chapter ${ci + 1}" aria-label="Chapter title">` +
+    `<button class="ico" data-rmchapter="${ci}" title="Remove chapter" aria-label="Remove chapter">${ICON.del}</button>` +
+    `</div>` +
+    `<textarea rows="2" data-ci="${ci}" data-f="summary" placeholder="What this chapter is about (optional)">${esc(ch.summary)}</textarea>` +
+    ch.scenes.map((sc, si) =>
+      `<details class="entry apocscene"${sc.title ? "" : " open"}>` +
+      `<summary><span class="etitle">${esc(sc.title || "Untitled scene")}</span>` +
+      `<span class="ekeys">${esc(sc.setting)}</span>` +
+      `<button class="ico" data-rmscene="${ci}:${si}" title="Remove scene" aria-label="Remove scene">${ICON.del}</button></summary>` +
+      `<div class="ebody">` +
+      SCENE_FIELDS.map(([f, label, kind, hint]) => kind === "input"
+        ? `<label>${label}<input data-ci="${ci}" data-si="${si}" data-f="${f}" value="${esc(sc[f])}" placeholder="${esc(hint)}"></label>`
+        : `<label>${label}<textarea rows="3" data-ci="${ci}" data-si="${si}" data-f="${f}" placeholder="${esc(hint)}">${esc(sc[f])}</textarea></label>`,
+      ).join("") +
+      `</div></details>`,
+    ).join("") +
+    `<button class="linkish" data-addscene="${ci}">Add a scene</button>` +
+    `</section>`,
+  ).join("");
+}
+
+$("#ap_chapters").addEventListener("input", (e) => {
+  const el = e.target;
+  if (el.dataset.ci === undefined) return;
+  const ch = editingApoc.chapters[+el.dataset.ci];
+  (el.dataset.si === undefined ? ch : ch.scenes[+el.dataset.si])[el.dataset.f] = el.value;
+  // The folded heading names the scene; keep it in step with what is typed.
+  if (el.dataset.si !== undefined && (el.dataset.f === "title" || el.dataset.f === "setting")) {
+    const head = el.closest("details")?.querySelector(el.dataset.f === "title" ? ".etitle" : ".ekeys");
+    if (head) head.textContent = el.value || (el.dataset.f === "title" ? "Untitled scene" : "");
+  }
+});
+
+$("#ap_chapters").addEventListener("click", async (e) => {
+  const add = e.target.closest("[data-addscene]");
+  const rmScene = e.target.closest("[data-rmscene]");
+  const rmChapter = e.target.closest("[data-rmchapter]");
+  if (add) {
+    editingApoc.chapters[+add.dataset.addscene].scenes.push(blankScene());
+    renderApocChapters();
+  } else if (rmScene) {
+    // Inside a <summary>, where a click would otherwise fold the scene too.
+    e.preventDefault();
+    if (!(await ask("Remove this scene?"))) return;
+    const [ci, si] = rmScene.dataset.rmscene.split(":").map(Number);
+    editingApoc.chapters[ci].scenes.splice(si, 1);
+    renderApocChapters();
+  } else if (rmChapter) {
+    if (!(await ask("Remove this chapter and every scene in it?"))) return;
+    editingApoc.chapters.splice(+rmChapter.dataset.rmchapter, 1);
+    renderApocChapters();
+  }
+});
+
+$("#ap_addChapter").onclick = () => {
+  editingApoc.chapters.push({ id: draftId(), title: "", summary: "", scenes: [blankScene()] });
+  renderApocChapters();
+};
+
+$("#ap_close").onclick = () => $("#apocDialog").close();
+
+$("#ap_save").onclick = async () => {
+  const r = await api("/apocrypha/" + editingApoc.id, {
+    method: "PUT", headers: JSON_HEADERS,
+    body: JSON.stringify({ name: $("#ap_name").value, premise: $("#ap_premise").value, chapters: editingApoc.chapters }),
+  });
+  if (r.error) return toast(r.error);
+  $("#apocDialog").close();
+  await refreshApocrypha();
+  toast("Story saved.");
+};
+
+$("#newApocBtn").onclick = async () => {
+  const name = await askFor("Name this story", "");
+  if (name === null) return;
+  const r = await api("/apocrypha", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ name }) });
+  if (r.error) return toast(r.error);
+  pulledApoc = r.id;
+  await refreshApocrypha();
+  const made = apocrypha.find((a) => a.id === r.id);
+  if (made) openApoc(made);
+};
+
+/* In the Scene dialog: which story this chat follows, where it has got to, and
+   the one button that matters while playing — this scene is done. All of it
+   takes effect at once rather than waiting for Save, because it is the
+   chat's place in a book, not a setting of the room. */
+
+let sceneTale = { book: null, mark: null };
+
+async function renderTale() {
+  if (!S.chatId) return;
+  const [list, tale] = await Promise.all([api("/apocrypha"), api(`/chats/${S.chatId}/apocrypha`)]);
+  if (Array.isArray(list)) apocrypha = list;
+  sceneTale = tale && !tale.error ? tale : { book: null, mark: null };
+  const followable = apocrypha.filter((a) => sceneCount(a) > 0);
+  $("#sceneTale").innerHTML =
+    `<option value="">None — let the story find its own way</option>` +
+    followable.map((a) =>
+      `<option value="${a.id}"${a.id === sceneTale.book?.id ? " selected" : ""}>${esc(a.name)}</option>`).join("");
+  drawTaleScenes();
+}
+
+function drawTaleScenes() {
+  const box = $("#sceneTaleScenes");
+  const { book, mark } = sceneTale;
+  $("#sceneTaleActs").hidden = !(book && mark?.scene);
+  if (!book || !mark) { box.innerHTML = ""; return; }
+  const status = (id) => mark.scene === id ? "now" : mark.done.includes(id) ? "done"
+    : mark.skipped.includes(id) ? "skipped" : "ahead";
+  const WORD = { now: "Now", done: "Done", skipped: "Skipped", ahead: "" };
+  box.innerHTML = book.chapters.map((ch) =>
+    (ch.title ? `<div class="talechapter">${esc(ch.title)}</div>` : "") +
+    ch.scenes.map((sc) => {
+      const st = status(sc.id);
+      return `<button type="button" class="talescene ${st}" data-scene="${sc.id}"
+          title="${st === "now" ? "The scene being played" : "Play this scene now"}">` +
+        `<span>${esc(sc.title || "Untitled scene")}</span><em>${WORD[st]}</em></button>`;
+    }).join(""),
+  ).join("") +
+  (mark.scene ? "" : `<p class="hint">Every scene has been played. The story is yours from here.</p>`);
+}
+
+const taleChanged = (r) => {
+  if (r.error) { toast(r.error); return; }
+  sceneTale = r;
+  followedApoc = r.book?.id ?? null;
+  drawTaleScenes();
+};
+
+$("#sceneTale").onchange = async () => {
+  taleChanged(await api(`/chats/${S.chatId}/apocrypha`, {
+    method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ book: $("#sceneTale").value }),
+  }));
+};
+
+$("#sceneTaleScenes").onclick = async (e) => {
+  const b = e.target.closest("[data-scene]");
+  if (!b || !sceneTale.book || b.classList.contains("now")) return;
+  taleChanged(await api(`/chats/${S.chatId}/apocrypha`, {
+    method: "PUT", headers: JSON_HEADERS,
+    body: JSON.stringify({ book: sceneTale.book.id, scene: b.dataset.scene }),
+  }));
+};
+
+const advanceTale = async (how) => {
+  taleChanged(await api(`/chats/${S.chatId}/apocrypha/advance`, {
+    method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ how }),
+  }));
+};
+$("#sceneTaleDone").onclick = () => advanceTale("done");
+$("#sceneTaleSkip").onclick = () => advanceTale("skipped");
+
+showWing(shelfWing);

@@ -152,6 +152,17 @@ CREATE TABLE IF NOT EXISTS lorebook_links (
   target_id TEXT
 );
 
+-- Apocrypha: plans for a story, in chapters and scenes. Never canon — see
+-- src/apocrypha.ts. Each chat keeps its own place in one (chats.apocrypha).
+CREATE TABLE IF NOT EXISTS apocrypha (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  premise    TEXT NOT NULL DEFAULT '',
+  chapters   TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_npcs_chat ON npcs(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_rolls_chat ON rolls(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_links_book ON lorebook_links(book_id);
@@ -277,6 +288,9 @@ export const ALTER_TABLES: string[] = [
   // global look", which is what every chat that already exists wants.
   "ALTER TABLE chats ADD COLUMN accent TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE chats ADD COLUMN ambience TEXT NOT NULL DEFAULT ''",
+  // This chat's bookmark in an apocryphon, as JSON — see src/apocrypha.ts.
+  // Kept on the chat rather than the book so one plan can run in many chats.
+  "ALTER TABLE chats ADD COLUMN apocrypha TEXT NOT NULL DEFAULT ''",
 ];
 
 /** Group chats. A chat keeps its `character_id` as the one it was started
