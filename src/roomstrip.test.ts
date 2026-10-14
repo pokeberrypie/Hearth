@@ -247,11 +247,12 @@ describe("naming, wherever it is asked for", () => {
   const APP = readFileSync(join(import.meta.dir, "..", "public", "app.js"), "utf8");
 
   test("goes through one function", () => {
-    // The scene page, the chat menu, and the row for any chat in "Manage chat
-    // files". They were three copies and the copies had drifted.
+    // The scene page, the name at the top of a chat (which replaced the chat
+    // menu's row), and the row for any chat in "Manage chat files". They were
+    // three copies once and the copies had drifted.
     expect(APP).toContain("async function renameChat(id = S.chatId");
     expect(APP.match(/askFor\("Name this chat"/g) ?? []).toHaveLength(1);
-    expect(APP).toMatch(/case "rename": \{[\s\S]{0,220}await renameChat\(\);/);
+    expect(APP).toMatch(/const barRename = \(\) => \{[\s\S]{0,120}renameChat\(\);/);
     expect(APP).toContain(`if (await renameChat(c.id, c.title ?? "")) await renderFiles();`);
   });
 

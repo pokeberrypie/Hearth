@@ -15,6 +15,13 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- Desk mode: staying awake while your computer uses the library on this
+         phone over the Wi-Fi. See ServingService. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".HearthApplication"
         android:allowBackup="false"
@@ -42,5 +49,17 @@
             android:exported="false"
             android:process=":engine"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- In the same process as the Node runtime, which is the thing it is
+             there to keep running. -->
+        <service
+            android:name=".ServingService"
+            android:exported="false"
+            android:process=":engine"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Serves the user's own library to their own computer on the local network while they use it" />
+        </service>
     </application>
 </manifest>

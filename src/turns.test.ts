@@ -372,7 +372,9 @@ describe("the browser's half", () => {
   test("the page says so rather than drawing an empty library", () => {
     expect(APP).toContain("if (door) { guestNoSeat(); openTheHearth(); return; }");
     const fn = APP.slice(APP.indexOf("function guestNoSeat("));
-    expect(fn.slice(0, 1600)).toContain("Your seat is not here any more.");
+    // Below the owner's code box (desk mode), but still said in so many words.
+    expect(fn.slice(0, 3200)).toContain("Here for a seat at someone's table?");
+    expect(fn.slice(0, 3200)).toContain("Ask whoever invited you for the link again");
   });
 
   /*

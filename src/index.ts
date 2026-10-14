@@ -5553,6 +5553,8 @@ api.get("/hosting", (c) => c.json(hostingState(publicPort())));
 
 api.put("/hosting", async (c) => {
   const { on } = await c.req.json().catch(() => ({}));
+  // A code waiting for a door that has just shut is a code for nothing.
+  if (!on) pairing = null;
   return c.json(setHosting(!!on, publicPort()));
 });
 
@@ -5965,6 +5967,58 @@ app.get("/join/:token", (c) => {
  * sit in history, in logs, and in whatever the browser syncs. HttpOnly, so a
  * bad extension cannot read it back out.
  */
+/* ---- pairing a device of your own -------------------------------------------
+ *
+ * The other way into your own Hearth from another device, for when that
+ * device is a computer and the key is thirty-odd characters to type by hand.
+ *
+ * The phone shows a six-digit code; the computer, arriving at the phone's
+ * address with no key, is asked for it; the right code is exchanged for the
+ * same cookie /host/:key hands out, and the computer is yours from then on.
+ * One code at a time, gone after five minutes, after its first use, or after
+ * five wrong guesses — a million codes and five tries is not something to
+ * guess your way through, and a code that has been shown once is not a
+ * password to keep lying about.
+ */
+const PAIR_LIFE = 5 * 60 * 1000;
+const PAIR_TRIES = 5;
+let pairing: { code: string; until: number; tries: number } | null = null;
+
+/** Host only, like everything under /api that guests are not allowed. */
+api.post("/pair/start", (c) => {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  const code = String(buf[0] % 1_000_000).padStart(6, "0");
+  pairing = { code, until: now() + PAIR_LIFE, tries: 0 };
+  return c.json({ code, until: pairing.until });
+});
+
+api.delete("/pair", (c) => {
+  pairing = null;
+  return c.json({ ok: true });
+});
+
+/** Outside /api, because the caller has nothing yet that would get it past the gate. */
+app.post("/pair", async (c) => {
+  const { code } = await c.req.json().catch(() => ({}));
+  const live = pairing && pairing.until > now() ? pairing : null;
+  if (!live) {
+    pairing = null;
+    return c.json({ error: "There is no code waiting. Make a new one on your phone." }, 403);
+  }
+  if (!sameToken(live.code, String(code ?? "").replace(/\D/g, ""))) {
+    live.tries++;
+    if (live.tries >= PAIR_TRIES) pairing = null;
+    return c.json({ error: live.tries >= PAIR_TRIES
+      ? "Too many wrong codes. Make a new one on your phone."
+      : "That is not the code." }, 403);
+  }
+  pairing = null;
+  c.header("set-cookie",
+    `${HOST_COOKIE}=${encodeURIComponent(hostKey())}; Path=/; Max-Age=${60 * 60 * 24 * 365}; HttpOnly; SameSite=Lax`);
+  return c.json({ ok: true });
+});
+
 app.get("/host/:key", (c) => {
   const given = String(c.req.param("key") ?? "");
   if (!sameToken(hostKey(), given)) {

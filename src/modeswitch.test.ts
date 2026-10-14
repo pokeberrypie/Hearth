@@ -53,10 +53,11 @@ describe("the sign, on the shelf", () => {
 
 describe("the name, in a chat", () => {
   test("is disarmed the moment a chat opens", () => {
-    // openChat sets the bar to the character's name. If this call is lost, the
-    // switch stays live over somebody's name and a mistap leaves the chat.
-    const open = APP.slice(APP.indexOf("setBarTitle(chat.character_name"));
-    expect(open.slice(0, 400)).toContain("paintModeSwitch(false)");
+    // openChat sets the bar to the chat's name (paintChatTitle). If this call
+    // is lost, the switch stays live over somebody's name and a mistap leaves
+    // the chat.
+    expect(body("paintChatTitle")).toContain("paintModeSwitch(false)");
+    expect(body("openChat")).toContain("paintChatTitle()");
   });
 
   test("and the handler refuses to fire without the class", () => {
@@ -104,5 +105,18 @@ describe("what it looks like", () => {
      */
     const rule = CSS.slice(CSS.indexOf("#barTitle.switch"), CSS.indexOf("#barTitle.switch") + 400);
     expect(rule).not.toContain("text-decoration");
+  });
+});
+
+describe("the name, in a chat, renames it", () => {
+  test("through its own handler, which checks its own class", () => {
+    expect(APP).toMatch(
+      /const barRename = \(\) => \{\s*if \(!\$\("#barTitle"\)\.classList\.contains\("renames"\)\) return;\s*renameChat\(\);/,
+    );
+  });
+
+  test("and the two are never armed together", () => {
+    // Renaming is only switched on where the mode switch is off.
+    expect(body("paintModeSwitch")).toContain("const renames = !live && !!S.chatId && !GUEST.on;");
   });
 });

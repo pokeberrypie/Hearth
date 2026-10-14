@@ -3053,19 +3053,25 @@ function paintModeSwitch(on) {
   fitBarTitle();
 }
 
-const barSwitch = async () => {
-  const el = $("#barTitle");
-  if (el.classList.contains("renames")) {
-    // The bar shows whose chat this is; the chat's own name is its tooltip,
-    // so that is what has to change after a rename (a branch keeps saying
-    // where it came from instead).
-    await renameChat();
-    return;
-  }
-  if (!el.classList.contains("switch")) return;
+const barSwitch = () => {
+  if (!$("#barTitle").classList.contains("switch")) return;
   setMode(document.body.dataset.mode === "tabletop" ? "story" : "tabletop");
 };
 $("#barTitle").addEventListener("click", barSwitch);
+
+/*
+ * Inside a chat the same name renames the chat instead. A separate handler
+ * rather than a branch in barSwitch, on purpose: changing worlds is the
+ * dangerous one, and keeping its guard exactly as it was means no edit to
+ * renaming can ever loosen it. Each checks its own class; the two are never
+ * set together (see paintModeSwitch).
+ */
+const barRename = () => {
+  if (!$("#barTitle").classList.contains("renames")) return;
+  renameChat();
+};
+$("#barTitle").addEventListener("click", barRename);
+
 // It is an h1 wearing a button's clothes, so it does not get Enter and Space
 // for nothing. A control you can see but not reach from the keyboard is worse
 // than one that was never announced as a control at all.
@@ -3075,6 +3081,7 @@ $("#barTitle").addEventListener("keydown", (e) => {
   if (!el.classList.contains("switch") && !el.classList.contains("renames")) return;
   e.preventDefault();
   barSwitch();
+  barRename();
 });
 
 async function setMode(to) {
@@ -9453,14 +9460,42 @@ function guestNoSeat() {
   if (!thread) return;
   thread.hidden = false;
   thread.innerHTML = "";
+  /*
+   * Whoever this is, they reached a Hearth whose owner opened its door — for
+   * their own computer (desk mode) or for a table. The owner's case first:
+   * the phone is showing a code for exactly this, and the right one makes
+   * this browser theirs for good. A guest whose seat has gone is the second
+   * case, and gets the same plain sentence it always did, below.
+   */
+  const mine = document.createElement("div");
+  mine.className = "empty pairbox";
+  mine.innerHTML = `<h3>Is this your Hearth?</h3>` +
+    `<p>Enter the code your phone is showing, under Connection → ` +
+    `<em>Use this library from your computer</em>.</p>` +
+    `<form id="pairForm"><input id="pairCode" inputmode="numeric" autocomplete="one-time-code" ` +
+    `maxlength="7" placeholder="123 456" aria-label="Code from your phone">` +
+    `<button class="solid" type="submit">Open my library</button></form>` +
+    `<p class="hint" id="pairHint"></p>`;
+  thread.append(mine);
+
   const note = document.createElement("div");
-  note.className = "empty";
-  note.innerHTML = `<h3>Your seat is not here any more.</h3>` +
-    `<p>This is somebody else's table, and the browser has forgotten which chair ` +
-    `was yours — which happens on its own if the tab was private, or if it has ` +
-    `been a while. Nothing has been lost at their end.</p>` +
-    `<p>Ask whoever invited you for the link again, and open it once more.</p>`;
+  note.className = "empty seatnote";
+  note.innerHTML = `<h3>Here for a seat at someone's table?</h3>` +
+    `<p>The browser has forgotten which chair was yours — which happens on its own ` +
+    `if the tab was private, or if it has been a while. Nothing has been lost at ` +
+    `their end. Ask whoever invited you for the link again, and open it once more.</p>`;
   thread.append(note);
+
+  $("#pairCode").focus();
+  $("#pairForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const r = await fetch("/pair", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: $("#pairCode").value }),
+    }).then((x) => x.json()).catch(() => ({ error: "Could not reach the phone." }));
+    if (r.ok) { location.replace("/"); return; }
+    $("#pairHint").textContent = r.error ?? "That did not work.";
+  };
 }
 
 /* ---- everything, from one box -----------------------------------------------
@@ -10455,3 +10490,72 @@ $("#sceneNotes").onchange = async () => {
   await sendNotesTo($("#sceneNotes").value);
   renderNotesPick();
 };
+
+/* ---- desk mode ---------------------------------------------------------------
+   Your computer, using the library on this device. The door is the same one a
+   shared table uses (hosting.ts); what is new is getting through it as
+   yourself without typing a thirty-character key — a six-digit code instead,
+   see /pair in index.ts — and, on a phone, staying awake while the computer
+   is using it (ServingService on the Android side). */
+
+const DESK = { code: "", until: 0, timer: null };
+const desktopHost = () => (typeof HearthHost !== "undefined" && HearthHost.startServing ? HearthHost : null);
+
+async function paintDesk() {
+  const box = $("#deskBody");
+  if (!box) return;
+  const h = await api("/hosting").catch(() => null);
+  const on = !!h?.on;
+  $("#deskOn").checked = on;
+  if (!on) { box.innerHTML = ""; clearInterval(DESK.timer); DESK.timer = null; return; }
+
+  const where = (h.addresses ?? []).map((a) => `http://${a}:${h.port}`);
+  const left = Math.max(0, Math.round((DESK.until - Date.now()) / 1000));
+  box.innerHTML =
+    (where.length
+      ? `<p class="hint">On the computer, type this into the browser's address bar:</p>` +
+        where.map((u) => `<p class="deskaddr">${esc(u)}</p>`).join("")
+      : `<p class="hint">This device has no Wi-Fi address right now, so nothing can reach it. ` +
+        `Is it connected to your home Wi-Fi?</p>`) +
+    (DESK.code && left
+      ? `<p class="hint">Then enter this code. It works once, for the next ` +
+        `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}:</p>` +
+        `<p class="deskcode">${DESK.code.slice(0, 3)} ${DESK.code.slice(3)}</p>`
+      : `<p class="hint">A computer you have already let in just needs the address.</p>`) +
+    `<button class="ghost" id="deskNewCode">${DESK.code && left ? "A new code" : "Show a code"}</button>`;
+  $("#deskNewCode").onclick = deskCode;
+  if (!DESK.timer && DESK.code) {
+    DESK.timer = setInterval(() => {
+      if (DESK.until <= Date.now()) { DESK.code = ""; clearInterval(DESK.timer); DESK.timer = null; }
+      paintDesk();
+    }, 1000);
+  }
+}
+
+async function deskCode() {
+  const r = await api("/pair/start", { method: "POST" });
+  if (r.error) return toast(r.error);
+  DESK.code = r.code;
+  DESK.until = r.until;
+  paintDesk();
+}
+
+$("#deskOn").onchange = async () => {
+  const on = $("#deskOn").checked;
+  const r = await api("/hosting", {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ on }),
+  });
+  if (r.error) { toast(r.error); $("#deskOn").checked = !on; return; }
+  // On a phone, stay awake while the door is open — Android pauses an app that
+  // is not on screen, and the computer would lose it mid-sentence.
+  try { on ? desktopHost()?.startServing() : desktopHost()?.stopServing(); } catch {}
+  if (on) await deskCode();
+  else { DESK.code = ""; DESK.until = 0; }
+  paintDesk();
+  paintSelfLinks();
+  refreshHosting?.();
+};
+
+// Painted with the rest of the Connection panel.
+document.querySelector('[data-tab="connection"]')?.addEventListener("click", () => { paintDesk(); });
+document.querySelector('.raillink[data-tab="connection"]')?.addEventListener("click", () => { paintDesk(); });

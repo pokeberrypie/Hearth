@@ -213,6 +213,29 @@ public class MainActivity extends AppCompatActivity {
         ZipImport.state = "idle";
       }
 
+      /**
+       * Desk mode: stay awake while the computer uses the library. See
+       * ServingService. The notification it shows needs permission on
+       * Android 13 and later; it runs either way, but asking means the
+       * person can see it is on.
+       */
+      @JavascriptInterface
+      public void startServing() {
+        runOnUiThread(() -> {
+          if (Build.VERSION.SDK_INT >= 33 &&
+              checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                  != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 41);
+          }
+          ServingService.start(MainActivity.this);
+        });
+      }
+
+      @JavascriptInterface
+      public void stopServing() {
+        runOnUiThread(() -> ServingService.stop(MainActivity.this));
+      }
+
       @JavascriptInterface
       public void requestAllFiles() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;

@@ -7081,3 +7081,28 @@ body.guest #guideBtn { display: none !important; }
   background: color-mix(in srgb, var(--lumiverse-bg-deep) 80%, transparent);
 }
 .treezoom .ico { width: 34px; height: 34px; }
+
+/* Desk mode: an address and a code, set large enough to read across a desk. */
+.deskaddr {
+  margin: 0.3rem 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 1.05rem;
+  color: var(--lumiverse-primary);
+  word-break: break-all;
+  user-select: all;
+}
+.deskcode {
+  margin: 0.2rem 0 0.8rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 2.2rem;
+  letter-spacing: 0.12em;
+  color: var(--lumiverse-primary);
+}
+.pairbox form { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-top: 0.8rem; }
+.pairbox input {
+  width: 9rem;
+  text-align: center;
+  font-size: 1.4rem;
+  letter-spacing: 0.15em;
+}
+.seatnote { opacity: 0.75; font-size: 0.92rem; }
