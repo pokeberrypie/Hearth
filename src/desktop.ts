@@ -103,7 +103,8 @@ if (alive) {
 }
 
 const { serveStatic } = await import("hono/bun");
-const { app, ensureStarterCharacter } = await import("./index");
+const { app, ensureStarterCharacter, markPublic } = await import("./index");
+const { provideListener, stopHosting } = await import("./hosting");
 ensureStarterCharacter();
 
 app.use("/uploads/*", serveStatic({ root: dataDir }));
@@ -150,6 +151,40 @@ try {
   await Bun.sleep(500);
   process.exit(0);
 }
+
+/*
+ * The guests' entrance, which the installed app never opened.
+ *
+ * src/serve.ts has always given a tunnel a socket of its own, one port up,
+ * where every request is marked public before the gate sees it — so a link
+ * through the door reaches the table and never the library. This file was
+ * written before that existed and never caught up: the door started
+ * cloudflared pointing at a port nothing was listening on, and every guest
+ * got Cloudflare's 502. "Answer the network directly" had nothing to start
+ * either. Both are the same as serve.ts now.
+ */
+const publicPort = Number(process.env.PUBLIC_PORT ?? port + 1);
+const publicServe = (p: number, host: string) =>
+  Bun.serve({
+    port: p,
+    hostname: host,
+    idleTimeout: 255,
+    fetch(req, server) {
+      markPublic(req);
+      return app.fetch(req, server);
+    },
+  });
+try {
+  publicServe(publicPort, "127.0.0.1");
+  note(`guests' entrance on ${publicPort}`);
+} catch (e) {
+  note(`could not open the guests' entrance on ${publicPort}: ${e}`);
+}
+provideListener((p, host) => {
+  const server = publicServe(p + 1, host);
+  return { close: () => server.stop(true), port: server.port ?? p + 1 };
+});
+for (const sig of ["exit", "SIGINT", "SIGTERM"] as const) process.on(sig, stopHosting);
 
 note(`serving ${url}, data in ${dataDir}`);
 openBrowser();

@@ -105,3 +105,17 @@ describe("where somebody else could reach this", () => {
     expect(new Set(list).size).toBe(list.length);
   });
 });
+
+describe("the installed app", () => {
+  /*
+   * src/desktop.ts is what Hearth.exe runs, and it has to open the same doors
+   * as src/serve.ts. It once did not open the guests' entrance at all, and
+   * every tunnel from an installed Hearth answered with Cloudflare's 502.
+   */
+  test("opens the guests' entrance and the network door, like the checkout does", async () => {
+    const src = await Bun.file(new URL("./desktop.ts", import.meta.url)).text();
+    expect(src).toContain("markPublic(req)");
+    expect(src).toContain("provideListener(");
+    expect(src).toMatch(/publicServe\(publicPort, "127\.0\.0\.1"\)/);
+  });
+});
