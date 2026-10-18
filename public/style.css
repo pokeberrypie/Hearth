@@ -7567,3 +7567,15 @@ dialog.fulledit::before, dialog.fulledit::after { content: none; }
    Against the label, the padding that makes a card's switch a decent target
    pushed the knob up and out of its track entirely. */
 .switch span { position: relative; }
+
+/* Blur set to nothing: no frosted layer whatsoever. Chrome draws a backdrop
+   blur as a layer of its own, and on some graphics drivers it paints that layer
+   in the wrong place over a message — text hidden under a smeared copy of the
+   wallpaper, shifted off to one side. With the slider at zero there is no such
+   layer to misplace; the plates keep their tint from the opacity slider. */
+body.noglass .plate,
+body.noglass .hc-box,
+body.noglass[data-msgstyle="page"] #thread {
+  -webkit-backdrop-filter: none !important;
+          backdrop-filter: none !important;
+}

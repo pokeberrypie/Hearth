@@ -8301,6 +8301,9 @@ function applyLook() {
   r.setProperty("--measure", $("#measure").value + "rem");
   r.setProperty("--fade-start", $("#fade_start").value + "%");
   r.setProperty("--plate-blur", $("#plate_blur").value + "px");
+  // No blur means no glass layer at all, not a glass layer blurring by zero:
+  // the layer is what some GPUs misplace, and this is the way to be rid of it.
+  document.body.classList.toggle("noglass", Number($("#plate_blur").value) === 0);
   r.setProperty("--plate-opacity", $("#plate_opacity").value);
   r.setProperty("--tuck", $("#tuck").value);
   const rad = $("#radius").value;
