@@ -14,6 +14,10 @@ import { isLoopback } from "./share";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { provideListener, stopHosting } from "./hosting";
+import { withLean } from "./lean";
+
+// Compressed and validated on the way out; see src/lean.ts.
+const leanFetch = withLean((req, server) => app.fetch(req, server));
 
 // A brand-new library gets its one character here, where the database is
 // certainly ready — never from index.ts's body; see ensureStarterCharacter().
@@ -105,7 +109,7 @@ const publicServe = (p: number, hostname: string) =>
     idleTimeout: 255,
     fetch(req, server) {
       markPublic(req);
-      return app.fetch(req, server);
+      return leanFetch(req, server);
     },
   });
 
@@ -130,4 +134,4 @@ provideListener((p, hostname) => {
 });
 for (const sig of ["exit", "SIGINT", "SIGTERM"] as const) process.on(sig, stopHosting);
 
-export default { port, hostname, fetch: app.fetch, idleTimeout: 255 };
+export default { port, hostname, fetch: leanFetch, idleTimeout: 255 };

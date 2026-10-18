@@ -105,6 +105,9 @@ if (alive) {
 const { serveStatic } = await import("hono/bun");
 const { app, ensureStarterCharacter, markPublic } = await import("./index");
 const { provideListener, stopHosting } = await import("./hosting");
+const { withLean } = await import("./lean");
+// Compressed and validated on the way out; see src/lean.ts.
+const leanFetch = withLean((req, server) => app.fetch(req, server));
 ensureStarterCharacter();
 
 app.use("/uploads/*", serveStatic({ root: dataDir }));
@@ -139,7 +142,7 @@ if (fromDisk) {
 // out-wait it; the generation route sends keep-alive frames so the socket
 // never actually goes idle mid-answer.
 try {
-  Bun.serve({ port, hostname, fetch: app.fetch, idleTimeout: 255 });
+  Bun.serve({ port, hostname, fetch: leanFetch, idleTimeout: 255 });
 } catch (e) {
   /*
    * The port is taken: almost always another Hearth that did not answer in
@@ -171,7 +174,7 @@ const publicServe = (p: number, host: string) =>
     idleTimeout: 255,
     fetch(req, server) {
       markPublic(req);
-      return app.fetch(req, server);
+      return leanFetch(req, server);
     },
   });
 try {
