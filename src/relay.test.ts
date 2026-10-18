@@ -44,17 +44,17 @@ describe("what is at the address", () => {
   afterAll(() => { guest.stop(true); open.stop(true); other.stop(true); closeRelay(); });
 
   test("a Hearth guest entrance passes", async () => {
-    expect(await looksLikeGuestDoor("127.0.0.1", guest.port!)).toBeNull();
+    expect(await looksLikeGuestDoor("127.0.0.1", guest.port)).toBeNull();
   });
   test("a Hearth with its library open does not", async () => {
-    expect(await looksLikeGuestDoor("127.0.0.1", open.port!)).toContain("library open");
+    expect(await looksLikeGuestDoor("127.0.0.1", open.port)).toContain("library open");
   });
   test("something that is not Hearth does not", async () => {
-    expect(await looksLikeGuestDoor("127.0.0.1", other.port!)).toContain("not a Hearth");
+    expect(await looksLikeGuestDoor("127.0.0.1", other.port)).toContain("not a Hearth");
   });
   test("nothing there says so", async () => {
     const dead = Bun.serve({ port: 0, fetch: () => new Response("") });
-    const port = dead.port!;
+    const port = dead.port;
     dead.stop(true);
     expect(await looksLikeGuestDoor("127.0.0.1", port)).toContain("Nothing answered");
   });
