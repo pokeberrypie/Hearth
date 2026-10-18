@@ -5085,9 +5085,40 @@ $("#chainVeil").onclick = closeChain;
  *
  * Harmless in a browser, where nothing calls it.
  */
+/** Which dialog is on top is which was opened last. See hearthBack. */
+for (const how of ["showModal", "show"]) {
+  const real = HTMLDialogElement.prototype[how];
+  HTMLDialogElement.prototype[how] = function (...args) {
+    this.openedAt = performance.now();
+    return real.apply(this, args);
+  };
+}
+
+/** When a dialog last closed, by any route. See hearthBack. */
+let dialogShutAt = -Infinity;
+document.addEventListener("close", (e) => { if (e.target instanceof HTMLDialogElement) dialogShutAt = performance.now(); }, true);
+document.addEventListener("cancel", (e) => { if (e.target instanceof HTMLDialogElement) dialogShutAt = performance.now(); }, true);
+
 window.hearthBack = () => {
-  const dialog = document.querySelector("dialog[open]");
-  if (dialog) { dialog.close(); return true; }
+  // A row's ⋯ menu is the innermost thing of all.
+  if (document.querySelector(".popmenu")) { closePopMenu(); return true; }
+  // The one on top is the one opened last, wherever it sits in the page.
+  const dialog = [...document.querySelectorAll("dialog[open]")]
+    .sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0)).pop();
+  if (dialog) {
+    // Asked the way Escape asks, so an editor holding unsaved work gets to
+    // say so instead of being shut on it.
+    if (dialog.dispatchEvent(new Event("cancel", { cancelable: true }))) dialog.close();
+    return true;
+  }
+  /*
+   * The WebView can act on back by itself — a newer one cancels an open
+   * dialog the way a browser's Escape does — and the shell asks this a moment
+   * later. By then the dialog is gone and this would close the next thing out
+   * as well: back out of a prompt block, and the whole Presets panel went with
+   * it. One press closes one thing.
+   */
+  if (performance.now() - dialogShutAt < 500) return true;
   if (typeof chainOpen === "function" && chainOpen()) { closeChain(); return true; }
   if (typeof panelShowing === "function" && panelShowing()) { retractPanel(); return true; }
   // In a chat: the shelf, which is where backing out of one should land.
