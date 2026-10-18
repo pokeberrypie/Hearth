@@ -401,3 +401,49 @@ describe("the browser's half", () => {
     expect(fn).toContain("input.value = text");
   });
 });
+
+describe("a seat that has gone", () => {
+  test("stops holding the turn, so the people still here can play", async () => {
+    const { share, ana, bo } = await tableOfTwo();
+    await turns(share.id, { on: true });
+    expect((await stateFor(bo.cookie)).turn.player).toBe(ana.id);
+    // Ana's page has not been heard from for two minutes: closed, or she came
+    // back through a new tunnel address as somebody new.
+    db.query("UPDATE players SET seen_at = ? WHERE id = ?").run(Date.now() - 120_000, ana.id);
+    // Bo asking is Bo being heard from; the turn passes to him rather than
+    // waiting on a seat nobody is in.
+    expect((await stateFor(bo.cookie)).turn.player).toBe(bo.id);
+    expect((await say(bo.cookie, "I go on alone.")).status).toBe(200);
+  });
+
+  test("comes back into the rotation when they do", async () => {
+    const { share, ana, bo } = await tableOfTwo();
+    await turns(share.id, { on: true });
+    db.query("UPDATE players SET seen_at = ? WHERE id = ?").run(Date.now() - 120_000, ana.id);
+    await stateFor(bo.cookie);
+    await stateFor(ana.cookie);   // Ana's page is back
+    const seats = (await stateFor(bo.cookie)).players.map((p: any) => p.name);
+    expect(seats).toContain("Ana");
+  });
+});
+
+describe("whose turns are whose, from a guest's seat", () => {
+  test("the table says who the host is, so their turns are not drawn as the guest's", async () => {
+    seed();
+    const t = Date.now();
+    db.query("INSERT INTO personas (id, name, description, is_active, created_at) VALUES (?,?,?,?,?)")
+      .run("p1", "Bingus", "", 1, t);
+    db.query("UPDATE chats SET persona_id = 'p1' WHERE id = 'chat1'").run();
+    const share = await openTable();
+    const bo = await seat(share.join, "Bo");
+    const s = await stateFor(bo.cookie);
+    expect(s.host.name).toBe("Bingus");
+    expect(s.you.name).toBe("Bo");
+  });
+
+  test("and the page uses it for an unsigned turn", async () => {
+    const app = await Bun.file(new URL("../public/app.js", import.meta.url)).text();
+    const body = app.slice(app.indexOf("function speakerOf"), app.indexOf("function stripLabel"));
+    expect(body).toContain("GUEST.state?.host");
+  });
+});

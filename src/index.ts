@@ -5576,11 +5576,25 @@ function playersAt(shareId: string) {
  * answer the person whose turn it is.
  */
 
-/** Everyone who can hold a turn, in the order they sat down. */
+/**
+ * How long a seat counts as filled after its page was last heard from. An
+ * open page is heard from every 15 seconds — the live feed's heartbeat marks
+ * it — so this is four missed beats: a phone that dropped off the Wi-Fi, a
+ * tab that was closed, or the same person coming back through a new tunnel
+ * address, which reaches the table as a new seat and leaves the old one empty.
+ */
+const SEAT_GONE_AFTER = 60_000;
+
+/**
+ * Everyone who can hold a turn, in the order they sat down — leaving out
+ * seats nobody has been at for a while. Without that, a seat whose page had
+ * gone kept its place in the rotation, and the turn came round to it and
+ * stayed there: everyone else's composer said "Waiting on A player…" for good.
+ */
 function seatOrder(shareId: string): any[] {
   return db.query(
-    "SELECT * FROM players WHERE share_id = ? AND host = 0 ORDER BY created_at",
-  ).all(shareId) as any[];
+    "SELECT * FROM players WHERE share_id = ? AND host = 0 AND seen_at >= ? ORDER BY created_at",
+  ).all(shareId, now() - SEAT_GONE_AFTER) as any[];
 }
 
 /**
@@ -5864,12 +5878,19 @@ function tableState(share: any, player: any) {
   const host = chat
     ? (db.query("SELECT name, avatar FROM characters WHERE id = ?").get(chat.character_id) as any)
     : null;
+  /*
+   * And who the host is. The host's own turns are saved unsigned — at home
+   * an unsigned turn is "mine" — and a guest's page, given nothing else, drew
+   * every one of them as "You", as though the guest had said them.
+   */
+  const me = whoAmI(chat?.persona_id);
   return {
     table: { id: share.id, name: share.name },
     chat: {
       id: chat?.id ?? "", title: chat?.title ?? "", mode: getSettings().mode,
       character_name: host?.name ?? "", character_avatar: host?.avatar ?? "",
     },
+    host: { name: me.name, avatar: me.avatar ?? "" },
     you: publicPlayer(player),
     players: playersAt(share.id),
     turn: turnAt(share),
@@ -6159,7 +6180,11 @@ api.get("/table/live", (c) => {
        *
        * As an event, the page can time it. See the watchdog in app.js.
        */
-      const beat = setInterval(() => emit("ping", { at: Date.now() }), 15_000);
+      // The same beat says this seat is still filled. See seatOrder.
+      const beat = setInterval(() => {
+        emit("ping", { at: Date.now() });
+        try { db.query("UPDATE players SET seen_at = ? WHERE id = ?").run(now(), g.player.id); } catch {}
+      }, 15_000);
 
       const stop = () => {
         alive = false;

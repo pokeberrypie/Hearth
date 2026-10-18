@@ -676,6 +676,13 @@ function speakerOf(m) {
      * follow, including the narrator, which is handed the same names.
      */
     if (m.name && m.name !== S.personaName) return { name: m.name, avatar: m.avatar || "" };
+    // At somebody else's table an unsigned turn is the host's, never this
+    // guest's: the host's own turns are saved without a name.
+    if (GUEST.on) {
+      if (m.name) return { name: m.name, avatar: m.avatar || "" };
+      const host = GUEST.state?.host;
+      return { name: host?.name || "The host", avatar: host?.avatar || "" };
+    }
     return { name: S.personaName, avatar: S.personaAvatar };
   }
   const byId = m.character_id && S.cast.find((c) => c.id === m.character_id);
