@@ -71,6 +71,9 @@ const turns = (id: string, patch: unknown) =>
 const stateFor = async (cookie: string) =>
   (await (await ask("/api/table/state", { headers: { cookie } }, AWAY)).json()) as any;
 
+/** Switched on, with the turn handed to somebody in particular. The host sits first. */
+const onAt = async (id: string, player: string) => { await turns(id, { on: true }); await turns(id, { player }); };
+
 /** The whole opening move: a table, two players, the rotation switched on. */
 async function tableOfTwo() {
   seed();
@@ -89,27 +92,27 @@ describe("switching it on", () => {
     expect((await say(bo.cookie, "I go first.")).status).toBe(200);
   });
 
-  test("switching it on starts the round at the first seat", async () => {
-    const { share, ana } = await tableOfTwo();
+  test("switching it on starts the round at the first seat, which is the host's", async () => {
+    const { share } = await tableOfTwo();
     const r = (await (await turns(share.id, { on: true })).json()) as any;
-    expect(r.turn).toEqual({ on: true, player: ana.id });
+    expect(r.turn).toEqual({ on: true, player: "host" });
   });
 
   test("switching it on again starts a fresh round rather than resuming the old one", async () => {
     const { share, ana, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    await onAt(share.id, ana.id);
     await say(ana.cookie, "Mine.");
     expect((await stateFor(bo.cookie)).turn.player).toBe(bo.id);
     await turns(share.id, { on: false });
     const r = (await (await turns(share.id, { on: true })).json()) as any;
-    expect(r.turn.player).toBe(ana.id);
+    expect(r.turn.player).toBe("host");
   });
 });
 
 describe("whose go it is", () => {
   test("the wrong person is refused, and told who they are waiting for", async () => {
-    const { share, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    const { share, ana, bo } = await tableOfTwo();
+    await onAt(share.id, ana.id);
     const res = await say(bo.cookie, "Butting in.");
     expect(res.status).toBe(409);
     expect(((await res.json()) as any).error).toBe("It is Ana's turn.");
@@ -121,8 +124,8 @@ describe("whose go it is", () => {
    * eventually will.
    */
   test("a refused turn is not written down", async () => {
-    const { share, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    const { share, ana, bo } = await tableOfTwo();
+    await onAt(share.id, ana.id);
     await say(bo.cookie, "Butting in.");
     const n = db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = 'chat1'").get() as any;
     expect(n.n).toBe(0);
@@ -130,7 +133,7 @@ describe("whose go it is", () => {
 
   test("speaking hands the turn to the next seat", async () => {
     const { share, ana, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    await onAt(share.id, ana.id);
     expect((await say(ana.cookie, "The door is open.")).status).toBe(200);
     expect((await stateFor(ana.cookie)).turn.player).toBe(bo.id);
     // And now the refusal points the other way.
@@ -139,12 +142,12 @@ describe("whose go it is", () => {
     expect(((await res.json()) as any).error).toBe("It is Bo's turn.");
   });
 
-  test("the last seat hands back to the first", async () => {
+  test("the last seat hands back to the first, the host", async () => {
     const { share, ana, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    await onAt(share.id, ana.id);
     await say(ana.cookie, "One.");
     await say(bo.cookie, "Two.");
-    expect((await stateFor(ana.cookie)).turn.player).toBe(ana.id);
+    expect((await stateFor(ana.cookie)).turn.player).toBe("host");
   });
 
   /*
@@ -154,7 +157,7 @@ describe("whose go it is", () => {
    */
   test("the turn moves on the message, not on the reply", async () => {
     const { share, ana, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    await onAt(share.id, ana.id);
     await say(ana.cookie, "One.");
     // Nothing has answered — no assistant message exists — and it is already Bo's.
     const msgs = db.query("SELECT role FROM messages WHERE chat_id = 'chat1'").all() as any[];
@@ -166,7 +169,7 @@ describe("whose go it is", () => {
 describe("a table that cannot stall", () => {
   test("anyone may pass, not only whoever is holding the turn", async () => {
     const { share, ana, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    await onAt(share.id, ana.id);
     // Ana has gone to make tea. Bo moves it along for her.
     const r = (await (await ask("/api/table/pass", { method: "POST", headers: { cookie: bo.cookie } }, AWAY)).json()) as any;
     expect(r.turn.player).toBe(bo.id);
@@ -187,37 +190,70 @@ describe("a table that cannot stall", () => {
    */
   test("the turn does not sit with somebody who has left", async () => {
     const { share, ana, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    await onAt(share.id, ana.id);
     expect((await stateFor(bo.cookie)).turn.player).toBe(ana.id);
     await ask("/api/table/leave", { method: "POST", headers: { cookie: ana.cookie } }, AWAY);
+    // To the first seat still filled — the host's, who is always there.
     const s = await stateFor(bo.cookie);
-    expect(s.turn.player).toBe(bo.id);
+    expect(s.turn.player).toBe("host");
+    await turns(share.id, { player: bo.id });
     expect((await say(bo.cookie, "Just me now.")).status).toBe(200);
   });
 
-  test("an empty table holds the turn for nobody rather than crashing", async () => {
+  test("a table every guest has left gives the turn back to the host rather than crashing", async () => {
     const { share, ana, bo } = await tableOfTwo();
     await turns(share.id, { on: true });
     await ask("/api/table/leave", { method: "POST", headers: { cookie: ana.cookie } }, AWAY);
     await ask("/api/table/leave", { method: "POST", headers: { cookie: bo.cookie } }, AWAY);
     const r = (await (await turns(share.id, { on: true })).json()) as any;
-    expect(r.turn).toEqual({ on: true, player: null });
+    expect(r.turn).toEqual({ on: true, player: "host" });
   });
 });
 
 describe("the host", () => {
   /*
-   * The host runs the game rather than plays in it. If they had to wait their
-   * go, the person whose turn it is could not be answered — which is the one
-   * thing the table is here for.
+   * The host plays too. Left out, a table of one guest had a rotation of one,
+   * which never moved and never made anybody wait.
    */
-  test("is not in the rotation", async () => {
+  test("sits first in the rotation, under their persona's name", async () => {
     const { share, ana } = await tableOfTwo();
     await turns(share.id, { on: true });
     const s = await stateFor(ana.cookie);
-    expect(s.players.every((p: any) => !p.host)).toBe(true);
-    // And the host's own way of speaking never goes past the guest gate at all.
+    expect(s.players[0]).toMatchObject({ id: "host", host: true });
+    // And the host's own way of speaking still never goes past the guest gate.
     expect((await ask("/api/chats/chat1/messages", { headers: { cookie: ana.cookie } }, AWAY)).status).toBe(403);
+  });
+
+  test("waits their turn: their own words are refused while it is somebody else's", async () => {
+    const { share, ana } = await tableOfTwo();
+    await onAt(share.id, ana.id);
+    const res = await ask("/api/chats/chat1/generate", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Me first." }),
+    }, HOME);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toContain("Ana's turn");
+    const n = db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = 'chat1' AND role = 'user'").get() as any;
+    expect(n.n).toBe(0);
+  });
+
+  test("but the narrator answering is never refused — that is not a turn", async () => {
+    const { share, ana } = await tableOfTwo();
+    await onAt(share.id, ana.id);
+    const res = await ask("/api/chats/chat1/generate", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+    }, HOME);
+    expect(res.status).not.toBe(409);
+  });
+
+  test("their words pass the turn on, like anyone's", async () => {
+    const { share, ana } = await tableOfTwo();
+    await turns(share.id, { on: true });
+    await ask("/api/chats/chat1/generate", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Bingle." }),
+    }, HOME).then((r) => r.text()).catch(() => "");
+    expect((await stateFor(ana.cookie)).turn.player).toBe(ana.id);
   });
 
   test("can hand the turn to somebody in particular", async () => {
@@ -235,8 +271,8 @@ describe("the host", () => {
   });
 
   test("a guest cannot switch the rotation on or off", async () => {
-    const { share, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    const { share, ana, bo } = await tableOfTwo();
+    await onAt(share.id, ana.id);
     const res = await ask(`/api/shares/${share.id}/turns`, {
       method: "PUT", headers: { "content-type": "application/json", cookie: bo.cookie },
       body: JSON.stringify({ on: false }),
@@ -405,15 +441,14 @@ describe("the browser's half", () => {
 describe("a seat that has gone", () => {
   test("stops holding the turn, so the people still here can play", async () => {
     const { share, ana, bo } = await tableOfTwo();
-    await turns(share.id, { on: true });
+    await onAt(share.id, ana.id);
     expect((await stateFor(bo.cookie)).turn.player).toBe(ana.id);
     // Ana's page has not been heard from for two minutes: closed, or she came
     // back through a new tunnel address as somebody new.
     db.query("UPDATE players SET seen_at = ? WHERE id = ?").run(Date.now() - 120_000, ana.id);
-    // Bo asking is Bo being heard from; the turn passes to him rather than
-    // waiting on a seat nobody is in.
-    expect((await stateFor(bo.cookie)).turn.player).toBe(bo.id);
-    expect((await say(bo.cookie, "I go on alone.")).status).toBe(200);
+    // The turn leaves the empty seat rather than waiting on it.
+    expect((await stateFor(bo.cookie)).turn.player).not.toBe(ana.id);
+    expect((await (await turns(share.id, { player: ana.id })).json()).error).toBeDefined();
   });
 
   test("comes back into the rotation when they do", async () => {
@@ -445,5 +480,62 @@ describe("whose turns are whose, from a guest's seat", () => {
     const app = await Bun.file(new URL("../public/app.js", import.meta.url)).text();
     const body = app.slice(app.indexOf("function speakerOf"), app.indexOf("function stripLabel"));
     expect(body).toContain("GUEST.state?.host");
+  });
+});
+
+const { applyVerbs } = await import("./index");
+
+describe("a fight at a shared table", () => {
+  const sheetOf = (id: string) =>
+    JSON.parse((db.query("SELECT sheet FROM sheets WHERE owner_id = ?").get(id) as any).sheet);
+  const giveSheet = (id: string, kind: string, maxHp: number, hp = maxHp) =>
+    db.query("INSERT OR REPLACE INTO sheets (owner_id, owner_kind, sheet, updated_at) VALUES (?,?,?,?)")
+      .run(id, kind, JSON.stringify({ klass: "fighter", abilities: { dex: 14 }, maxHp, hp }), Date.now());
+
+  async function party() {
+    seed();
+    db.query("INSERT INTO personas (id, name, description, is_active, created_at) VALUES ('host', 'Bingus', '', 1, ?)")
+      .run(Date.now());
+    const share = await openTable();
+    const dan = await seat(share.join, "Dan");
+    giveSheet("host", "persona", 9, 4);
+    giveSheet(dan.id, "player", 12);
+    return { dan };
+  }
+
+  test("everybody at the table is in the initiative, not only the host", async () => {
+    const { dan } = await party();
+    applyVerbs("chat1", "[[fight: two wolves]]", "host");
+    const fight = JSON.parse((db.query("SELECT fight FROM chats WHERE id = 'chat1'").get() as any).fight);
+    const names = fight.order.map((c: any) => c.name);
+    expect(names).toContain("Bingus");
+    expect(names).toContain("Dan");
+    expect(fight.order.find((c: any) => c.name === "Dan")).toMatchObject({ player: true, hp: 12, maxHp: 12 });
+    expect(dan.name).toBe("Dan");
+  });
+
+  test("damage to a guest goes on the guest's own sheet", async () => {
+    const { dan } = await party();
+    applyVerbs("chat1", "[[fight: a wolf]]", "host");
+    applyVerbs("chat1", "[[hit: Dan, 5]]", "host");
+    expect(sheetOf(dan.id).hp).toBe(7);
+    expect(sheetOf("host").hp).toBe(4);
+  });
+
+  test("when the fight ends, everyone who fought is back to full", async () => {
+    const { dan } = await party();
+    applyVerbs("chat1", "[[fight: a wolf]]", "host");
+    applyVerbs("chat1", "[[hit: Dan, 5]]", "host");
+    applyVerbs("chat1", "[[fight: over]]", "host");
+    expect(sheetOf(dan.id).hp).toBe(12);
+    expect(sheetOf("host").hp).toBe(9);
+  });
+
+  test("and the same when the last foe falls without anyone saying so", async () => {
+    const { dan } = await party();
+    applyVerbs("chat1", "[[fight: a wolf 3hp]]", "host");
+    applyVerbs("chat1", "[[hit: Dan, 2]]", "host");
+    applyVerbs("chat1", "[[hit: Wolf, 10]]", "host");
+    expect(sheetOf(dan.id).hp).toBe(12);
   });
 });

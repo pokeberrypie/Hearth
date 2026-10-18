@@ -1152,6 +1152,8 @@ async function openChat(id) {
   $("#chatMenuBtn").hidden = false;
   setMsgSelect(false);
   paintChatTitle();
+  // Whether this chat's table is waiting on somebody else.
+  hostTurnGate();
   // In here the bar is a name, not a sign. See paintModeSwitch.
   paintModeSwitch(false);
   // Opening a chat aims the Cast panel at it, whether or not the panel is up.
@@ -9040,6 +9042,8 @@ function renderTogether() {
   const on = !!TG.share;
   shut.hidden = on;
   live.hidden = !on;
+  // A table closed, or none: the composer is free again.
+  if (!on) hostTurnGate();
 
   /*
    * Pick the chat here rather than requiring you to be sitting in it.
@@ -9075,12 +9079,13 @@ function renderTogether() {
   /*
    * The rotation, from the host's side.
    *
-   * The host is not in it — see `seatOrder` on the server. Somebody has to be
-   * able to answer the person whose turn it is, and a narrator waiting their
-   * go is a table that has stopped.
+   * The host is in it — first seat, under their persona's name — since the
+   * narrator is the model and the host is a player like anybody else. They
+   * keep the override: any seat can be handed the turn from here, their own
+   * included.
    */
   const turn = TG.share.turn ?? { on: false, player: null };
-  const seats = people.filter((p) => !p.host);
+  const seats = people;
   const box = $("#tgTurns");
   if (box) box.checked = !!turn.on;
   const state = $("#tgTurnState");
@@ -9088,11 +9093,13 @@ function renderTogether() {
     const who = seats.find((p) => p.id === turn.player);
     state.textContent = !turn.on
       ? "Off. Anyone can speak whenever they like."
-      : !seats.length
-        ? "On, but nobody has sat down yet. It starts with whoever arrives first."
-        : `On. It is ${who ? who.name : "nobody"}'s turn. Yours is not in the rotation — `
-          + "you are running the game, so you can always speak.";
+      : seats.length < 2
+        ? "On, but nobody else has sat down yet. It goes round once somebody does."
+        : turn.player === "host"
+          ? "On. It is your turn."
+          : `On. It is ${who ? who.name : "nobody"}'s turn. You can still hand it to anyone, yourself included.`;
   }
+  hostTurnGate();
 
   list.innerHTML = "";
   for (const p of people) {
@@ -9105,16 +9112,18 @@ function renderTogether() {
 
     // Handing the turn to somebody in particular, for when the order and the
     // room have come apart — which they do, constantly, at a real table.
-    if (turn.on && !p.host && !theirs) {
+    if (turn.on && !theirs) {
       const hand = document.createElement("button");
       hand.className = "ico";
-      hand.title = `Hand the turn to ${p.name}`;
-      hand.setAttribute("aria-label", `Hand the turn to ${p.name}`);
+      hand.title = p.id === "host" ? "Take the turn yourself" : `Hand the turn to ${p.name}`;
+      hand.setAttribute("aria-label", hand.title);
       hand.innerHTML = `<svg viewBox="0 0 24 24"><path d="M5 12h13M13 7l5 5-5 5"/></svg>`;
       hand.onclick = () => setTurns({ player: p.id });
       row.append(hand);
     }
 
+    // The host's own seat is this machine; there is nobody to show the door.
+    if (p.id === "host") { list.append(row); continue; }
     const kick = document.createElement("button");
     kick.className = "ico danger";
     kick.title = "Show them the door";
@@ -9137,6 +9146,34 @@ function renderTogether() {
  * asked for, so a hand-off to somebody who has just left corrects itself here
  * instead of leaving the panel telling a story the table is not in.
  */
+/**
+ * The host's composer, when it is not their go — the same closed door a
+ * guest's has. Only the typing is held: sending an empty turn still lets the
+ * narrator carry on, which is not taking a turn. The server holds the line
+ * too; see POST /chats/:id/generate.
+ */
+function hostTurnGate() {
+  if (GUEST.on) return;
+  const input = $("#input");
+  if (!input) return;
+  const turn = TG.share?.turn ?? { on: false, player: null };
+  const here = !!TG.share && TG.share.chat_id === S.chatId;
+  const waiting = here && turn.on && !!turn.player && turn.player !== "host";
+  const form = $("#composer");
+  form?.classList.toggle("myturn", here && turn.on && turn.player === "host");
+  form?.classList.toggle("waiting", waiting);
+  if (waiting) {
+    if (input.dataset.freePlaceholder === undefined) input.dataset.freePlaceholder = input.placeholder;
+    const who = (TG.share.players ?? []).find((p) => p.id === turn.player);
+    input.disabled = true;
+    input.placeholder = `Waiting on ${who ? who.name : "somebody else"}… Send empty to let the story go on.`;
+  } else if (input.dataset.freePlaceholder !== undefined) {
+    input.disabled = false;
+    input.placeholder = input.dataset.freePlaceholder;
+    delete input.dataset.freePlaceholder;
+  }
+}
+
 async function setTurns(patch) {
   if (!TG.share) return;
   const r = await api(`/shares/${TG.share.id}/turns`, {
@@ -9331,7 +9368,14 @@ function tgListen() {
  */
 async function tgAnswer(evt) {
   if (S.chatId !== TG.share?.chat_id) { await refreshChats(); return; }
-  await openChat(S.chatId).catch(() => {});
+  /*
+   * The guest's words, drawn in where the thread already stands. This reopened
+   * the chat on every guest turn, which closed whatever panel the host had up,
+   * redrew every message, and jumped the view — a table with three people
+   * talking looked like it was glitching, because in a way it was.
+   */
+  await rethread().catch(() => {});
+  stick();
 
   /*
    * Two people typing at once must not become two narrators talking over each

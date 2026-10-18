@@ -23,8 +23,10 @@ export type Combatant = {
   initiative: number;
   hp: number;
   maxHp: number;
-  /** The player's own row — the one whose damage goes back to their sheet. */
+  /** A player's row — one whose damage goes back to their sheet. */
   player?: boolean;
+  /** Which sheet, when there is more than one player at the table. */
+  sheet?: { owner: string; kind: string };
   /**
    * Where they stood before anybody rolled.
    *
@@ -54,6 +56,8 @@ export type Fight = {
 
 /** Enough for a real scrap, few enough that the prompt stays a prompt. */
 export const MAX_FOES = 10;
+/** The most players a table seats in one fight: the host and their guests. */
+export const MAX_PARTY = 8;
 
 /**
  * How a narrator writes a number of somebody: "two wolves", "3 bandits",
@@ -140,7 +144,11 @@ export function rollFoeHp(rng: Rng = Math.random): number {
   return rollDice("2d6+2", rng)!.total;
 }
 
-export type Player = { name: string; hp: number; maxHp: number; initiativeBonus: number };
+export type Player = {
+  name: string; hp: number; maxHp: number; initiativeBonus: number;
+  /** Whose sheet this row's hit points live on, so damage goes back to it. */
+  sheet?: { owner: string; kind: string };
+};
 
 /**
  * Everyone in, in the order they act.
@@ -152,7 +160,7 @@ export type Player = { name: string; hp: number; maxHp: number; initiativeBonus:
  */
 export function startFight(
   payload: string,
-  player: Player | null,
+  players: Player | Player[] | null,
   rng: Rng = Math.random,
 ): Fight | null {
   const entries = String(payload ?? "").split(/\s*(?:,|;|\band\b)\s*/i).filter(Boolean);
@@ -177,13 +185,21 @@ export function startFight(
   }
   if (!order.length) return null;
 
-  if (player) {
+  /*
+   * Everybody at the table, not just whoever's reply started it. This took one
+   * player — the host's — so a guest fighting alongside them was in the story
+   * and missing from the order: no initiative, no hit points, and damage the
+   * narrator dealt them went nowhere.
+   */
+  const party = players === null ? [] : Array.isArray(players) ? players : [players];
+  for (const p of party.slice(0, MAX_PARTY)) {
     order.push({
-      name: player.name,
-      initiative: rollDice("1d20", rng)!.total + player.initiativeBonus,
-      hp: player.hp,
-      maxHp: player.maxHp,
+      name: p.name,
+      initiative: rollDice("1d20", rng)!.total + p.initiativeBonus,
+      hp: p.hp,
+      maxHp: p.maxHp,
       player: true,
+      ...(p.sheet ? { sheet: p.sheet } : {}),
       entered: order.length,
     });
   }
@@ -269,7 +285,8 @@ export function fightForPrompt(fight: Fight): string {
 export function normaliseFight(raw: any): Fight | null {
   if (!raw || typeof raw !== "object" || !Array.isArray(raw.order)) return null;
   const order: Combatant[] = [];
-  for (const c of raw.order.slice(0, MAX_FOES + 1)) {
+  // Room for a whole party beside the foes, not the one player it used to hold.
+  for (const c of raw.order.slice(0, MAX_FOES + MAX_PARTY)) {
     const name = String(c?.name ?? "").trim().slice(0, 40);
     if (!name) continue;
     const maxHp = Math.max(1, Math.min(999, Math.round(Number(c?.maxHp) || 1)));
@@ -279,6 +296,8 @@ export function normaliseFight(raw: any): Fight | null {
       maxHp,
       hp: Math.max(0, Math.min(maxHp, Math.round(Number(c?.hp ?? maxHp)))),
       ...(c?.player ? { player: true } : {}),
+      ...(c?.player && typeof c?.sheet?.owner === "string" && typeof c?.sheet?.kind === "string"
+        ? { sheet: { owner: c.sheet.owner.slice(0, 80), kind: c.sheet.kind.slice(0, 20) } } : {}),
       // A fight stored before this field existed has no arrival order; the
       // list it is already in is the best answer available, and a good one.
       entered: Number.isFinite(Number(c?.entered)) ? Number(c.entered) : order.length,

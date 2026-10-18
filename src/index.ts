@@ -999,12 +999,27 @@ api.post("/chats/:id/generate", async (c) => {
     }
   }
 
+  /*
+   * The host waits their turn too, when the table is taking turns. Only their
+   * own words: an empty reply is the narrator answering whoever just spoke,
+   * which is this machine's job whatever the rotation says.
+   */
+  if (mode === "reply" && content.trim()) {
+    const share = db.query("SELECT * FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chatId) as any;
+    const turn = share ? turnAt(share) : { on: false, player: null };
+    if (turn.on && turn.player && turn.player !== HOST_SEAT) {
+      const who = seatOrder(share.id).find((p) => p.id === turn.player);
+      return c.json({ error: `It is ${who?.name || "somebody else"}'s turn. Together can hand it to you.` }, 409);
+    }
+  }
+
   const t = now();
   let userMessageId: string | null = null;
   if (mode === "reply" && content.trim()) {
     userMessageId = uid();
     db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at, tokens) VALUES (?,?,?,?,?,?,?)")
       .run(userMessageId, chatId, "user", "", content.trim(), t, Math.round(content.trim().length / 4));
+    hostSpoke(chatId);
   }
   db.query("UPDATE chats SET updated_at = ? WHERE id = ?").run(t, chatId);
 
@@ -4274,7 +4289,48 @@ function playerInFight(playerId: string | null | undefined) {
     hp: sheet.hp,
     maxHp: sheet.maxHp,
     initiativeBonus: modifier(sheet.abilities.dex),
+    sheet: { owner: playerId!, kind: "persona" },
   };
+}
+
+/**
+ * Everyone who fights: the host's character, and each guest at this chat's
+ * table who is actually there and has a sheet. A guest without a sheet has no
+ * hit points to track and stays out, as the host would without one.
+ */
+function partyInFight(chatId: string, hostPersonaId: string | null | undefined) {
+  const party: NonNullable<ReturnType<typeof playerInFight>>[] = [];
+  const host = playerInFight(hostPersonaId);
+  if (host) party.push(host);
+  const share = db.query("SELECT id FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chatId) as any;
+  if (share) {
+    for (const p of seatOrder(share.id)) {
+      if (p.id === HOST_SEAT) continue;
+      const sheet = sheetFor(p.id);
+      if (!sheet) continue;
+      party.push({
+        name: p.name, hp: sheet.hp, maxHp: sheet.maxHp,
+        initiativeBonus: modifier(sheet.abilities.dex),
+        sheet: { owner: p.id, kind: "player" },
+      });
+    }
+  }
+  return party;
+}
+
+/**
+ * A fight is over: everyone who fought is back to full.
+ *
+ * Without it hit points only ever went down — the sheet kept the last fight's
+ * damage into the next one and the one after, with no rest in the game to put
+ * it back. The story can still say somebody is hurt; the numbers start fresh.
+ */
+function restoreAfterFight(fight: Fight | null) {
+  for (const c of fight?.order ?? []) {
+    if (!c.player || !c.sheet) continue;
+    const sheet = sheetFor(c.sheet.owner);
+    if (sheet && sheet.hp !== sheet.maxHp) saveSheet(c.sheet.owner, c.sheet.kind, { ...sheet, hp: sheet.maxHp });
+  }
 }
 
 export function applyVerbs(chatId: string, text: string, playerId?: string | null): string {
@@ -4294,7 +4350,7 @@ export function applyVerbs(chatId: string, text: string, playerId?: string | nul
     if (intent.kind === "npc" || intent.kind === "scene") return null;
 
     if (intent.kind === "fight") {
-      const fight = startFight(intent.foes, playerInFight(playerId));
+      const fight = startFight(intent.foes, partyInFight(chatId, playerId));
       if (!fight) return null;
       saveFight(chatId, fight);
       logRoll(chatId, "initiative", "Initiative", describeInitiative(fight),
@@ -4303,8 +4359,10 @@ export function applyVerbs(chatId: string, text: string, playerId?: string | nul
     }
 
     if (intent.kind === "endfight") {
-      if (!fightIn(chatId)) return null;
+      const ending = fightIn(chatId);
+      if (!ending) return null;
       saveFight(chatId, null);
+      restoreAfterFight(ending);
       return "[[fight over]]";
     }
 
@@ -4330,9 +4388,10 @@ export function applyVerbs(chatId: string, text: string, playerId?: string | nul
      * went down by five, because they are the same number rather than two
      * accounts of it that drift apart over an evening.
      */
-    if (who.player && playerId) {
-      const sheet = sheetFor(playerId);
-      if (sheet) saveSheet(playerId, "persona", { ...sheet, hp: who.hp });
+    const owner = who.sheet ?? (who.player && playerId ? { owner: playerId, kind: "persona" } : null);
+    if (who.player && owner) {
+      const sheet = sheetFor(owner.owner);
+      if (sheet) saveSheet(owner.owner, owner.kind, { ...sheet, hp: who.hp });
     }
 
     const change = intent.amount < 0 ? `+${-intent.amount}` : `-${intent.amount}`;
@@ -4374,6 +4433,7 @@ export function applyVerbs(chatId: string, text: string, playerId?: string | nul
   const after = fightIn(chatId);
   if (after && foesDown(after)) {
     saveFight(chatId, null);
+    restoreAfterFight(after);
     if (!out.includes("[[fight over]]")) return `${out.trimEnd()}\n\n[[fight over]]`;
   }
   return out;
@@ -5559,8 +5619,14 @@ function shareOf(id: string) {
 }
 
 function playersAt(shareId: string) {
-  return (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at").all(shareId) as any[])
-    .map((p) => ({ ...publicPlayer(p), sheet: sheetFor(p.id) }));
+  const host = hostSeat(shareId);
+  return [
+    // Everyone at the table sees the host in the strip, so "Waiting on Bingus"
+    // names somebody they can see.
+    { ...publicPlayer(host as any), sheet: sheetFor(host.persona_id) },
+    ...(db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at").all(shareId) as any[])
+      .map((p) => ({ ...publicPlayer(p), sheet: sheetFor(p.id) })),
+  ];
 }
 
 /* ---- taking turns ----------------------------------------------------------
@@ -5592,9 +5658,44 @@ const SEAT_GONE_AFTER = 60_000;
  * stayed there: everyone else's composer said "Waiting on A player…" for good.
  */
 function seatOrder(shareId: string): any[] {
-  return db.query(
+  const guests = db.query(
     "SELECT * FROM players WHERE share_id = ? AND host = 0 AND seen_at >= ? ORDER BY created_at",
   ).all(shareId, now() - SEAT_GONE_AFTER) as any[];
+  return [hostSeat(shareId), ...guests];
+}
+
+/**
+ * The host's seat in the rotation.
+ *
+ * Left out at first, on the theory that the host runs the game and must
+ * always be able to speak. But the narrator is the model, not the host: at a
+ * real table the host is a player like everyone else — Bingus, here — and
+ * with them outside the rotation a table of one guest had a rotation of one,
+ * which never moved and never made anybody wait. The host still has the
+ * override: Together can hand the turn to anyone, the host included.
+ *
+ * Not a row: the host has no token and nothing to store. It sits first, and
+ * is always there — it is the machine the table runs on.
+ */
+const HOST_SEAT = "host";
+function hostSeat(shareId: string) {
+  const share = shareOf(shareId);
+  const chat = share ? db.query("SELECT persona_id FROM chats WHERE id = ?").get(share.chat_id) as any : null;
+  const me = whoAmI(chat?.persona_id);
+  return { id: HOST_SEAT, name: me.name, host: 1, persona_id: me.id, seen_at: now(), created_at: 0 };
+}
+
+/**
+ * The host's turn, used: called when the host's own words go into the chat.
+ * Guests' turns move on in POST /table/say; this is the same for the host.
+ */
+function hostSpoke(chatId: string) {
+  const share = db.query("SELECT * FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chatId) as any;
+  if (!share) return;
+  const turn = turnAt(share);
+  if (!turn.on || turn.player !== HOST_SEAT) return;
+  setTurn(share.id, advanceTurn(share, HOST_SEAT));
+  publishTurn(share.id);
 }
 
 /**
