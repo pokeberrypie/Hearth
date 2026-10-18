@@ -826,7 +826,16 @@
                   title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
           <div class="moremenu" hidden></div>
         </header>
-        <p class="hint" id="samplingSource"></p>
+        <!-- The four views of a preset, shared by both panels: three live in
+             this one, the Grimoire is the Regex panel. Either way in lands on
+             the same strip, so they read as one place. See wirePresetViews(). -->
+        <nav class="pviews" aria-label="Preset views">
+          <button type="button" data-pview="library">Library</button>
+          <button type="button" data-pview="generation">Generation</button>
+          <button type="button" data-pview="blocks">Prompt blocks</button>
+          <button type="button" data-pview="grimoire">Grimoire</button>
+        </nav>
+
         <!-- Shown only in tabletop mode with the built-in preset on. Naming the
              two fields it actually takes is the whole point: "a preset is
              active" tells you nothing about which of these ten controls still
@@ -836,99 +845,196 @@
           it; everything else on this page is still yours. Behaviour has the
           switch.</p>
 
-        <label>Reply length <span class="v" id="v_max_tokens"></span>
-          <input type="range" id="max_tokens" min="128" max="32000" step="1">
-        </label>
-        <label>Conversation sent <span class="v" id="v_context_tokens"></span>
-          <input type="range" id="context_tokens" min="1000" max="200000" step="500">
-        </label>
-        <p class="hint">Counted in tokens, not messages.</p>
+        <!-- ---- Library ---- -->
+        <div data-pview-pane="library">
+          <label>Active preset
+            <select id="presetPick"></select>
+          </label>
+          <div id="presetCard" class="presetcard"></div>
 
-        <div class="row">
-          <label>Temperature<input id="temperature" type="number" step="0.05" min="0" max="2"></label>
-          <label>Top P<input id="top_p" type="number" step="0.01" min="0" max="1"></label>
-        </div>
-        <div class="row">
-          <label>Min P<input id="min_p" type="number" step="0.01" min="0" max="1"></label>
-          <label>Repetition<input id="repetition_penalty" type="number" step="0.01" min="0.5" max="2"></label>
-        </div>
-        <div class="row">
-          <label>Frequency<input id="frequency_penalty" type="number" step="0.05" min="-2" max="2"></label>
-          <label>Presence<input id="presence_penalty" type="number" step="0.05" min="-2" max="2"></label>
-        </div>
-
-        <label class="check"><input type="checkbox" id="stream"> Stream the reply as it is written</label>
-
-        <label>Thinking
-          <select id="reasoning_effort">
-            <option value="">Let the model decide</option>
-            <option value="off">No thinking</option>
-            <option value="minimal">Minimal</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </label>
-        <p class="hint">Reasoning models only. Anthropic bills thinking on top of the reply.</p>
-
-        <button class="ghost wide" id="saveSampling">Save settings</button>
-        <p class="hint" id="samplingHint"></p>
-
-        <h3>Preset</h3>
-        <label>Active preset
-          <select id="presetPick"></select>
-        </label>
-        <div id="presetCard" class="presetcard"></div>
-
-        <details class="fold">
-          <summary><span>Manage presets</span></summary>
-          <div class="foldbody">
-            <div class="searchrow">
-              <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-              <input type="search" id="presetSearch" placeholder="Search presets" autocomplete="off" aria-label="Search presets">
-            </div>
-            <div class="listbar">
-              <button class="ico" id="presetImportBtn" title="Import presets" aria-label="Import SillyTavern presets"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
-              <button class="ico" id="presetSelect" title="Select several" aria-label="Select several presets"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
-              <button class="ico" id="presetAll" title="Select all, and start picking" aria-label="Select all presets"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
-              <span class="grow"></span>
-              <span class="selcount" id="presetCount" hidden></span>
-              <button class="ico danger" id="presetDelete" title="Delete selected" aria-label="Delete selected presets" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
-            </div>
-            <p class="hint" id="presetTableNote" hidden>The table is running its own preset, so
-              whichever of these is active is not being used right now. Behavior has the
-              switch.</p>
-            <div id="presetList" class="list"></div>
-            <button class="ghost wide" id="savePresetBtn">Save these values as a new preset</button>
-              <input type="file" id="presetImport" accept=".json" multiple hidden>
+          <div class="searchrow">
+            <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+            <input type="search" id="presetSearch" placeholder="Search presets" autocomplete="off" aria-label="Search presets">
           </div>
-        </details>
+          <div class="listbar pbar">
+            <label class="sortpick">Sort
+              <select id="presetSort" aria-label="Sort presets">
+                <option value="name">By name</option>
+                <option value="recent">Newest first</option>
+                <option value="blocks">Most blocks</option>
+              </select>
+            </label>
+            <span class="grow"></span>
+            <button class="ico" id="presetNew" title="New preset from the current values" aria-label="New preset from the current values"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="ico" id="presetImportBtn" title="Import presets" aria-label="Import SillyTavern presets"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+            <button class="ico" id="presetSelect" title="Select several" aria-label="Select several presets"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
+            <button class="ico" id="presetAll" title="Select all, and start picking" aria-label="Select all presets"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
+          </div>
+          <div class="selbar pselbar">
+            <span class="selcount" id="presetCount" hidden></span>
+            <button class="ico danger" id="presetDelete" title="Delete selected" aria-label="Delete selected presets" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+          </div>
+          <p class="hint" id="presetTableNote" hidden>The table is running its own preset, so
+            whichever of these is active is not being used right now. Behavior has the
+            switch.</p>
+          <div id="presetList" class="list cardlist"></div>
+          <p class="hint" id="presetHint"></p>
+          <input type="file" id="presetImport" accept=".json" multiple hidden>
+        </div>
+
+        <!-- ---- Generation ---- -->
+        <div data-pview-pane="generation" hidden>
+          <p class="hint" id="samplingSource"></p>
+
+          <section class="gengroup">
+            <h3>Length</h3>
+            <label>Reply length <span class="v" id="v_max_tokens"></span>
+              <input type="range" id="max_tokens" min="128" max="32000" step="1">
+            </label>
+            <p class="hint">The most the model may write in one reply. It usually stops sooner.</p>
+            <label>Conversation sent <span class="v" id="v_context_tokens"></span>
+              <input type="range" id="context_tokens" min="1000" max="200000" step="500">
+            </label>
+            <p class="hint">How much of the chat goes with each request, counted in tokens, not
+              messages. Older turns past this are left out.</p>
+          </section>
+
+          <section class="gengroup">
+            <h3>Randomness</h3>
+            <div class="row">
+              <label>Temperature<input id="temperature" type="number" step="0.05" min="0" max="2" inputmode="decimal"></label>
+              <label>Top P<input id="top_p" type="number" step="0.01" min="0" max="1" inputmode="decimal"></label>
+            </div>
+            <div class="row">
+              <label>Min P<input id="min_p" type="number" step="0.01" min="0" max="1" inputmode="decimal"></label>
+              <span></span>
+            </div>
+            <p class="hint">Temperature is how adventurous each word is: low is steady, high is
+              surprising. Top P and Min P trim away unlikely words before it chooses; leave them
+              alone unless a model asks for it.</p>
+          </section>
+
+          <section class="gengroup">
+            <h3>Repetition</h3>
+            <div class="row">
+              <label>Repetition<input id="repetition_penalty" type="number" step="0.01" min="0.5" max="2" inputmode="decimal"></label>
+              <label>Frequency<input id="frequency_penalty" type="number" step="0.05" min="-2" max="2" inputmode="decimal"></label>
+            </div>
+            <div class="row">
+              <label>Presence<input id="presence_penalty" type="number" step="0.05" min="-2" max="2" inputmode="decimal"></label>
+              <span></span>
+            </div>
+            <p class="hint">Pushes against saying the same thing again. Not every provider takes all
+              three; the ones it does not take are not sent.</p>
+          </section>
+
+          <section class="gengroup">
+            <h3>Delivery</h3>
+            <label class="check"><input type="checkbox" id="stream"> Stream the reply as it is written</label>
+            <label>Thinking
+              <select id="reasoning_effort">
+                <option value="">Let the model decide</option>
+                <option value="off">No thinking</option>
+                <option value="minimal">Minimal</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <p class="hint">Reasoning models only. Anthropic bills thinking on top of the reply.</p>
+          </section>
+
+          <div class="savebar">
+            <button class="solid wide" id="saveSampling">Save settings</button>
+            <p class="hint" id="samplingHint"></p>
+          </div>
+          <button class="ghost wide" id="savePresetBtn">Save these values as a new preset</button>
+
+          <!-- Everything a SillyTavern file carried that Hearth does not act
+               on. Listed so nobody wonders where their top-k went: it is still
+               in the preset, and it goes back out on export. -->
+          <details class="fold" id="keptFold" hidden>
+            <summary><span>Kept for SillyTavern</span></summary>
+            <div class="foldbody">
+              <p class="hint">These came with the preset. Hearth does not use them, and keeps them so
+                an export to SillyTavern is the preset you imported.</p>
+              <dl id="keptList" class="keptlist"></dl>
+            </div>
+          </details>
+        </div>
+
+        <!-- ---- Prompt blocks ---- -->
+        <div data-pview-pane="blocks" hidden>
+          <label>Preset
+            <select id="blocksPick"></select>
+          </label>
+          <p class="hint">The order of everything sent. System blocks join the opening brief in
+            order; user and assistant blocks follow the history. Drag by the grip, or use the
+            arrows. Tap a block to open it.</p>
+          <p class="hint" id="blocksNone" hidden>There are no presets yet. Make or import one in
+            the Library and its blocks appear here.</p>
+          <p class="hint tablenote" id="blocksResting" hidden>This preset is not in use right now.
+            Its blocks shape replies once it is the active preset.</p>
+          <div id="blockList" class="blocklist"></div>
+          <button type="button" class="ghost wide" id="addBlockBtn">Add a block</button>
+          <div class="savebar" id="blocksBar" hidden>
+            <span class="dirtynote">Unsaved changes</span>
+            <button type="button" class="ghost" id="blocksRevert">Discard</button>
+            <button type="button" class="solid" id="blocksSave">Save</button>
+          </div>
+        </div>
       </section>
 
-      <!-- Likewise: something you reach for while writing, not while setting up. -->
+      <!-- The Regex Grimoire. Likewise something you reach for while writing. -->
       <section data-panel="regex" class="panel" hidden>
         <header class="panelhead">
-          <h2>Scripts<span class="panelcount" data-count-for="regexList"></span></h2>
+          <h2>Regex Grimoire<span class="panelcount" data-count-for="regexList"></span></h2>
           <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
                   title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
           <div class="moremenu" hidden></div>
         </header>
-        <p class="hint">Find-and-replace over message text. <em>shown</em> changes what you read, <em>sent</em> changes what the model gets.</p>
+        <!-- The four views of a preset, shared by both panels: three live in
+             this one, the Grimoire is the Regex panel. Either way in lands on
+             the same strip, so they read as one place. See wirePresetViews(). -->
+        <nav class="pviews" aria-label="Preset views">
+          <button type="button" data-pview="library">Library</button>
+          <button type="button" data-pview="generation">Generation</button>
+          <button type="button" data-pview="blocks">Prompt blocks</button>
+          <button type="button" data-pview="grimoire">Grimoire</button>
+        </nav>
+
+        <p class="hint">Find-and-replace spells over message text. <em>shown</em> changes what you
+          read, <em>sent</em> changes what the model gets. A preset's own spells rest while another
+          preset is in use.</p>
         <div class="searchrow">
           <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-          <input type="search" id="regexSearch" placeholder="Search scripts" autocomplete="off" aria-label="Search regex scripts">
+          <input type="search" id="regexSearch" placeholder="Search spells" autocomplete="off" aria-label="Search regex scripts">
+        </div>
+        <div class="chips" id="regexFilter" role="tablist" aria-label="Show">
+          <button type="button" data-filter="all" class="on">All</button>
+          <button type="button" data-filter="enabled">Enabled</button>
+          <button type="button" data-filter="disabled">Disabled</button>
+          <button type="button" data-filter="preset">Preset</button>
+          <button type="button" data-filter="shared">Shared</button>
         </div>
         <div class="listbar">
+          <button class="ico" id="regexNew" title="New spell" aria-label="New spell"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
           <button class="ico" id="regexImportBtn" title="Import regex scripts" aria-label="Import regex scripts"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></button>
+          <button class="ico" id="regexExportAll" title="Export every spell" aria-label="Export every spell"><svg viewBox="0 0 24 24"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg></button>
+          <button class="ico" id="regexChamber" title="Test chamber" aria-label="Open the test chamber"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/><path d="M7.5 15h9"/></svg></button>
           <button class="ico" id="regexSelect" title="Select several" aria-label="Select several scripts"><svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h9M4 18h9"/><path d="M16.5 6.5l2 2 4-4.5"/><path d="M16.5 15.5l2 2 4-4.5"/></svg></button>
           <button class="ico" id="regexAll" title="Select all, and start picking" aria-label="Select all scripts"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.2l2.6 2.6L16 9.5"/></svg></button>
           <span class="grow"></span>
           <span class="selcount" id="regexCount" hidden></span>
+          <button class="ico" id="regexOnBatch" data-batch="regex" title="Switch on" aria-label="Switch the selected on" hidden><svg viewBox="0 0 24 24"><path d="M5 13l4.5 4.5L19 7"/></svg></button>
+          <button class="ico" id="regexOffBatch" data-batch="regex" title="Switch off" aria-label="Switch the selected off" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><path d="M7 17 17 7"/></svg></button>
+          <button class="ico" id="regexMoveBatch" data-batch="regex" title="Move to a preset, or share" aria-label="Move the selected to a preset, or share them" hidden><svg viewBox="0 0 24 24"><path d="M4 12h13"/><path d="M13 7l5 5-5 5"/><path d="M20 5v14"/></svg></button>
+          <button class="ico" id="regexExportBatch" data-batch="regex" title="Export selected" aria-label="Export the selected" hidden><svg viewBox="0 0 24 24"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg></button>
           <button class="ico danger" id="regexDelete" title="Delete selected" aria-label="Delete selected scripts" hidden><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
         </div>
-        <div id="regexList" class="list"></div>
-          <input type="file" id="regexImport" accept=".json" multiple hidden>
-        <p class="hint" id="regexHint">A regex export, or a preset — its scripts come across either way.</p>
+        <div id="regexList" class="list cardlist"></div>
+        <input type="file" id="regexImport" accept=".json" multiple hidden>
+        <p class="hint" id="regexHint">A regex export, or a preset — its spells come across either way.</p>
       </section>
       <!-- Playing together. The host's side of it: open the chat you are in,
            send somebody the link, watch them arrive. The guest never sees this
@@ -1368,6 +1474,15 @@
   </form>
 </dialog>
 
+<!-- Pick one of several: which preset a spell belongs to, and the like. -->
+<dialog id="chooseDialog">
+  <h2 id="chooseTitle">Choose</h2>
+  <div id="chooseList" class="chooselist"></div>
+  <div class="askrow">
+    <button type="button" class="ghost" id="chooseNo">Cancel</button>
+  </div>
+</dialog>
+
 <dialog id="askDialog">
   <h2 id="askTitle">Are you sure?</h2>
   <p id="askText" class="hint"></p>
@@ -1705,17 +1820,193 @@
   </form>
 </dialog>
 
-<dialog id="blocksDialog">
-  <form method="dialog" id="blocksForm">
-    <h2 id="blocksTitle">Prompt blocks</h2>
-    <p class="hint">System blocks join the opening brief in order; user and assistant blocks follow the history.</p>
-    <div id="blockList"></div>
-    <button type="button" class="ghost wide" id="addBlockBtn">Add a block</button>
-    <div class="actions">
-      <button value="cancel" class="ghost" formnovalidate>Cancel</button>
-      <button value="save" class="solid">Save</button>
+<!-- One prompt block, full screen. The list it belongs to lives in the
+     Presets panel; this is where its words are written. -->
+<dialog id="blockDialog" class="fulledit">
+  <header class="fehead">
+    <button type="button" class="ico" id="bd_back" title="Back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <input id="bd_name" class="fetitle" aria-label="Block name" placeholder="Name this block">
+    <button type="button" class="solid" id="bd_done">Done</button>
+  </header>
+  <div class="febody">
+    <p class="hint" id="bd_marker" hidden></p>
+    <div class="row">
+      <label>Role
+        <select id="bd_role">
+          <option value="system">System</option>
+          <option value="user">User</option>
+          <option value="assistant">Assistant</option>
+        </select>
+      </label>
+      <label class="check febig"><input type="checkbox" id="bd_on"> Enabled</label>
     </div>
-  </form>
+    <label id="bd_textRow">Text <span class="v" id="bd_count"></span>
+      <textarea id="bd_text" rows="14" placeholder="What this block says. {{char}} and {{user}} work."></textarea>
+    </label>
+    <p class="hint" id="bd_inject" hidden></p>
+  </div>
+</dialog>
+
+<!-- One regex spell, full screen, in five parts and a test chamber. -->
+<dialog id="spellDialog" class="fulledit spelledit">
+  <header class="fehead">
+    <button type="button" class="ico" id="sp_back" title="Back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <input id="sp_name" class="fetitle" aria-label="Spell name" placeholder="Name this spell">
+    <button type="button" class="solid" id="sp_save">Save</button>
+  </header>
+  <nav class="sptabs" aria-label="Parts of the spell">
+    <button type="button" data-sp="spell" class="on">Spell</button>
+    <button type="button" data-sp="targets">Targets</button>
+    <button type="button" data-sp="behaviour">Behaviour</button>
+    <button type="button" data-sp="conditions">Conditions</button>
+    <button type="button" data-sp="raw">Raw JSON</button>
+    <button type="button" data-sp="test">Test</button>
+  </nav>
+  <div class="febody">
+    <p class="feerror" id="sp_error" hidden></p>
+
+    <section data-sp-pane="spell">
+      <h3>The spell</h3>
+      <label>Find
+        <textarea id="sp_find" class="mono" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off"
+                  placeholder="/&lt;status&gt;([\s\S]*?)&lt;\/status&gt;/g"></textarea>
+      </label>
+      <div class="flagrow" id="sp_flags" aria-label="Flags">
+        <button type="button" data-flag="g" title="Every match, not just the first">g · all</button>
+        <button type="button" data-flag="i" title="Ignore case">i · any case</button>
+        <button type="button" data-flag="m" title="^ and $ match at each line">m · lines</button>
+        <button type="button" data-flag="s" title=". matches newlines too">s · dot-all</button>
+        <button type="button" data-flag="u" title="Unicode">u · unicode</button>
+      </div>
+      <p class="hint mono" id="sp_compiled"></p>
+      <label>Replace with
+        <textarea id="sp_replace" class="mono" rows="5" spellcheck="false" autocapitalize="off" autocomplete="off"
+                  placeholder="$1, {{match}}, {{char}} and {{user}} work here."></textarea>
+      </label>
+      <label>Trim out of each match
+        <textarea id="sp_trim" class="mono" rows="2" spellcheck="false" autocapitalize="off" autocomplete="off"
+                  placeholder="One per line"></textarea>
+      </label>
+      <p class="hint">Removed from the matched text before it is put into the replacement.</p>
+    </section>
+
+    <section data-sp-pane="targets" hidden>
+      <h3>Where it works</h3>
+      <label class="check febig"><input type="checkbox" id="sp_display"> On what is <em>shown</em></label>
+      <p class="hint">Changes how a message reads on screen. The stored message is untouched.</p>
+      <label class="check febig"><input type="checkbox" id="sp_prompt"> On what is <em>sent</em></label>
+      <p class="hint">Changes what the model receives. The stored message is untouched.</p>
+      <h3>Which messages</h3>
+      <label class="check febig"><input type="checkbox" data-place="1"> Your messages</label>
+      <label class="check febig"><input type="checkbox" data-place="2"> Replies</label>
+      <details class="fold">
+        <summary><span>SillyTavern-only targets</span></summary>
+        <div class="foldbody">
+          <p class="hint">Kept on the spell and in its export, but Hearth has no slash commands,
+            world-info scan or separate reasoning text for them to run on.</p>
+          <label class="check notinuse"><input type="checkbox" data-place="3"> Slash commands</label>
+          <label class="check notinuse"><input type="checkbox" data-place="5"> World info</label>
+          <label class="check notinuse"><input type="checkbox" data-place="6"> Reasoning</label>
+        </div>
+      </details>
+      <h3>Belongs to</h3>
+      <label>Owner
+        <select id="sp_owner"></select>
+      </label>
+      <p class="hint">Shared spells always run. A preset's own run only while that preset is
+        active, and come with it when it is exported.</p>
+    </section>
+
+    <section data-sp-pane="behaviour" hidden>
+      <h3>Transformation</h3>
+      <label class="check febig"><input type="checkbox" id="sp_enabled"> Enabled</label>
+      <label>Names in the find pattern
+        <select id="sp_substitute">
+          <option value="0">Leave {{char}} and {{user}} as written</option>
+          <option value="1">Fill them in</option>
+          <option value="2">Fill them in, escaped</option>
+        </select>
+      </label>
+      <p class="hint">SillyTavern's "substitute regex". Escaped treats a name like
+        <code>Dr. Who</code> as literal text rather than as pattern.</p>
+      <label class="check notinuse"><input type="checkbox" id="sp_runOnEdit"> Run on edit</label>
+      <p class="hint">Kept for SillyTavern. Hearth never rewrites a stored message, so there is
+        nothing to re-run when you edit one.</p>
+      <p class="hint" id="sp_rewriteNote" hidden>This spell came from SillyTavern set to rewrite
+        the saved message. Hearth runs it on what is shown and sent instead, and exports it as
+        it came.</p>
+    </section>
+
+    <section data-sp-pane="conditions" hidden>
+      <h3>Advanced conditions</h3>
+      <div class="row">
+        <label>Min depth<input id="sp_min" type="number" min="0" step="1" inputmode="numeric" placeholder="any"></label>
+        <label>Max depth<input id="sp_max" type="number" min="0" step="1" inputmode="numeric" placeholder="any"></label>
+      </div>
+      <p class="hint">Depth counts back from the newest message, which is 0. A minimum of 6 means
+        "only messages at least six back" — how a spell tidies old turns out of what is sent
+        without touching the scene you are in.</p>
+      <h3>Order</h3>
+      <p class="hint" id="sp_order"></p>
+      <div class="row">
+        <button type="button" class="ghost" id="sp_up">Run earlier</button>
+        <button type="button" class="ghost" id="sp_down">Run later</button>
+      </div>
+      <p class="hint">Spells run top to bottom; each sees what the one before it left.</p>
+    </section>
+
+    <section data-sp-pane="raw" hidden>
+      <h3>Raw JSON</h3>
+      <p class="hint">The spell as SillyTavern writes it. Edit and apply; nothing is saved until
+        you press Save.</p>
+      <textarea id="sp_raw" class="mono" rows="18" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      <p class="feerror" id="sp_rawError" hidden></p>
+      <div class="row">
+        <button type="button" class="ghost" id="sp_rawReset">Reset</button>
+        <button type="button" class="solid" id="sp_rawApply">Apply</button>
+      </div>
+    </section>
+
+    <section data-sp-pane="test" hidden>
+      <h3>Test chamber</h3>
+      <p class="hint">Runs this spell — as it is in the editor, saved or not — on text you give
+        it, with the same engine that runs on your chats. Nothing here touches a chat.</p>
+      <label>Sample text
+        <textarea id="tc_text" rows="6" placeholder="Paste a message to try it on."></textarea>
+      </label>
+      <div class="row">
+        <label>As
+          <select id="tc_where">
+            <option value="display">Shown</option>
+            <option value="prompt">Sent</option>
+          </select>
+        </label>
+        <label>From
+          <select id="tc_role">
+            <option value="assistant">A reply</option>
+            <option value="user">You</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>Depth<input id="tc_depth" type="number" min="0" step="1" value="0" inputmode="numeric"></label>
+        <label class="check febig"><input type="checkbox" id="tc_pipe"> With every active spell</label>
+      </div>
+      <div class="row">
+        <label>{{char}}<input id="tc_char" autocomplete="off"></label>
+        <label>{{user}}<input id="tc_user" autocomplete="off"></label>
+      </div>
+      <p class="hint" id="tc_status"></p>
+      <h4>Matches</h4>
+      <pre class="mono tcout" id="tc_hits"></pre>
+      <h4>Result</h4>
+      <pre class="mono tcout" id="tc_out"></pre>
+      <div id="tc_pipeWrap" hidden>
+        <h4>After every active spell</h4>
+        <pre class="mono tcout" id="tc_pipeOut"></pre>
+      </div>
+    </section>
+  </div>
 </dialog>
 
 <dialog id="noteDialog">

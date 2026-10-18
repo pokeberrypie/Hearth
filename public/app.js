@@ -510,13 +510,15 @@ async function refreshRegex() {
   const list = await api("/regex");
   regexScripts = Array.isArray(list) ? list : [];
   renderRegexList();
+  // The preset cards count their spells.
+  if (typeof renderPresetList === "function" && presetsCache.length) renderPresetList();
 }
 
 /** Mirrors src/regex.ts compile(): "/pattern/flags", or a bare pattern. */
 function compileScript(find) {
   const raw = String(find || "").trim();
   if (!raw) return null;
-  const m = raw.match(/^\/([\s\S]*)\/([gimsuy]*)$/);
+  const m = raw.match(/^\/([\s\S]*)\/([dgimsuy]*)$/);
   try {
     return m ? new RegExp(m[1], m[2]) : new RegExp(raw);
   } catch {
@@ -526,18 +528,27 @@ function compileScript(find) {
 
 /** Mirrors src/regex.ts applies(), for the display side only. */
 function scriptApplies(s, placement, depth) {
-  if (!s.enabled || !s.display) return false;
+  // A preset's own spells rest while another preset is in use.
+  if (!s.enabled || !s.display || s.active === false) return false;
   if (!Array.isArray(s.placement) || !s.placement.includes(placement)) return false;
   if (s.minDepth !== null && s.minDepth !== undefined && depth < s.minDepth) return false;
   if (s.maxDepth !== null && s.maxDepth !== undefined && depth > s.maxDepth) return false;
   return true;
 }
 
+/** Mirrors findWith() in src/regex.ts: SillyTavern's substituteRegex. */
+function scriptFind(s, names) {
+  if (!s.substitute) return s.find;
+  const fill = (v) => (s.substitute === 2 ? String(v ?? "").replace(/[.*+?^${}()|[\]\\/]/g, "\\$&") : String(v ?? ""));
+  return String(s.find).replace(/\{\{char\}\}/gi, fill(names.char)).replace(/\{\{user\}\}/gi, fill(names.user));
+}
+
 function applyDisplayScripts(text, placement, depth) {
   let out = String(text ?? "");
+  const names = { char: S.charName, user: S.personaName };
   for (const s of regexScripts) {
     if (!scriptApplies(s, placement, depth)) continue;
-    const re = compileScript(s.find);
+    const re = compileScript(scriptFind(s, names));
     if (!re) continue;
     const trim = Array.isArray(s.trim) ? s.trim : [];
     try {
@@ -546,6 +557,8 @@ function applyDisplayScripts(text, placement, depth) {
           typeof g === "string" ? trim.reduce((acc, t) => acc.split(t).join(""), g) : "");
         return String(s.replace ?? "")
           .replace(/\{\{match\}\}/gi, groups[0] ?? "")
+          .replace(/\{\{char\}\}/gi, () => names.char ?? "{{char}}")
+          .replace(/\{\{user\}\}/gi, () => names.user ?? "{{user}}")
           .replace(/\$(\d)/g, (_, d) => groups[Number(d)] ?? "");
       });
     } catch {
@@ -778,6 +791,11 @@ const ICON = {
   folder: `<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.4h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
   up: `<svg viewBox="0 0 24 24"><path d="M12 19V6"/><path d="M6 12l6-6 6 6"/></svg>`,
   branch: `<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2v7.6M8.2 6h4.3a3 3 0 0 1 3 3"/></svg>`,
+  grip: `<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>`,
+  more: `<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`,
+  flask: `<svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/><path d="M7.5 15h9"/></svg>`,
+  move: `<svg viewBox="0 0 24 24"><path d="M4 12h13"/><path d="M13 7l5 5-5 5"/><path d="M20 5v14"/></svg>`,
+  code: `<svg viewBox="0 0 24 24"><path d="M8 5.5 5 12l3 6.5"/><path d="m16 5.5 3 6.5-3 6.5"/><path d="M13.4 9.2 10.6 15"/></svg>`,
 };
 
 const tools = () =>
@@ -5883,6 +5901,8 @@ function makeSelectable(listId, prefix, endpoint, refresh, noun) {
     // Only the cast list can start a group, and only from two or more.
     const group = $("#" + prefix + "Group");
     if (group) group.hidden = !on || n < 2;
+    // Whatever else can be done to a selection — switch on, export, move.
+    for (const b of document.querySelectorAll(`[data-batch="${prefix}"]`)) b.hidden = !on || !n;
     $("#" + prefix + "All").classList.toggle("on", n > 0 && n === total);
   }
 
@@ -6125,57 +6145,208 @@ for (const [button, input] of [
 makeSelectable("presetList", "preset", "/presets/delete", refreshPresets, "preset");
 
 /**
- * The Regex list. A row says what a script does and where it lands: `shown`
- * for the display, `sent` for the prompt, and the depth window if it has one —
- * "from 6 back" is what makes a context cleanup a cleanup rather than a way to
- * delete the scene you are in.
+ * The Regex Grimoire's library. A card says what a spell does and where it
+ * lands: `shown` for the display, `sent` for the prompt, the depth window if it
+ * has one — "from 6 back" is what makes a context cleanup a cleanup rather
+ * than a way to delete the scene you are in — and who it belongs to. A
+ * preset's own spells are marked as resting while another preset is in use,
+ * because a switch that is on and a spell that is not running look identical
+ * otherwise.
  */
+let regexFilter = "all";
+/** Set once the selection helper is wired, further down; a redraw before then has nothing to repaint. */
+let regexSelection = null;
+
+function scriptMatchesFilter(r) {
+  if (regexFilter === "enabled") return r.enabled;
+  if (regexFilter === "disabled") return !r.enabled;
+  if (regexFilter === "preset") return !!r.presetId;
+  if (regexFilter === "shared") return !r.presetId;
+  return true;
+}
+
+function visibleScripts() {
+  const q = ($("#regexSearch")?.value ?? "").trim().toLowerCase();
+  return regexScripts.filter((r) => scriptMatchesFilter(r) && (!q ||
+    [r.name, r.source, r.presetName, r.find].some((v) => String(v || "").toLowerCase().includes(q))));
+}
+
+/** The little labels on a card, in the order a person reads them. */
+function spellChips(r) {
+  const chips = [];
+  if (r.display) chips.push(["shown", ""]);
+  if (r.prompt) chips.push(["sent", ""]);
+  const who = [r.placement?.includes(1) ? "you" : null, r.placement?.includes(2) ? "replies" : null].filter(Boolean);
+  chips.push([who.length ? who.join(" + ") : "nothing Hearth runs", who.length ? "" : "warn"]);
+  if (r.minDepth !== null && r.minDepth !== undefined) chips.push([`from ${r.minDepth} back`, ""]);
+  if (r.maxDepth !== null && r.maxDepth !== undefined) chips.push([`to ${r.maxDepth} back`, ""]);
+  chips.push([r.presetId ? (r.presetName || "a preset") : "shared", r.presetId ? "owner" : "owner shared"]);
+  if (!r.active) chips.push(["resting", "rest"]);
+  if (!compileScript(r.find)) chips.push(["won't compile", "warn"]);
+  return chips.map(([t, c]) => `<i class="${c}" title="${esc(t)}">${esc(t)}</i>`).join("");
+}
+
 function renderRegexList() {
   const el = $("#regexList");
   if (!el) return;
-  const q = ($("#regexSearch")?.value ?? "").trim().toLowerCase();
-  const shown = q
-    ? regexScripts.filter((r) =>
-        r.name.toLowerCase().includes(q) || (r.source || "").toLowerCase().includes(q))
-    : regexScripts;
-
+  const shown = visibleScripts();
+  const q = ($("#regexSearch")?.value ?? "").trim();
   el.innerHTML = regexScripts.length
-    ? (shown.length ? "" : `<p class="listempty">No script matches \u201c${esc(q)}\u201d.</p>`)
-    : `<p class="hint">No regex scripts yet.</p>`;
+    ? (shown.length ? "" : `<p class="listempty">${q ? `No spell matches “${esc(q)}”.` : "No spells in this view."}</p>`)
+    : `<p class="hint">No spells yet. Import a regex file or a preset that carries some, or write one.</p>`;
 
   shown.forEach((r) => {
-    const where = [r.display ? "shown" : null, r.prompt ? "sent" : null].filter(Boolean).join(" + ");
-    const window = r.minDepth !== null && r.minDepth !== undefined
-      ? `from ${r.minDepth} back`
-      : r.maxDepth !== null && r.maxDepth !== undefined ? `to ${r.maxDepth} back` : "";
-    const bits = [where, window, r.source].filter(Boolean).join(" \u00b7 ");
-
     const row = document.createElement("div");
-    row.className = "item regexrow" + (r.enabled ? "" : " off");
+    row.className = "item spellcard" + (r.enabled ? "" : " off") + (r.active ? "" : " resting");
+    row.dataset.id = r.id;
     row.innerHTML =
-      `<span class="meta"><span class="t">${esc(r.name)}</span>` +
-      `<span class="s">${esc(bits || "no placement")}</span></span>` +
-      `<span class="rowtools">` +
-      `<button data-toggle title="${r.enabled ? "Switch off" : "Switch on"}" aria-label="Switch ${r.enabled ? "off" : "on"}">${r.enabled ? ICON.tick : ICON.plus}</button>` +
-      `<button data-del title="Delete" aria-label="Delete">${ICON.del}</button></span>`;
+      `<span class="grip" title="Drag to reorder" aria-label="Drag to reorder" role="button">${ICON.grip}</span>` +
+      `<span class="meta" data-open role="button" tabindex="0">` +
+        `<span class="t">${esc(r.name || "Untitled")}</span>` +
+        `<span class="chips small">${spellChips(r)}</span>` +
+        `<code class="s mono">${esc(String(r.find || "").slice(0, 160))}</code>` +
+      `</span>` +
+      `<label class="switch" title="On or off"><input type="checkbox" data-toggle aria-label="Enabled"><span></span></label>` +
+      `<button type="button" class="ico" data-menu title="More" aria-label="More for ${esc(r.name)}">${ICON.more}</button>`;
+    row.querySelector("[data-toggle]").checked = !!r.enabled;
 
-    row.onclick = async (e) => {
-      if (e.target.closest("[data-toggle]")) {
-        await api(`/regex/${encodeURIComponent(r.id)}/toggle`, { method: "POST" });
-        return refreshRegex();
-      }
-      if (e.target.closest("[data-del]")) {
-        if (!(await ask(`Delete the script "${r.name}"?`))) return;
-        await api("/regex/" + encodeURIComponent(r.id), { method: "DELETE" });
-        return refreshRegex();
-      }
+    row.addEventListener("change", async (e) => {
+      if (!e.target.closest("[data-toggle]")) return;
+      await api(`/regex/${encodeURIComponent(r.id)}/toggle`, { method: "POST" });
+      await refreshRegex();
+      rescript();
+    });
+    row.onclick = (e) => {
+      if (e.target.closest("[data-menu]")) { e.stopPropagation(); return spellMenu(e.target.closest("[data-menu]"), r); }
+      if (e.target.closest("[data-open]")) return openSpell(r);
     };
+    row.querySelector("[data-open]").onkeydown = (e) => { if (e.key === "Enter") openSpell(r); };
     el.appendChild(rowShell(r.id, row));
   });
+  regexSelection?.repaint();
+}
+
+function spellMenu(anchor, r) {
+  const i = regexScripts.findIndex((x) => x.id === r.id);
+  popMenu(anchor, [
+    { label: "Edit", icon: ICON.edit, run: () => openSpell(r) },
+    { label: "Test", icon: ICON.flask, run: () => openSpell(r, "test") },
+    { label: "Duplicate", icon: ICON.copy, run: async () => {
+      await api(`/regex/${encodeURIComponent(r.id)}/duplicate`, { method: "POST" });
+      await refreshRegex();
+      toast(`Copied. The copy starts switched off.`);
+    } },
+    i > 0 && { label: "Run earlier", icon: ICON.up, run: () => moveScript(r.id, -1) },
+    i < regexScripts.length - 1 && { label: "Run later", icon: ICON.downArrow, run: () => moveScript(r.id, 1) },
+    { label: r.presetId ? "Move or share…" : "Give to a preset…", icon: ICON.move, run: () => assignScripts([r.id]) },
+    { label: "Export for SillyTavern", icon: ICON.down, run: () => exportScripts([r.id]) },
+    { label: "Delete", icon: ICON.del, danger: true, run: async () => {
+      if (!(await ask(`Delete the spell "${r.name}"?`))) return;
+      await api("/regex/" + encodeURIComponent(r.id), { method: "DELETE" });
+      await refreshRegex();
+      rescript();
+    } },
+  ]);
+}
+
+/** Saves a whole new order. Scripts run in it, so it is the order that matters. */
+async function saveScriptOrder(ids) {
+  await api("/regex/reorder", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  await refreshRegex();
+  rescript();
+}
+
+async function moveScript(id, by) {
+  const ids = regexScripts.map((r) => r.id);
+  const at = ids.indexOf(id);
+  const to = Math.max(0, Math.min(ids.length - 1, at + by));
+  if (at < 0 || to === at) return;
+  ids.splice(to, 0, ids.splice(at, 1)[0]);
+  await saveScriptOrder(ids);
+}
+
+/**
+ * A drag inside a filtered view moves the spell among the ones on screen. The
+ * ones hidden by the filter keep their own places in the full order — they
+ * are simply skipped over, as they were on screen.
+ */
+function reorderVisible(from, to) {
+  const vis = visibleScripts().map((r) => r.id);
+  const all = regexScripts.map((r) => r.id);
+  const slots = vis.map((id) => all.indexOf(id));
+  vis.splice(to, 0, vis.splice(from, 1)[0]);
+  slots.forEach((slot, k) => { all[slot] = vis[k]; });
+  return saveScriptOrder(all);
+}
+
+function exportScripts(ids) {
+  const q = ids?.length ? `?ids=${ids.map(encodeURIComponent).join(",")}` : "";
+  window.location.href = `/api/regex/export${q}`;
+}
+
+/** Hand some spells to a preset, or make them shared. */
+async function assignScripts(ids) {
+  if (!ids.length) return;
+  const choice = await choose(
+    ids.length === 1 ? "Who does this spell belong to?" : `Who do these ${ids.length} spells belong to?`,
+    [
+      { value: "", label: "Shared", hint: "Runs whatever preset is active." },
+      ...presetsCache.map((p) => ({ value: p.id, label: p.name, hint: p.is_active ? "Active now" : "Runs only while this preset is active" })),
+    ],
+  );
+  if (choice === null) return;
+  const r = await api("/regex/assign", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids, presetId: choice || null }),
+  });
+  if (r?.error) return toast(r.error);
+  await refreshRegex();
+  rescript();
+}
+
+/** A changed spell should change the thread already on screen. */
+let rescriptTimer = null;
+function rescript() {
+  clearTimeout(rescriptTimer);
+  rescriptTimer = setTimeout(() => { if (S.chatId) openChat(S.chatId); }, 300);
 }
 
 $("#regexSearch").oninput = renderRegexList;
-makeSelectable("regexList", "regex", "/regex/delete", refreshRegex, "script");
+$("#regexFilter").onclick = (e) => {
+  const b = e.target.closest("[data-filter]");
+  if (!b) return;
+  regexFilter = b.dataset.filter;
+  for (const x of $("#regexFilter").children) x.classList.toggle("on", x === b);
+  renderRegexList();
+};
+regexSelection = makeSelectable("regexList", "regex", "/regex/delete", async () => { await refreshRegex(); rescript(); }, "spell");
+const pickedScripts = () => [...$("#regexList").querySelectorAll(".pick:checked")].map((c) => c.dataset.id);
+const batchEnable = async (enabled) => {
+  const ids = pickedScripts();
+  if (!ids.length) return;
+  await api("/regex/enable", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids, enabled }),
+  });
+  await refreshRegex();
+  regexSelection.off();
+  rescript();
+  toast(`${ids.length} spell${ids.length > 1 ? "s" : ""} switched ${enabled ? "on" : "off"}.`);
+};
+$("#regexOnBatch").onclick = () => batchEnable(true);
+$("#regexOffBatch").onclick = () => batchEnable(false);
+$("#regexExportBatch").onclick = () => exportScripts(pickedScripts());
+$("#regexMoveBatch").onclick = async () => { await assignScripts(pickedScripts()); regexSelection.off(); };
+$("#regexExportAll").onclick = () => exportScripts([]);
+$("#regexNew").onclick = () => openSpell(null);
+$("#regexChamber").onclick = () => openSpell(null, "test");
+dragSort($("#regexList"), ".rowwrap", ".grip", (from, to) => reorderVisible(from, to));
 
 $("#regexImport").onchange = async (e) => {
   const files = [...e.target.files];
@@ -6194,18 +6365,17 @@ $("#regexImport").onchange = async (e) => {
     } catch {}
   }
   $("#regexHint").textContent = total
-    ? `Imported ${total} script${total === 1 ? "" : "s"}.`
+    ? `Imported ${total} spell${total === 1 ? "" : "s"}, shared. Give them to a preset from each one's menu.`
     : "No regex scripts in those files.";
   await refreshRegex();
   // A newly imported display script should change the thread already on screen.
-  if (S.chatId) openChat(S.chatId);
+  rescript();
 };
 
 $("#loreSearch").oninput = renderLoreList;
 $("#loreView").onclick = () => setLoreView(!loreAsList);
 // Remembered from last time, and applied before anything is drawn.
 setLoreView(loreAsList);
-$("#presetSearch").oninput = renderPresetList;
 
 // Opening a chat from anywhere should leave the splash behind.
 
@@ -6238,39 +6408,83 @@ const PRESET_FIELDS = [
 /** The last list the server sent, so the search box costs no request. */
 let presetsCache = [];
 
+const presetData = (p) => { try { return JSON.parse(p?.data || "{}") ?? {}; } catch { return {}; } };
+
 async function refreshPresets() {
   const list = await api("/presets");
   if (!Array.isArray(list)) return;
   presetsCache = list;
   renderPresetList();
+  renderBlocksPick();
+  // A list that is not mid-edit follows the preset it shows; one with unsaved
+  // changes stays exactly as it is until they are saved or thrown away.
+  if (!blocksDirty) loadBlocks();
+  if (presetView === "generation") paintKept();
+}
+
+/*
+ * The four views. Library, Generation and Prompt blocks are panes of the
+ * Presets panel; the Grimoire is the Regex panel, which carries the same strip
+ * so the four read as one place whichever way you came in.
+ */
+let presetView = "library";
+
+function showPresetView(view) {
+  if (view === "grimoire") {
+    if ($('[data-panel="regex"]').hidden) pickPanel("regex");
+  } else {
+    presetView = view;
+    if ($('[data-panel="presets"]').hidden) pickPanel("presets");
+    for (const pane of document.querySelectorAll("[data-pview-pane]")) pane.hidden = pane.dataset.pviewPane !== view;
+    if (view === "generation") paintKept();
+    if (view === "blocks") { renderBlocksPick(); if (!blocksDirty) loadBlocks(); }
+    $('[data-panel="presets"]').scrollTop = 0;
+  }
+  paintPresetViews();
+}
+
+function paintPresetViews() {
+  const regexUp = !$('[data-panel="regex"]').hidden;
+  for (const b of document.querySelectorAll("[data-pview]")) {
+    const here = regexUp ? b.dataset.pview === "grimoire" : b.dataset.pview === presetView;
+    b.classList.toggle("on", here);
+    b.setAttribute("aria-current", here ? "page" : "false");
+    // Unsaved blocks are easy to walk away from; the strip says they are waiting.
+    b.classList.toggle("dirty", b.dataset.pview === "blocks" && blocksDirty);
+  }
+}
+
+for (const b of document.querySelectorAll("[data-pview]")) b.onclick = () => showPresetView(b.dataset.pview);
+// The rail and the chain land on whichever view was showing last.
+for (const b of document.querySelectorAll('.chainlink[data-tab="presets"], .raillink[data-tab="presets"], .chainlink[data-tab="regex"], .raillink[data-tab="regex"]')) {
+  b.addEventListener("click", paintPresetViews);
 }
 
 /**
- * The dropdown at the top of the Sampling page, and the card under it.
+ * The dropdown at the top of the Library, and the card under it.
  *
- * Switching preset is the common act and now takes one click; the full list
- * below is for managing them — renaming, blocks, export, bulk delete — and
- * lives behind a fold so a library of two hundred does not bury the sliders.
+ * Switching preset is the common act and takes one tap; the cards below are
+ * for managing them, each with its own menu.
  */
 function renderPresetPick() {
   const sel = $("#presetPick");
   if (!sel) return;
   const active = presetsCache.find((p) => p.is_active);
   sel.innerHTML =
-    `<option value="">No preset — use the values above</option>` +
+    `<option value="">No preset — use your saved values</option>` +
     presetsCache.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
   sel.value = active ? active.id : "";
 
   const card = $("#presetCard");
   if (!card) return;
   if (!active) {
-    card.innerHTML = `<p class="hint">Nothing is overriding the sampling values above.</p>`;
+    card.innerHTML = `<p class="hint">Nothing is overriding your saved generation settings.</p>`;
     return;
   }
-  let d = {};
-  try { d = JSON.parse(active.data); } catch {}
+  const d = presetData(active);
   const blocks = Array.isArray(d.blocks) ? d.blocks : [];
   const on = blocks.filter((b) => b.enabled).length;
+  const spells = regexScripts.filter((r) => r.presetId === active.id).length;
   const bit = (label, value) =>
     value === undefined || value === "" ? "" : `<span class="pstat"><em>${label}</em>${esc(String(value))}</span>`;
   card.innerHTML =
@@ -6281,89 +6495,138 @@ function renderPresetPick() {
       bit("stream", d.stream === undefined ? undefined : d.stream === "0" ? "off" : "on") +
       bit("thinking", d.reasoning_effort) +
       (blocks.length ? `<span class="pstat"><em>blocks</em>${on} of ${blocks.length} on</span>` : "") +
+      (spells ? `<span class="pstat"><em>spells</em>${spells}</span>` : "") +
     `</div>` +
     `<div class="prow">` +
-      `<button class="ghost" data-card-blocks>Prompt blocks</button>` +
-      `<button class="ghost" data-card-export>Export</button>` +
+      `<button class="ghost" data-go="generation">Generation</button>` +
+      `<button class="ghost" data-go="blocks">Prompt blocks</button>` +
+      `<button class="ghost" data-go="grimoire">Spells</button>` +
     `</div>`;
   card.onclick = (e) => {
-    if (e.target.closest("[data-card-blocks]")) return openBlocks(active, d);
-    if (e.target.closest("[data-card-export]")) window.location.href = `/api/presets/${active.id}/export`;
+    const go = e.target.closest("[data-go]")?.dataset.go;
+    if (!go) return;
+    if (go === "blocks") return openBlocks(active);
+    if (go === "grimoire") return showSpellsOf(active);
+    showPresetView(go);
   };
 }
 
 $("#presetPick")?.addEventListener("change", async (e) => {
-  const id = e.target.value;
+  await usePreset(e.target.value || null);
+});
+
+async function usePreset(id) {
   await api(id ? `/presets/${id}/activate` : "/presets/none", { method: "POST" });
   await refreshPresets();
-  // Which preset is active decides what the sliders above show and save to.
+  // Which preset is active decides what the generation fields show and save
+  // to, and which preset's spells are awake.
   await loadSettings();
-});
+  await refreshRegex();
+  rescript();
+}
+
+/** The Grimoire, narrowed to one preset's spells. */
+function showSpellsOf(p) {
+  showPresetView("grimoire");
+  regexFilter = "preset";
+  for (const x of $("#regexFilter").children) x.classList.toggle("on", x.dataset.filter === "preset");
+  $("#regexSearch").value = p.name;
+  renderRegexList();
+}
+
+const PRESET_SORT = {
+  name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+  recent: (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0),
+  blocks: (a, b) => (presetData(b).blocks?.length ?? 0) - (presetData(a).blocks?.length ?? 0),
+};
 
 /** Drawn from the cache, so typing in the search box costs no request. */
 function renderPresetList() {
   const list = presetsCache;
   const el = $("#presetList");
   const q = ($("#presetSearch")?.value ?? "").trim().toLowerCase();
-  const shown = q ? list.filter((p) => p.name.toLowerCase().includes(q)) : list;
+  const sort = PRESET_SORT[$("#presetSort")?.value] ?? PRESET_SORT.name;
+  // The active one leads whatever the sort, as it always has.
+  const shown = (q ? list.filter((p) => p.name.toLowerCase().includes(q)) : [...list])
+    .sort((a, b) => (b.is_active - a.is_active) || sort(a, b));
 
   el.innerHTML = list.length
     ? (shown.length ? "" : `<p class="listempty">No preset matches “${esc(q)}”.</p>`)
-    : `<p class="hint">No presets yet.</p>`;
+    : `<p class="hint">No presets yet. Import one from SillyTavern, or save the current values as one.</p>`;
 
   shown.forEach((p) => {
-    const b = document.createElement("button");
-    b.className = "item withface" + (p.is_active ? " active" : "");
-    let d = {};
-    try { d = JSON.parse(p.data); } catch {}
+    const d = presetData(p);
+    const row = document.createElement("div");
+    row.className = "item pcard" + (p.is_active ? " active" : "");
+    const blocks = Array.isArray(d.blocks) ? d.blocks : [];
+    const spells = regexScripts.filter((r) => r.presetId === p.id).length;
     const summary = [
-      d.temperature !== undefined ? `temp ${d.temperature}` : null,
-      d.max_tokens !== undefined ? `${d.max_tokens} out` : null,
-      d.top_p !== undefined ? `top-p ${d.top_p}` : null,
-      Array.isArray(d.blocks) && d.blocks.length
-        ? `${d.blocks.length} block${d.blocks.length > 1 ? "s" : ""}` : null,
+      d.temperature !== undefined && d.temperature !== "" ? `temp ${d.temperature}` : null,
+      d.max_tokens !== undefined && d.max_tokens !== "" ? `${d.max_tokens} out` : null,
+      blocks.length ? `${blocks.filter((b) => b.enabled).length}/${blocks.length} blocks` : null,
+      spells ? `${spells} spell${spells > 1 ? "s" : ""}` : null,
+      d.st ? "from SillyTavern" : null,
     ].filter(Boolean).join(" · ");
-    b.innerHTML =
-      `<span class="meta"><span class="t">${esc(p.name)}</span>` +
-      `<span class="s">${p.is_active ? "Active · " : ""}${esc(summary || "no values")}</span></span>` +
-      `<span class="rowtools">` +
-      `<button data-blocks-p title="Prompt blocks" aria-label="Edit prompt blocks">${ICON.edit}</button>` +
-      `<button data-load-p title="Load into the fields" aria-label="Load">${ICON.copy}</button>` +
-      `<button data-export-preset title="Export" aria-label="Export">${ICON.down}</button>` +
-      `<button data-del-preset title="Delete" aria-label="Delete">${ICON.del}</button></span>`;
-    b.onclick = async (e) => {
-      if (e.target.closest("[data-del-preset]")) {
-        if (!(await ask(`Delete the preset "${p.name}"?`))) return;
-        const r = await api("/presets/" + p.id, { method: "DELETE" });
-        await refreshPresets();
-        return offerUndo(r, "preset");
-      }
-      if (e.target.closest("[data-export-preset]")) {
-        window.location.href = `/api/presets/${p.id}/export`;
-        return;
-      }
-      if (e.target.closest("[data-blocks-p]")) {
-        openBlocks(p, d);
-        return;
-      }
-      if (e.target.closest("[data-load-p]")) {
-        PRESET_FIELDS.forEach((f) => { if (d[f] !== undefined) setField(f, d[f]); });
-        paintSampling();
-        $("#presetHint").textContent = `Loaded "${p.name}" into the fields below.`;
-        return;
-      }
-      await api(`/presets/${p.id}/activate`, { method: "POST" });
-      await refreshPresets();
-      // Which preset is active decides what the Sampling panel shows and saves
-      // to, so it has to be told when that changes.
-      await loadSettings();
+    row.innerHTML =
+      `<span class="meta" data-use role="button" tabindex="0">` +
+        `<span class="t">${esc(p.name)}</span>` +
+        `<span class="s">${p.is_active ? `<b class="activebadge">Active</b> ` : ""}${esc(summary || "no values of its own")}</span>` +
+      `</span>` +
+      `<button type="button" class="ico" data-menu title="More" aria-label="More for ${esc(p.name)}">${ICON.more}</button>`;
+    row.onclick = async (e) => {
+      if (e.target.closest("[data-menu]")) { e.stopPropagation(); return presetMenu(e.target.closest("[data-menu]"), p); }
+      if (e.target.closest("[data-use]") && !p.is_active) await usePreset(p.id);
     };
-    el.appendChild(rowShell(p.id, b));
+    el.appendChild(rowShell(p.id, row));
   });
   renderPresetPick();
 }
 
-$("#savePresetBtn").onclick = async () => {
+function presetMenu(anchor, p) {
+  const d = presetData(p);
+  popMenu(anchor, [
+    !p.is_active && { label: "Use this preset", icon: ICON.tick, run: () => usePreset(p.id) },
+    { label: "Prompt blocks", icon: ICON.role, run: () => openBlocks(p) },
+    { label: "Spells", icon: ICON.code, run: () => showSpellsOf(p) },
+    { label: "Rename", icon: ICON.edit, run: async () => {
+      const name = await askFor("Rename this preset", p.name);
+      if (!name?.trim() || name.trim() === p.name) return;
+      const r = await api(`/presets/${p.id}/rename`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: name.trim() }),
+      });
+      if (r?.error) return toast(r.error);
+      await refreshPresets();
+      await refreshRegex();
+    } },
+    { label: "Duplicate", icon: ICON.copy, run: async () => {
+      const r = await api(`/presets/${p.id}/duplicate`, { method: "POST" });
+      if (r?.error) return toast(r.error);
+      await refreshPresets();
+      await refreshRegex();
+      toast(`Made “${r.name}”. It is not in use until you choose it.`);
+    } },
+    { label: "Load its values into the fields", icon: ICON.down, run: () => {
+      PRESET_FIELDS.forEach((f) => { if (d[f] !== undefined) setField(f, d[f]); });
+      paintSampling();
+      showPresetView("generation");
+      $("#samplingHint").textContent = `Loaded “${p.name}” into the fields. Save to keep them.`;
+    } },
+    { label: "Export for SillyTavern", icon: ICON.down, run: () => { window.location.href = `/api/presets/${p.id}/export`; } },
+    { label: "Export as a Hearth file", icon: ICON.down, run: () => { window.location.href = `/api/presets/${p.id}/export?format=hearth`; } },
+    { label: "Delete", icon: ICON.del, danger: true, run: async () => {
+      if (!(await ask(`Delete the preset "${p.name}"?`))) return;
+      const r = await api("/presets/" + p.id, { method: "DELETE" });
+      await refreshPresets();
+      await refreshRegex();
+      offerUndo(r, "preset");
+    } },
+  ]);
+}
+
+$("#presetSearch").oninput = renderPresetList;
+$("#presetSort").onchange = renderPresetList;
+
+async function saveValuesAsPreset() {
   const name = await askFor("Name this preset");
   if (!name?.trim()) return;
   const data = {};
@@ -6373,20 +6636,55 @@ $("#savePresetBtn").onclick = async () => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: name.trim(), data }),
   });
-  refreshPresets();
+  await refreshPresets();
+  toast(`Saved “${name.trim()}”.`);
+}
+$("#savePresetBtn").onclick = saveValuesAsPreset;
+$("#presetNew").onclick = saveValuesAsPreset;
+
+/**
+ * Everything a SillyTavern preset carried that Hearth keeps but does not use.
+ * For the active preset, since that is the one the Generation view shows.
+ */
+async function paintKept() {
+  const fold = $("#keptFold");
+  const active = presetsCache.find((p) => p.is_active);
+  if (!fold) return;
+  if (!active || !presetData(active).st) { fold.hidden = true; return; }
+  const kept = await api(`/presets/${active.id}/kept`);
+  if (!Array.isArray(kept) || !kept.length) { fold.hidden = true; return; }
+  fold.hidden = false;
+  const show = (v) => {
+    const t = typeof v === "string" ? v : JSON.stringify(v);
+    return t.length > 120 ? t.slice(0, 117) + "…" : t;
+  };
+  $("#keptList").innerHTML = kept.map((k) =>
+    `<dt class="mono">${esc(k.key)}</dt><dd class="mono">${esc(show(k.value))}</dd>`).join("");
+}
+
+$("#presetImport").onchange = async (e) => {
+  const files = [...e.target.files];
+  if (!files.length) return;
+  const fd = new FormData();
+  files.forEach((f) => fd.append("files", f));
+  const r = await uploadResult(await fetch("/api/import/presets", { method: "POST", body: fd }));
+  e.target.value = "";
+  $("#presetHint").textContent = r.imported
+    ? `Brought in ${r.imported.length}: ${r.imported.join(", ")}. Any spells they carried are theirs, and wake when they are used.`
+    : r.error;
+  await refreshPresets();
+  await refreshRegex();
   refreshLore();
 };
 
 // ---- prompt blocks -------------------------------------------------------
-// An ordered list of named pieces the active preset contributes to every
-// prompt. Rows are plain divs: the controls are siblings of each other, never
-// children of a clickable row, so nothing clickable ends up inside anything
-// else clickable.
+// An ordered list of named pieces a preset contributes to every prompt. It
+// is edited as a draft: nothing is written until Save, and the draft survives
+// leaving the view, so a half-finished reorder is not lost to a stray tap.
 
-let editing = null;   // { id, name, data } of the preset being edited
+let editing = null;   // { id, name, data } of the preset whose blocks are showing
 let blocks = [];
-
-const ROLES = [["system", "system"], ["user", "user"], ["assistant", "assistant"]];
+let blocksDirty = false;
 
 const ROLE_DOT = { system: "sys", user: "usr", assistant: "asst" };
 
@@ -6418,105 +6716,149 @@ const DEFAULT_ORDER = Object.keys(MARKER_LABEL);
 const defaultBlocks = () =>
   DEFAULT_ORDER.map((marker) => ({ id: marker, name: marker, role: "system", content: "", enabled: true, marker }));
 
-function renderBlocks() {
-  const el = $("#blockList");
-  el.innerHTML = "";
-  if (!blocks.length) {
-    el.innerHTML = `<p class="hint">No blocks yet. Add one to extend every prompt this preset is active for.</p>`;
-    return;
-  }
-  blocks.forEach((b, i) => {
-    const row = document.createElement("div");
-    row.className = "blockrow" + (b.enabled ? "" : " off") + (b.open ? " open" : "");
-    const fixed = !!b.marker;
-    row.classList.toggle("marker", fixed);
-    row.innerHTML =
-      `<div class="brow">` +
-      `<span class="bmark" aria-hidden="true">${fixed ? "&#9670;" : "&#10033;"}</span>` +
-      `<span class="bdot ${fixed ? "mark" : ROLE_DOT[b.role] || "sys"}" aria-hidden="true"></span>` +
-      (fixed
-        ? `<span class="b-fixed">${esc(MARKER_LABEL[b.marker] || b.marker)}</span>`
-        : `<input class="b-name" aria-label="Block name">`) +
-      `<span class="bchars"></span>` +
-      `<span class="btools">` +
-        `<button type="button" class="bico" data-up title="Move up" aria-label="Move up">${ICON.up}</button>` +
-        `<button type="button" class="bico" data-down title="Move down" aria-label="Move down">${ICON.downArrow}</button>` +
-        (fixed ? "" :
-          `<button type="button" class="bico" data-edit title="Edit text" aria-label="Edit text">${ICON.edit}</button>` +
-          `<button type="button" class="bico" data-role title="Change role" aria-label="Change role">${ICON.role}</button>`) +
-        `<label class="switch" title="On or off"><input type="checkbox" class="b-on" aria-label="Enabled"><span></span></label>` +
-        (fixed ? "" :
-          `<button type="button" class="bico danger" data-del title="Remove" aria-label="Remove">&minus;</button>`) +
-      `</span></div>` +
-      (fixed ? "" :
-        `<div class="bbody"><textarea class="b-content" rows="6" placeholder="What this block says. {{char}} and {{user}} work."></textarea></div>`);
+/** "main" and "jailbreak" carry text of their own; the rest are filled in by Hearth. */
+const isPlaceholder = (b) => !!b.marker && b.marker !== "main" && b.marker !== "jailbreak";
 
-    // Values are assigned, never interpolated — a quote in a name would
-    // otherwise break straight out of the attribute.
-    const name = row.querySelector(".b-name");
-    const on = row.querySelector(".b-on");
-    const content = row.querySelector(".b-content");
-    const chars = row.querySelector(".bchars");
-    if (name) name.value = b.name;
-    on.checked = b.enabled;
-    if (content) content.value = b.content;
+/** Close enough to plan a prompt by. Real counts depend on the model's tokenizer. */
+const roughTokens = (text) => Math.ceil(String(text || "").length / 4);
 
-    const stamp = () => {
-      chars.textContent = fixed ? "built in" : `${b.role} · ${b.content.length.toLocaleString()}`;
-      row.classList.toggle("off", !b.enabled);
-      row.querySelector(".bdot").className = `bdot ${fixed ? "mark" : ROLE_DOT[b.role] || "sys"}`;
-    };
-    const pull = () => {
-      if (name) b.name = name.value;
-      b.enabled = on.checked;
-      if (content) b.content = content.value;
-      stamp();
-    };
-    row.addEventListener("input", pull);
-    row.addEventListener("change", pull);
-    stamp();
+function setBlocksDirty(on) {
+  blocksDirty = on;
+  $("#blocksBar").hidden = !on;
+  paintPresetViews();
+}
+addEventListener("beforeunload", (e) => { if (blocksDirty) { e.preventDefault(); e.returnValue = ""; } });
 
-    const move = (to) => { pull(); blocks.splice(to, 0, blocks.splice(i, 1)[0]); renderBlocks(); };
-    const up = row.querySelector("[data-up]");
-    const down = row.querySelector("[data-down]");
-    up.disabled = i === 0;
-    down.disabled = i === blocks.length - 1;
-    up.onclick = () => move(i - 1);
-    down.onclick = () => move(i + 1);
-
-    // The text is folded away by default. A preset with twenty blocks is a list
-    // you scan, not twenty textareas you scroll past.
-    const edit = row.querySelector("[data-edit]");
-    if (edit) edit.onclick = () => {
-      b.open = !b.open;
-      row.classList.toggle("open", b.open);
-      if (b.open) content.focus();
-    };
-    // Three roles, so a button that cycles beats a select that needs two taps.
-    const role = row.querySelector("[data-role]");
-    if (role) role.onclick = () => {
-      const order = ["system", "user", "assistant"];
-      b.role = order[(order.indexOf(b.role) + 1) % order.length];
-      stamp();
-    };
-    const del = row.querySelector("[data-del]");
-    if (del) del.onclick = () => { blocks.splice(i, 1); renderBlocks(); };
-
-    el.appendChild(row);
-  });
+function renderBlocksPick() {
+  const sel = $("#blocksPick");
+  if (!sel) return;
+  const want = editing?.id ?? presetsCache.find((p) => p.is_active)?.id ?? presetsCache[0]?.id ?? "";
+  sel.innerHTML = presetsCache.map((p) =>
+    `<option value="${esc(p.id)}">${esc(p.name)}${p.is_active ? " (active)" : ""}</option>`).join("");
+  sel.value = want;
+  sel.closest("label").hidden = !presetsCache.length;
 }
 
-function openBlocks(p, data) {
+/** Loads a preset's list into the draft: the one being edited, else the active one. */
+function loadBlocks(id = editing?.id) {
+  const p = presetsCache.find((x) => x.id === id) ?? presetsCache.find((x) => x.is_active) ?? presetsCache[0] ?? null;
+  $("#blocksNone").hidden = !!p;
+  $("#addBlockBtn").hidden = !p;
+  $("#blocksResting").hidden = !p || !!p.is_active;
+  if (!p) { editing = null; blocks = []; $("#blockList").innerHTML = ""; setBlocksDirty(false); return; }
+  const data = presetData(p);
   editing = { id: p.id, name: p.name, data };
   // A preset with no list of its own is shown the default pipeline, so the
   // first thing you see is what it is actually sending rather than a blank.
   blocks = Array.isArray(data.blocks) && data.blocks.length
     ? data.blocks.map((b) => ({ ...b }))
     : defaultBlocks();
-  $("#blocksTitle").textContent = `Prompt blocks — ${p.name}`;
+  if ($("#blocksPick")) $("#blocksPick").value = p.id;
+  setBlocksDirty(false);
   renderBlocks();
-  $("#blocksDialog").showModal();
 }
+
+/** From anywhere: the Prompt blocks view, showing this preset. */
+async function openBlocks(p) {
+  if (blocksDirty && editing?.id !== p.id &&
+      !(await askDialog({ title: `Discard your unsaved changes to “${editing.name}”'s blocks?`, confirmLabel: "Discard" }))) {
+    return showPresetView("blocks");
+  }
+  editing = { id: p.id };
+  blocksDirty = false;
+  showPresetView("blocks");
+  loadBlocks(p.id);
+}
+
+$("#blocksPick").onchange = async (e) => {
+  const id = e.target.value;
+  if (blocksDirty && !(await askDialog({ title: `Discard your unsaved changes to “${editing.name}”'s blocks?`, confirmLabel: "Discard" }))) {
+    e.target.value = editing.id;
+    return;
+  }
+  loadBlocks(id);
+};
+
+/** SillyTavern's own settings for a block, if the preset came with any. */
+function stPromptFor(id) {
+  const list = editing?.data?.st?.prompts;
+  return Array.isArray(list) ? list.find((x) => x && (x.identifier ?? x.name) === id) : null;
+}
+
+function renderBlocks() {
+  const el = $("#blockList");
+  el.innerHTML = "";
+  if (!editing) return;
+  if (!blocks.length) {
+    el.innerHTML = `<p class="hint">No blocks yet. Add one to extend every prompt this preset is active for.</p>`;
+    return;
+  }
+  blocks.forEach((b, i) => {
+    const fixed = isPlaceholder(b);
+    const row = document.createElement("div");
+    row.className = "blockcard" + (b.enabled ? "" : " off") + (b.marker ? " marker" : "");
+    const label = b.marker ? (MARKER_LABEL[b.marker] || b.marker) : "";
+    const title = b.marker && (b.name === b.marker || !b.name) ? label : b.name;
+    const size = fixed
+      ? `built in · ${label}`
+      : `${b.role} · ${b.content.length.toLocaleString()} chars · ≈${roughTokens(b.content).toLocaleString()} tokens`;
+    row.innerHTML =
+      `<span class="grip" title="Drag to reorder" aria-label="Drag to reorder" role="button">${ICON.grip}</span>` +
+      `<span class="bdot ${b.marker ? "mark" : ROLE_DOT[b.role] || "sys"}" aria-hidden="true"></span>` +
+      `<span class="meta" data-open role="button" tabindex="0">` +
+        `<span class="t"></span>` +
+        `<span class="s">${esc(size)}</span>` +
+      `</span>` +
+      `<label class="switch" title="On or off"><input type="checkbox" class="b-on" aria-label="Enabled"><span></span></label>` +
+      `<button type="button" class="ico" data-menu title="More" aria-label="More">${ICON.more}</button>`;
+    // Assigned, never interpolated — a quote in a name would break out of it.
+    row.querySelector(".t").textContent = title || `Block ${i + 1}`;
+    row.querySelector(".b-on").checked = b.enabled;
+    row.querySelector(".b-on").onchange = (e) => {
+      b.enabled = e.target.checked;
+      row.classList.toggle("off", !b.enabled);
+      setBlocksDirty(true);
+    };
+    row.onclick = (e) => {
+      if (e.target.closest("[data-menu]")) { e.stopPropagation(); return blockMenu(e.target.closest("[data-menu]"), i); }
+      if (e.target.closest("[data-open]")) openBlock(i);
+    };
+    row.querySelector("[data-open]").onkeydown = (e) => { if (e.key === "Enter") openBlock(i); };
+    el.appendChild(row);
+  });
+}
+
+function moveBlock(from, to) {
+  to = Math.max(0, Math.min(blocks.length - 1, to));
+  if (from === to) return;
+  blocks.splice(to, 0, blocks.splice(from, 1)[0]);
+  setBlocksDirty(true);
+  renderBlocks();
+}
+
+function blockMenu(anchor, i) {
+  const b = blocks[i];
+  popMenu(anchor, [
+    { label: "Open", icon: ICON.edit, run: () => openBlock(i) },
+    i > 0 && { label: "Move up", icon: ICON.up, run: () => moveBlock(i, i - 1) },
+    i < blocks.length - 1 && { label: "Move down", icon: ICON.downArrow, run: () => moveBlock(i, i + 1) },
+    i > 0 && { label: "Move to the top", icon: ICON.up, run: () => moveBlock(i, 0) },
+    i < blocks.length - 1 && { label: "Move to the bottom", icon: ICON.downArrow, run: () => moveBlock(i, blocks.length - 1) },
+    !b.marker && { label: "Duplicate", icon: ICON.copy, run: () => {
+      blocks.splice(i + 1, 0, { ...b, id: crypto.randomUUID(), name: `${b.name} (copy)` });
+      setBlocksDirty(true);
+      renderBlocks();
+    } },
+    !b.marker && { label: "Remove", icon: ICON.del, danger: true, run: async () => {
+      if (!(await ask(`Remove the block "${b.name}"? It is gone once you save.`))) return;
+      blocks.splice(i, 1);
+      setBlocksDirty(true);
+      renderBlocks();
+    } },
+  ]);
+}
+
+dragSort($("#blockList"), ".blockcard", ".grip", (from, to) => moveBlock(from, to));
 
 $("#addBlockBtn").onclick = () => {
   blocks.push({
@@ -6526,37 +6868,578 @@ $("#addBlockBtn").onclick = () => {
     content: "",
     enabled: true,
   });
+  setBlocksDirty(true);
   renderBlocks();
+  openBlock(blocks.length - 1);
 };
 
-$("#blocksForm").addEventListener("submit", async (e) => {
-  if (e.submitter?.value !== "save" || !editing) return;
-  // An empty block would be dropped on the way in anyway; drop it here so what
-  // you see saved is what the server kept.
+$("#blocksRevert").onclick = async () => {
+  if (!(await askDialog({ title: "Throw away your changes to these blocks?", confirmLabel: "Discard" }))) return;
+  loadBlocks(editing?.id);
+};
+
+$("#blocksSave").onclick = async () => {
+  if (!editing) return;
+  // An empty block would be dropped on the way in anyway; say so, and drop it
+  // here, so what you see saved is what the server kept.
+  const empty = blocks.filter((b) => !b.marker && !b.content.trim());
+  if (empty.length && !(await askDialog({
+    title: `${empty.length} block${empty.length > 1 ? "s have" : " has"} no text and will be left out. Save anyway?`,
+    confirmLabel: "Save",
+  }))) return;
   const keep = blocks.filter((b) => b.marker || b.content.trim());
   const r = await api("/presets/" + editing.id, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: editing.name, data: { ...editing.data, blocks: keep } }),
   });
-  editing = null;
-  if (r?.error) return void ($("#presetHint").textContent = r.error);
+  if (r?.error) return toast(r.error);
+  setBlocksDirty(false);
   await refreshPresets();
   toast(keep.length ? `Saved ${keep.length} block${keep.length > 1 ? "s" : ""}.` : "Blocks cleared.");
+};
+
+/* One block, full screen. Edits a copy; Done writes it into the draft. */
+let blockAt = -1;
+let blockBefore = "";
+
+function readBlockForm(b) {
+  const out = { ...b, enabled: $("#bd_on").checked, role: $("#bd_role").value };
+  if (!b.marker || !isPlaceholder(b)) out.name = $("#bd_name").value;
+  if (!isPlaceholder(b)) out.content = $("#bd_text").value;
+  return out;
+}
+
+function openBlock(i) {
+  const b = blocks[i];
+  if (!b) return;
+  blockAt = i;
+  const fixed = isPlaceholder(b);
+  $("#bd_name").value = b.name;
+  $("#bd_name").readOnly = fixed;
+  $("#bd_role").value = b.role;
+  $("#bd_on").checked = b.enabled;
+  $("#bd_text").value = b.content;
+  $("#bd_textRow").hidden = fixed;
+  $("#bd_marker").hidden = !b.marker;
+  $("#bd_marker").textContent = fixed
+    ? `${MARKER_LABEL[b.marker] || b.marker}: Hearth fills this in from the chat. It has no text of its own — only a place in the list and a switch.`
+    : `${MARKER_LABEL[b.marker] || b.marker}: a block SillyTavern knows by name, with text you write.`;
+  const st = stPromptFor(b.id);
+  const injected = st && Number(st.injection_position) === 1;
+  $("#bd_inject").hidden = !injected;
+  if (injected) {
+    $("#bd_inject").textContent =
+      `In SillyTavern this block is placed ${st.injection_depth ?? 4} messages from the end of the chat. ` +
+      `Hearth places it by its position in this list; the depth is kept and goes back out on export.`;
+  }
+  paintBlockCount();
+  blockBefore = JSON.stringify(readBlockForm(b));
+  $("#blockDialog").showModal();
+  if (!fixed) $("#bd_text").focus({ preventScroll: true });
+}
+
+function paintBlockCount() {
+  const t = $("#bd_text").value;
+  $("#bd_count").textContent = `${t.length.toLocaleString()} chars · ≈${roughTokens(t).toLocaleString()} tokens`;
+}
+$("#bd_text").addEventListener("input", paintBlockCount);
+
+$("#bd_done").onclick = () => {
+  const b = blocks[blockAt];
+  if (b) {
+    const next = readBlockForm(b);
+    if (JSON.stringify(next) !== blockBefore) {
+      blocks[blockAt] = next;
+      setBlocksDirty(true);
+      renderBlocks();
+    }
+  }
+  $("#blockDialog").close();
+};
+
+async function leaveBlock() {
+  const b = blocks[blockAt];
+  if (b && JSON.stringify(readBlockForm(b)) !== blockBefore &&
+      !(await askDialog({ title: "Discard the changes to this block?", confirmLabel: "Discard" }))) return;
+  $("#blockDialog").close();
+}
+$("#bd_back").onclick = leaveBlock;
+// Escape and the system back gesture arrive as a cancel; they get the same question.
+$("#blockDialog").addEventListener("cancel", (e) => { e.preventDefault(); leaveBlock(); });
+
+// ---- the spell editor ----------------------------------------------------
+// One regex script, full screen, in parts: the spell itself, where it works,
+// how it transforms, the conditions on it, the raw SillyTavern JSON, and a test
+// chamber that runs it through the server's own engine. Edits a copy; nothing
+// is written until Save.
+
+/** Mirrors src/regex.ts: the fields SillyTavern writes, so anything else can be kept aside. */
+const ST_SCRIPT_KEYS = new Set([
+  "id", "scriptName", "findRegex", "replaceString", "trimStrings", "placement",
+  "disabled", "markdownOnly", "promptOnly", "runOnEdit", "substituteRegex", "minDepth", "maxDepth",
+]);
+
+/** Mirrors toSillyTavern() in src/regex.ts. */
+function scriptToST(s) {
+  const both = s.display && s.prompt;
+  return {
+    ...(s.extra || {}),
+    id: s.id ?? "",
+    scriptName: s.name,
+    findRegex: s.find,
+    replaceString: s.replace,
+    trimStrings: s.trim,
+    placement: s.placement,
+    disabled: !s.enabled,
+    markdownOnly: both ? !s.rewrite : s.display,
+    promptOnly: both ? !s.rewrite : s.prompt,
+    runOnEdit: !!s.runOnEdit,
+    substituteRegex: s.substitute ?? 0,
+    minDepth: s.minDepth,
+    maxDepth: s.maxDepth,
+  };
+}
+
+/**
+ * Mirrors normaliseScript() in src/regex.ts for a SillyTavern-shaped object,
+ * with the checks a hand-edited file needs: the server would quietly coerce a
+ * wrong type, and a person who typed it wants to be told instead.
+ */
+function scriptFromST(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("A spell is one JSON object, in { }.");
+  const problems = [];
+  const want = (k, type) => {
+    if (raw[k] === undefined || raw[k] === null) return;
+    const ok = type === "array" ? Array.isArray(raw[k]) : typeof raw[k] === type;
+    if (!ok) problems.push(`"${k}" should be ${type === "array" ? "a list" : `a ${type}`}.`);
+  };
+  want("scriptName", "string"); want("findRegex", "string"); want("replaceString", "string");
+  want("trimStrings", "array"); want("placement", "array"); want("disabled", "boolean");
+  want("markdownOnly", "boolean"); want("promptOnly", "boolean"); want("runOnEdit", "boolean");
+  want("substituteRegex", "number"); want("minDepth", "number"); want("maxDepth", "number");
+  if (Array.isArray(raw.placement) && raw.placement.some((p) => !Number.isInteger(p))) {
+    problems.push(`"placement" should be a list of numbers: 1 your messages, 2 replies, 3 slash commands, 5 world info, 6 reasoning.`);
+  }
+  if (problems.length) throw new Error(problems.join(" "));
+  const extra = {};
+  for (const [k, v] of Object.entries(raw)) if (!ST_SCRIPT_KEYS.has(k)) extra[k] = v;
+  const md = !!raw.markdownOnly;
+  const po = !!raw.promptOnly;
+  const depth = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(+v) ? null : Math.max(0, Math.floor(+v)));
+  const sub = Number(raw.substituteRegex);
+  return {
+    id: raw.id ? String(raw.id) : null,
+    name: String(raw.scriptName ?? ""),
+    find: String(raw.findRegex ?? ""),
+    replace: String(raw.replaceString ?? ""),
+    trim: (raw.trimStrings ?? []).map(String),
+    placement: (raw.placement ?? [2]).map(Number),
+    enabled: !raw.disabled,
+    display: md || !po,
+    prompt: po || !md,
+    minDepth: depth(raw.minDepth),
+    maxDepth: depth(raw.maxDepth),
+    substitute: sub === 1 || sub === 2 ? sub : 0,
+    runOnEdit: !!raw.runOnEdit,
+    rewrite: !md && !po,
+    extra,
+  };
+}
+
+/** Mirrors compileError() in src/regex.ts. */
+function scriptCompileError(find) {
+  const raw = String(find ?? "").trim();
+  if (!raw) return "The find pattern is empty.";
+  const m = raw.match(/^\/([\s\S]*)\/([a-z]*)$/);
+  if (m && /[^dgimsuy]/.test(m[2])) return `Unknown flag in "${m[2]}". JavaScript allows d, g, i, m, s, u and y.`;
+  try {
+    m ? new RegExp(m[1], m[2]) : new RegExp(raw);
+    return null;
+  } catch (e) {
+    return e.message;
+  }
+}
+
+let spell = null;        // the spell as the form holds it
+let spellBefore = "";    // what it was when opened, for the unsaved-changes question
+let spellPane = "spell";
+
+const blankSpell = () => ({
+  id: null, name: "New spell", find: "", replace: "", trim: [], placement: [2],
+  enabled: true, display: true, prompt: false, minDepth: null, maxDepth: null,
+  substitute: 0, runOnEdit: false, rewrite: false, extra: {}, presetId: null,
 });
 
-$("#presetImport").onchange = async (e) => {
-  const files = [...e.target.files];
-  if (!files.length) return;
-  const fd = new FormData();
-  files.forEach((f) => fd.append("files", f));
-  const r = await uploadResult(await fetch("/api/import/presets", { method: "POST", body: fd }));
-  $("#presetHint").textContent = r.imported
-    ? `Brought in ${r.imported.length}: ${r.imported.join(", ")}.` : r.error;
-  e.target.value = "";
-  refreshPresets();
-  refreshLore();
+function fillSpell(s) {
+  $("#sp_name").value = s.name;
+  $("#sp_find").value = s.find;
+  $("#sp_replace").value = s.replace;
+  $("#sp_trim").value = (s.trim || []).join("\n");
+  $("#sp_display").checked = !!s.display;
+  $("#sp_prompt").checked = !!s.prompt;
+  for (const box of document.querySelectorAll("#spellDialog [data-place]")) {
+    box.checked = (s.placement || []).includes(Number(box.dataset.place));
+  }
+  $("#sp_owner").innerHTML =
+    `<option value="">Shared — runs with any preset</option>` +
+    presetsCache.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}${p.is_active ? " (active)" : ""}</option>`).join("");
+  $("#sp_owner").value = s.presetId ?? "";
+  $("#sp_enabled").checked = !!s.enabled;
+  $("#sp_substitute").value = String(s.substitute ?? 0);
+  $("#sp_runOnEdit").checked = !!s.runOnEdit;
+  $("#sp_rewriteNote").hidden = !s.rewrite;
+  $("#sp_min").value = s.minDepth ?? "";
+  $("#sp_max").value = s.maxDepth ?? "";
+  paintSpellCompile();
+  paintSpellOrder();
+}
+
+function readSpell() {
+  const n = (v) => (v === "" || !Number.isFinite(+v) ? null : Math.max(0, Math.floor(+v)));
+  const placement = [...document.querySelectorAll("#spellDialog [data-place]")]
+    .filter((b) => b.checked).map((b) => Number(b.dataset.place));
+  return {
+    ...spell,
+    name: $("#sp_name").value.trim(),
+    find: $("#sp_find").value.trim(),
+    replace: $("#sp_replace").value,
+    trim: $("#sp_trim").value.split("\n").filter((t) => t !== ""),
+    display: $("#sp_display").checked,
+    prompt: $("#sp_prompt").checked,
+    placement,
+    presetId: $("#sp_owner").value || null,
+    enabled: $("#sp_enabled").checked,
+    substitute: Number($("#sp_substitute").value) || 0,
+    runOnEdit: $("#sp_runOnEdit").checked,
+    minDepth: n($("#sp_min").value),
+    maxDepth: n($("#sp_max").value),
+  };
+}
+
+/** The find box, checked as it is typed: what it compiles to, or why it will not. */
+function paintSpellCompile() {
+  const find = $("#sp_find").value.trim();
+  const err = find ? scriptCompileError(find) : null;
+  const el = $("#sp_compiled");
+  el.classList.toggle("bad", !!err);
+  const m = find.match(/^\/([\s\S]*)\/([a-z]*)$/);
+  el.textContent = !find ? "Write a pattern, as /pattern/flags or bare."
+    : err ? `Will not compile: ${err}`
+    : m ? `Compiles. Flags: ${m[2] || "none"}${m[2].includes("g") ? "" : " — only the first match is replaced"}.`
+    : "Compiles, with no flags — only the first match is replaced. Wrap it as /pattern/g for every match.";
+  const flags = m ? m[2] : "";
+  for (const b of document.querySelectorAll("#sp_flags [data-flag]")) b.classList.toggle("on", flags.includes(b.dataset.flag));
+}
+
+/** A flag button rewrites the /…/flags suffix, wrapping a bare pattern first. */
+$("#sp_flags").onclick = (e) => {
+  const b = e.target.closest("[data-flag]");
+  if (!b) return;
+  const find = $("#sp_find").value.trim();
+  const m = find.match(/^\/([\s\S]*)\/([a-z]*)$/);
+  const body = m ? m[1] : find;
+  let flags = m ? m[2] : "";
+  flags = flags.includes(b.dataset.flag) ? flags.replace(b.dataset.flag, "") : flags + b.dataset.flag;
+  // Kept in JavaScript's own order, so the same pattern always reads the same.
+  flags = [..."dgimsuy"].filter((f) => flags.includes(f)).join("");
+  $("#sp_find").value = `/${body}/${flags}`;
+  paintSpellCompile();
+  testSoon();
 };
+$("#sp_find").addEventListener("input", paintSpellCompile);
+
+function paintSpellOrder() {
+  const at = spell?.id ? regexScripts.findIndex((r) => r.id === spell.id) : -1;
+  $("#sp_order").textContent = at < 0
+    ? "A new spell runs after every other one. Move it once it is saved."
+    : `Runs ${at + 1} of ${regexScripts.length}.`;
+  $("#sp_up").disabled = at <= 0;
+  $("#sp_down").disabled = at < 0 || at >= regexScripts.length - 1;
+}
+// Order moves at once rather than on Save — it is the list's, not the spell's.
+$("#sp_up").onclick = async () => { await moveScript(spell.id, -1); paintSpellOrder(); };
+$("#sp_down").onclick = async () => { await moveScript(spell.id, 1); paintSpellOrder(); };
+
+function showSpellPane(pane) {
+  if (spellPane === "raw" && pane !== "raw") $("#sp_rawError").hidden = true;
+  spellPane = pane;
+  for (const b of document.querySelectorAll("#spellDialog [data-sp]")) b.classList.toggle("on", b.dataset.sp === pane);
+  for (const p of document.querySelectorAll("#spellDialog [data-sp-pane]")) p.hidden = p.dataset.spPane !== pane;
+  if (pane === "raw") paintRaw();
+  if (pane === "test") runTest();
+  $("#spellDialog .febody").scrollTop = 0;
+}
+$("#spellDialog .sptabs").onclick = (e) => {
+  const b = e.target.closest("[data-sp]");
+  if (b) showSpellPane(b.dataset.sp);
+};
+
+function openSpell(r, pane = "spell") {
+  spell = r ? JSON.parse(JSON.stringify(r)) : blankSpell();
+  // The display-only fields the list adds are not part of the spell.
+  delete spell.active; delete spell.presetName; delete spell.position;
+  fillSpell(spell);
+  spellBefore = JSON.stringify(readSpell());
+  $("#sp_error").hidden = true;
+  $("#tc_char").value ||= S.charName || "";
+  $("#tc_user").value ||= S.personaName || "";
+  $("#tc_pipe").checked = !r && pane === "test";
+  $("#spellDialog").showModal();
+  showSpellPane(pane);
+}
+
+function paintRaw() {
+  $("#sp_raw").value = JSON.stringify(scriptToST(readSpell()), null, 2);
+  $("#sp_rawError").hidden = true;
+}
+$("#sp_rawReset").onclick = paintRaw;
+$("#sp_rawApply").onclick = () => {
+  const bad = (msg) => { $("#sp_rawError").textContent = msg; $("#sp_rawError").hidden = false; };
+  let parsed;
+  try { parsed = JSON.parse($("#sp_raw").value); } catch (e) { return bad(`Not valid JSON: ${e.message}`); }
+  let next;
+  try { next = scriptFromST(parsed); } catch (e) { return bad(e.message); }
+  const err = scriptCompileError(next.find);
+  // Applied even so: the form is where a pattern gets fixed, and it says why.
+  spell = { ...spell, ...next, id: spell.id ?? next.id, presetId: readSpell().presetId };
+  fillSpell(spell);
+  $("#sp_rawError").hidden = true;
+  toast(err ? `Applied. The pattern will not compile yet: ${err}` : "Applied to the form. Save to keep it.");
+};
+
+$("#sp_save").onclick = async () => {
+  const s = readSpell();
+  const fail = (msg) => { $("#sp_error").textContent = msg; $("#sp_error").hidden = false; $("#spellDialog .febody").scrollTop = 0; };
+  if (!s.name) return fail("A spell needs a name.");
+  const err = scriptCompileError(s.find);
+  if (err) { showSpellPane("spell"); return fail(`The find pattern does not compile: ${err}`); }
+  if (s.minDepth !== null && s.maxDepth !== null && s.minDepth > s.maxDepth) {
+    showSpellPane("conditions");
+    return fail("Minimum depth is deeper than maximum depth, so the spell could never run.");
+  }
+  if (!s.display && !s.prompt) return fail("Choose at least one of shown or sent, or the spell does nothing.");
+  const r = await api(s.id ? `/regex/${encodeURIComponent(s.id)}` : "/regex", {
+    method: s.id ? "PUT" : "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(s),
+  });
+  if (!r || r.error) return fail(r?.error || "It did not save.");
+  spellBefore = "";
+  $("#spellDialog").close();
+  await refreshRegex();
+  rescript();
+  toast(`Saved “${r.name}”.`);
+};
+
+async function leaveSpell() {
+  if (spellBefore && JSON.stringify(readSpell()) !== spellBefore &&
+      !(await askDialog({ title: "Discard the changes to this spell?", confirmLabel: "Discard" }))) return;
+  $("#spellDialog").close();
+}
+$("#sp_back").onclick = leaveSpell;
+$("#spellDialog").addEventListener("cancel", (e) => { e.preventDefault(); leaveSpell(); });
+
+/* The test chamber. It asks the server, so what it shows is what the engine
+   that runs on your chats does — not a second copy that could drift. */
+let testTimer = null;
+let testSeq = 0;
+const testSoon = () => { clearTimeout(testTimer); testTimer = setTimeout(() => { if (spellPane === "test") runTest(); }, 250); };
+
+/** Whether the spell in the editor belongs to a preset that is not in use. */
+const resting = () => {
+  const owner = $("#sp_owner").value;
+  return !!owner && !presetsCache.find((p) => p.id === owner)?.is_active;
+};
+
+async function runTest() {
+  const text = $("#tc_text").value;
+  const seq = ++testSeq;
+  const r = await api("/regex/test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      script: readSpell(),
+      text,
+      where: $("#tc_where").value,
+      role: $("#tc_role").value,
+      depth: Number($("#tc_depth").value) || 0,
+      pipeline: $("#tc_pipe").checked,
+      names: { char: $("#tc_char").value, user: $("#tc_user").value },
+    }),
+  });
+  if (seq !== testSeq || !r) return;   // a newer run has already been asked for
+  const status = $("#tc_status");
+  status.classList.toggle("bad", !!r.error);
+  status.textContent = r.error
+    ? `Will not compile: ${r.error}`
+    : !text ? "Give it something to work on."
+    : `${r.matches.length} match${r.matches.length === 1 ? "" : "es"}${r.matches.length >= 500 ? " (showing the first 500)" : ""}. ` +
+      (r.applies ? "It would run on this message." : `It would not run on this message: ${r.reasons.join(" ")} The result below is what it does when it does run.`) +
+      (resting() ? " Its preset is not the active one, so in your chats it is resting." : "");
+
+  // Matches marked in the original, everything escaped first.
+  let html = "";
+  let at = 0;
+  for (const [a, b] of r.matches) {
+    html += esc(text.slice(at, a)) + `<mark>${esc(text.slice(a, b)) || "&#8203;"}</mark>`;
+    at = b;
+  }
+  $("#tc_hits").innerHTML = html + esc(text.slice(at));
+  $("#tc_out").textContent = r.output;
+  $("#tc_pipeWrap").hidden = r.pipeline === null || r.pipeline === undefined;
+  if (r.pipeline !== null && r.pipeline !== undefined) $("#tc_pipeOut").textContent = r.pipeline;
+}
+for (const id of ["tc_text", "tc_where", "tc_role", "tc_depth", "tc_pipe", "tc_char", "tc_user"]) {
+  $("#" + id).addEventListener("input", testSoon);
+  $("#" + id).addEventListener("change", testSoon);
+}
+// Changing the spell while the chamber is open re-runs it too.
+$("#spellDialog .febody").addEventListener("input", (e) => { if (!e.target.closest('[data-sp-pane="test"]')) testSoon(); });
+
+// ---- small shared pieces --------------------------------------------------
+
+/**
+ * A menu opened from a ⋯ on one row. Built on the panel menus' look; fixed to
+ * the viewport so a panel that scrolls cannot clip it, and flipped above the
+ * button when there is no room below.
+ */
+function popMenu(anchor, items) {
+  closePopMenu();
+  const m = document.createElement("div");
+  m.className = "moremenu popmenu";
+  m.setAttribute("role", "menu");
+  for (const it of items) {
+    if (!it) continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "morerow" + (it.danger ? " danger" : "");
+    b.setAttribute("role", "menuitem");
+    b.innerHTML = (it.icon || "") + `<span>${esc(it.label)}</span>`;
+    b.onclick = (e) => { e.stopPropagation(); closePopMenu(); it.run(); };
+    m.append(b);
+  }
+  document.body.append(m);
+  const r = anchor.getBoundingClientRect();
+  const h = m.offsetHeight;
+  const below = r.bottom + 4 + h <= innerHeight - 8;
+  m.style.top = `${below ? r.bottom + 4 : Math.max(8, r.top - h - 4)}px`;
+  m.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+  m.querySelector("button")?.focus({ preventScroll: true });
+  setTimeout(() => addEventListener("click", closePopMenu, { once: true }));
+}
+function closePopMenu() {
+  for (const m of document.querySelectorAll(".popmenu")) m.remove();
+}
+addEventListener("keydown", (e) => { if (e.key === "Escape") closePopMenu(); });
+addEventListener("resize", closePopMenu);
+document.addEventListener("scroll", closePopMenu, true);
+
+/** Pick one of several. Resolves to the chosen value, or null if cancelled. */
+function choose(title, options) {
+  const box = $("#chooseDialog");
+  $("#chooseTitle").textContent = title;
+  const list = $("#chooseList");
+  list.innerHTML = "";
+  return new Promise((resolve) => {
+    const done = (v) => { box.removeEventListener("close", onClose); if (box.open) box.close(); resolve(v); };
+    const onClose = () => done(null);
+    for (const o of options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chooserow";
+      b.innerHTML = `<span class="t"></span><span class="s"></span>`;
+      b.querySelector(".t").textContent = o.label;
+      b.querySelector(".s").textContent = o.hint || "";
+      b.onclick = () => done(o.value);
+      list.append(b);
+    }
+    $("#chooseNo").onclick = () => done(null);
+    box.addEventListener("close", onClose);
+    box.showModal();
+  });
+}
+
+/**
+ * Drag to reorder, by a grip, with a finger or a mouse. The rows slide out of
+ * the way as you go, the list scrolls when you hold near its edge, and
+ * `onDrop(from, to)` is told the result — the list itself is redrawn by
+ * whoever owns it, so a drag can never leave the screen and the data
+ * disagreeing.
+ */
+function dragSort(list, itemSel, handleSel, onDrop) {
+  if (!list) return;
+  list.addEventListener("pointerdown", (e) => {
+    const handle = e.target.closest(handleSel);
+    if (!handle || !list.contains(handle) || e.button > 0) return;
+    if (list.classList.contains("selecting")) return;
+    const item = handle.closest(itemSel);
+    const items = [...list.querySelectorAll(`:scope > ${itemSel}`)];
+    const from = items.indexOf(item);
+    if (from < 0 || items.length < 2) return;
+    e.preventDefault();
+
+    let scroller = list.parentElement;
+    while (scroller && scroller !== document.body) {
+      const o = getComputedStyle(scroller).overflowY;
+      if ((o === "auto" || o === "scroll") && scroller.scrollHeight > scroller.clientHeight) break;
+      scroller = scroller.parentElement;
+    }
+    if (scroller === document.body) scroller = null;
+    const scrollAt = () => (scroller ? scroller.scrollTop : 0);
+
+    const startScroll = scrollAt();
+    const startY = e.clientY;
+    const rects = items.map((el) => el.getBoundingClientRect());
+    const step = items.length > 1 ? rects[1].top - rects[0].top : rects[0].height;
+    let to = from;
+    let lastY = e.clientY;
+    let tick = null;
+    item.classList.add("dragging");
+    handle.setPointerCapture?.(e.pointerId);
+
+    const paint = () => {
+      const dy = lastY - startY + (scrollAt() - startScroll);
+      item.style.transform = `translateY(${dy}px)`;
+      const centre = rects[from].top + rects[from].height / 2 + dy;
+      to = from;
+      for (let i = 0; i < items.length; i++) {
+        const c = rects[i].top + rects[i].height / 2;
+        if (i < from && centre < c) { to = i; break; }
+      }
+      for (let i = items.length - 1; i > from; i--) {
+        const c = rects[i].top + rects[i].height / 2;
+        if (centre > c) { to = i; break; }
+      }
+      items.forEach((el, i) => {
+        if (i === from) return;
+        const shift = from < to && i > from && i <= to ? -step : from > to && i < from && i >= to ? step : 0;
+        el.style.transform = shift ? `translateY(${shift}px)` : "";
+      });
+    };
+    const edge = () => {
+      if (!scroller) return;
+      const box = scroller.getBoundingClientRect();
+      const zone = 48;
+      const by = lastY < box.top + zone ? -10 : lastY > box.bottom - zone ? 10 : 0;
+      if (by) { scroller.scrollTop += by; paint(); }
+    };
+    const move = (ev) => { lastY = ev.clientY; paint(); };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      clearInterval(tick);
+      items.forEach((el) => { el.style.transform = ""; });
+      item.classList.remove("dragging");
+      if (to !== from) onDrop(from, to);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+    tick = setInterval(edge, 16);
+  });
+}
 
 // ---- SillyTavern backup -------------------------------------------------
 
@@ -9997,7 +10880,7 @@ function wirePanelChrome() {
         if (el.classList.contains("grow")) continue;
         // Anything that only means something once you have picked something
         // belongs with the picking, not in a menu you opened beforehand.
-        if (/(Count|Delete|Group)$/.test(el.id)) { sel.append(el); continue; }
+        if (/(Count|Delete|Group|Batch)$/.test(el.id)) { sel.append(el); continue; }
         if (el.tagName !== "BUTTON" && el.tagName !== "LABEL") { menu.append(el); continue; }
         el.classList.add("morerow");
         const label = document.createElement("span");

@@ -7106,3 +7106,356 @@ body.guest #guideBtn { display: none !important; }
   letter-spacing: 0.15em;
 }
 .seatnote { opacity: 0.75; font-size: 0.92rem; }
+
+/* ---- presets and the grimoire ---------------------------------------------
+   Four views of one thing — the library, how replies are generated, the order
+   of the prompt, the spells — on one strip shared by two panels. Built for a
+   thumb first: every control is a 44px target, names wrap instead of being
+   cut, and the actions on a row live behind its ⋯ rather than in a row of
+   small buttons. */
+
+:root {
+  /* Patterns are code, and code wants a face where every character is the
+     same width and a 0 is not an O. Whatever the device has. */
+  --hearth-mono: ui-monospace, "JetBrains Mono", "Fira Code", "Cascadia Mono", Menlo, Consolas,
+                 "Roboto Mono", "Droid Sans Mono", "Liberation Mono", monospace;
+}
+.mono, textarea.mono, code.mono, pre.mono {
+  font-family: var(--hearth-mono);
+  font-size: 0.86rem;
+  letter-spacing: 0;
+  tab-size: 2;
+}
+textarea.mono { font-size: max(16px, 0.9rem); line-height: 1.45; white-space: pre-wrap; word-break: break-all; }
+
+.pviews {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0 0 1rem;
+  padding: 3px;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+}
+.pviews button {
+  position: relative;
+  min-height: 44px;
+  padding: 0.3rem 0.2rem;
+  border: 0;
+  border-radius: var(--lumiverse-radius-sm);
+  background: none;
+  color: var(--lumiverse-text-muted);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.82rem;
+  line-height: 1.15;
+  cursor: pointer;
+  /* "Prompt blocks" wraps onto two lines on a phone rather than being cut. */
+  white-space: normal;
+}
+.pviews button.on {
+  color: var(--lumiverse-text);
+  background: color-mix(in srgb, var(--lumiverse-primary) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+}
+.pviews button.dirty::after {
+  content: "";
+  position: absolute; top: 6px; right: 6px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--lumiverse-primary);
+}
+
+.pbar { display: flex; align-items: flex-end; gap: 0.25rem; margin: 0.2rem 0 0.4rem; }
+.pbar .ico, .listbar .ico { width: 44px; height: 44px; }
+.pbar .sortpick { margin: 0; flex: 0 1 11rem; }
+.pbar .sortpick select { margin-top: 0.2rem; padding: 0.45rem 0.55rem; }
+.pselbar { position: sticky; top: 0; margin: 0 0 0.4rem; z-index: 3; }
+
+/* Cards: the name is the loudest thing on them, and it is never cut short. */
+.cardlist > .rowwrap { margin: 0 0 0.45rem; }
+.pcard, .spellcard, .blockcard {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 56px;
+  padding: 0.45rem 0.3rem 0.45rem 0.7rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 35%, transparent);
+  cursor: default;
+}
+.pcard:hover, .spellcard:hover, .blockcard:hover { background: color-mix(in srgb, var(--lumiverse-bg-hover) 70%, transparent); }
+.pcard.active { border-color: color-mix(in srgb, var(--lumiverse-primary) 55%, transparent); box-shadow: inset 3px 0 0 var(--lumiverse-primary); }
+.pcard .meta, .spellcard .meta, .blockcard .meta {
+  flex: 1; min-width: 0;
+  padding: 0.25rem 0;
+  cursor: pointer;
+}
+.pcard .t, .spellcard .t, .blockcard .t {
+  display: block;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.pcard .meta .s, .spellcard .meta .s, .blockcard .meta .s {
+  white-space: normal; overflow: visible;
+  margin-top: 0.15rem;
+}
+.spellcard code.s {
+  display: block;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--lumiverse-text-hint);
+  font-size: 0.76rem;
+}
+.pcard > .ico, .spellcard > .ico, .blockcard > .ico { width: 44px; height: 44px; flex: none; }
+.spellcard > .switch, .blockcard > .switch { margin: 0; padding: 0.7rem 0.25rem; flex: none; }
+.spellcard.off .t, .blockcard.off .t { opacity: 0.55; }
+.spellcard.resting { border-style: dashed; }
+.activebadge {
+  font-weight: normal;
+  font-family: var(--lumiverse-font-display);
+  color: var(--lumiverse-primary);
+}
+
+/* Drag by the grip and only by the grip: the rest of the card scrolls. */
+.grip {
+  display: grid; place-items: center;
+  flex: none;
+  width: 30px; height: 44px;
+  margin-left: -0.35rem;
+  color: var(--lumiverse-text-hint);
+  cursor: grab;
+  touch-action: none;
+}
+.grip svg { width: 16px; height: 16px; fill: currentColor; stroke: none; }
+.dragging {
+  position: relative; z-index: 5;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+  transition: none !important;
+}
+.cardlist > .rowwrap, .blocklist > .blockcard { transition: transform 0.12s ease; }
+.list.selecting .grip { display: none; }
+
+/* Chips: the filter row, and the little labels on a card. */
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.2rem 0 0.7rem; }
+.chips > button {
+  min-height: 36px;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: 999px;
+  background: none;
+  color: var(--lumiverse-text-muted);
+  font: inherit; font-size: 0.85rem;
+  cursor: pointer;
+}
+.chips > button.on {
+  color: var(--lumiverse-text);
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-primary) 16%, transparent);
+}
+.chips.small { margin: 0.25rem 0 0.1rem; gap: 0.25rem; }
+.chips.small i {
+  font-style: normal;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--lumiverse-border);
+  color: var(--lumiverse-text-muted);
+}
+.chips.small i.owner { color: var(--lumiverse-primary); border-color: color-mix(in srgb, var(--lumiverse-primary) 40%, transparent); }
+.chips.small i.owner.shared { color: var(--lumiverse-text-muted); border-color: var(--lumiverse-border); }
+.chips.small i.rest { border-style: dashed; color: var(--lumiverse-text-dim); }
+.chips.small i.warn { color: var(--hearth-hurt); border-color: color-mix(in srgb, var(--hearth-hurt) 50%, transparent); }
+
+/* Generation: grouped, each group with a word on what it is for. */
+.gengroup {
+  margin: 0 0 0.9rem;
+  padding: 0.2rem 0.85rem 0.3rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 25%, transparent);
+}
+.gengroup h3 { margin-top: 0.9rem !important; }
+.gengroup .hint { margin-top: -0.4rem; }
+.gengroup input[type="range"] { min-height: 32px; }
+.keptlist { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 0.25rem 0.8rem; margin: 0.5rem 0 0; }
+.keptlist dt { color: var(--lumiverse-text-muted); overflow-wrap: anywhere; }
+.keptlist dd { margin: 0; color: var(--lumiverse-text-dim); overflow-wrap: anywhere; }
+
+/* The bar that holds Save while something is unsaved. */
+.savebar {
+  position: sticky; bottom: 0;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
+  margin: 0.8rem -1.1rem 0;
+  padding: 0.6rem 1.1rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 96%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 -1px 0 color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+  z-index: 4;
+}
+.savebar[hidden] { display: none; }
+.savebar .solid, .savebar .ghost { width: auto; min-height: 44px; margin: 0; padding: 0.5rem 1.2rem; }
+.savebar .wide { flex: 1; }
+.savebar .hint { flex-basis: 100%; margin: 0; }
+.savebar .hint:empty { display: none; }
+.dirtynote { flex: 1; font-size: 0.85rem; color: var(--lumiverse-primary); }
+
+/* Prompt blocks, as cards. */
+.blocklist { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
+.blockcard { padding-left: 0.5rem; }
+.blockcard.marker { border-style: dashed; background: none; }
+.blockcard .bdot { margin: 0 0.15rem; }
+
+/* ---- the full-screen editors ---- */
+
+dialog.fulledit {
+  width: 100vw; max-width: 46rem;
+  height: 100dvh; max-height: 100dvh;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  display: none;
+  flex-direction: column;
+  background: var(--lumiverse-bg-elevated);
+}
+dialog.fulledit[open] { display: flex; }
+dialog.fulledit::before, dialog.fulledit::after { content: none; }
+@media (min-width: 760px) {
+  dialog.fulledit { height: 92dvh; margin: 4dvh auto; border-radius: var(--lumiverse-radius); border: 1px solid var(--lumiverse-border); }
+}
+.fehead {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: calc(0.5rem + env(safe-area-inset-top, 0px)) 0.6rem 0.5rem;
+  border-bottom: 1px solid var(--lumiverse-border);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 50%, transparent);
+}
+.fehead .ico { width: 44px; height: 44px; flex: none; }
+.fehead .ico svg { width: 20px; }
+.fehead .solid { width: auto; min-height: 44px; margin: 0; padding: 0.45rem 1.1rem; flex: none; }
+.fetitle {
+  flex: 1; min-width: 0; margin: 0;
+  background: none; border-color: transparent;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.1rem;
+  color: var(--lumiverse-primary);
+}
+.fetitle:focus { border-color: var(--lumiverse-border-hover); }
+.fetitle[readonly] { color: var(--lumiverse-text-muted); }
+.febody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
+  overscroll-behavior: contain;
+}
+.febody h3 {
+  margin: 1.2rem 0 0.7rem;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.8rem; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--lumiverse-primary-muted, var(--lumiverse-text-muted));
+}
+.febody h4 { margin: 0.9rem 0 0.35rem; font-family: var(--lumiverse-font-display); font-weight: normal; color: var(--lumiverse-text-muted); }
+.febody .row { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; }
+.febody .row > * { flex: 1 1 9rem; }
+.febody .row > .ghost, .febody .row > .solid { min-height: 44px; margin: 0 0 1rem; }
+.febody .check.febig { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; margin: 0 0 0.4rem; font-size: 0.95rem; color: var(--lumiverse-text); }
+.febody .check.febig input { width: 22px; height: 22px; margin: 0; flex: none; }
+.febody .check.notinuse { opacity: 0.6; }
+.feerror {
+  margin: 0.4rem 0 0.8rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--lumiverse-radius-sm);
+  border: 1px solid color-mix(in srgb, var(--hearth-hurt) 55%, transparent);
+  background: color-mix(in srgb, var(--hearth-hurt) 12%, transparent);
+  color: var(--lumiverse-text);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+.feerror[hidden] { display: none; }
+
+.sptabs {
+  display: flex; gap: 0.2rem;
+  overflow-x: auto;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--lumiverse-border);
+  scrollbar-width: none;
+}
+.sptabs::-webkit-scrollbar { display: none; }
+.sptabs button {
+  flex: none;
+  min-height: 40px;
+  padding: 0.3rem 0.85rem;
+  border: 0; border-radius: 999px;
+  background: none;
+  color: var(--lumiverse-text-muted);
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.sptabs button.on { color: var(--lumiverse-text); background: color-mix(in srgb, var(--lumiverse-primary) 20%, transparent); }
+
+.flagrow { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: -0.5rem 0 0.4rem; }
+.flagrow button {
+  min-height: 36px;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: none;
+  color: var(--lumiverse-text-dim);
+  font-family: var(--hearth-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.flagrow button.on { color: var(--lumiverse-text); border-color: color-mix(in srgb, var(--lumiverse-primary) 60%, transparent); background: color-mix(in srgb, var(--lumiverse-primary) 14%, transparent); }
+#sp_compiled { margin-bottom: 1rem; color: var(--lumiverse-text-dim); font-size: 0.78rem; overflow-wrap: anywhere; }
+#sp_compiled.bad, #tc_status.bad { color: var(--hearth-hurt); }
+
+.tcout {
+  min-height: 2.6rem;
+  max-height: 40dvh;
+  overflow: auto;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: var(--lumiverse-bg);
+  color: var(--lumiverse-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tcout mark {
+  color: var(--lumiverse-bg-deep);
+  background: color-mix(in srgb, var(--lumiverse-primary) 85%, white);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 80%, transparent);
+}
+
+/* The row menu: the panel menu's look, fixed to the screen. */
+.moremenu.popmenu { position: fixed; top: 0; right: 0; z-index: 90; max-width: calc(100vw - 16px); }
+.popmenu .morerow { min-height: 44px; border: 0; background: none; font: inherit; cursor: pointer; }
+.popmenu .morerow svg { stroke: currentColor; fill: none; stroke-width: 1.7; }
+.popmenu .morerow.danger { color: var(--hearth-hurt); }
+
+.chooselist { display: flex; flex-direction: column; gap: 0.35rem; max-height: 60dvh; overflow-y: auto; margin: 0 0 0.8rem; }
+.chooserow {
+  display: block; width: 100%;
+  min-height: 48px;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm);
+  background: none;
+  color: var(--lumiverse-text);
+  font: inherit;
+  cursor: pointer;
+}
+.chooserow:hover { background: var(--lumiverse-bg-hover); }
+.chooserow .t { display: block; font-family: var(--lumiverse-font-display); overflow-wrap: anywhere; }
+.chooserow .s { display: block; font-size: 0.8rem; color: var(--lumiverse-text-dim); }
+.blockcard .s, .pcard .s, .spellcard .meta > .s { display: block; font-size: 0.82rem; color: var(--lumiverse-text-dim); }
+.spellcard .meta code.s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.76rem; color: var(--lumiverse-text-hint); }
+/* A preset's name can be a sentence; on a chip it is a label, and the menu has it in full. */
+.chips.small i.owner { max-width: 13em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
