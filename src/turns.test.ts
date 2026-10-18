@@ -249,10 +249,11 @@ describe("the host", () => {
   test("their words pass the turn on, like anyone's", async () => {
     const { share, ana } = await tableOfTwo();
     await turns(share.id, { on: true });
-    await ask("/api/chats/chat1/generate", {
+    const res = await ask("/api/chats/chat1/generate", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "Bingle." }),
-    }, HOME).then((r) => r.text()).catch(() => "");
+    }, HOME);
+    await res.text().catch(() => "");
     expect((await stateFor(ana.cookie)).turn.player).toBe(ana.id);
   });
 
@@ -537,5 +538,71 @@ describe("a fight at a shared table", () => {
     applyVerbs("chat1", "[[hit: Dan, 2]]", "host");
     applyVerbs("chat1", "[[hit: Wolf, 10]]", "host");
     expect(sheetOf(dan.id).hp).toBe(12);
+  });
+});
+
+describe("branches", () => {
+  const branchOf = async (msgId: string) =>
+    (await (await ask(`/api/messages/${msgId}/branch`, { method: "POST" }, HOME)).json()) as any;
+
+  test("a branch keeps who is in the scene, who you are playing, and where everyone is", async () => {
+    seed();
+    const t = Date.now();
+    db.query("INSERT INTO characters (id, name, created_at) VALUES ('c2', 'Wolfgang', ?)").run(t);
+    db.query("INSERT INTO personas (id, name, description, is_active, created_at) VALUES ('p1', 'Bingus', '', 0, ?)").run(t);
+    db.query("UPDATE chats SET persona_id = 'p1', is_group = 1, location = 'The ridge', wallpaper = 'w.png' WHERE id = 'chat1'").run();
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('m1', 'chat1', 'c1', 0), ('m2', 'chat1', 'c2', 1)").run();
+    db.query("INSERT INTO npcs (id, chat_id, name, brief, created_at) VALUES ('n1', 'chat1', 'Marla', 'innkeeper', ?)").run(t);
+    db.query("UPDATE chats SET fight = '{\"order\":[]}' WHERE id = 'chat1'").run();
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('x1', 'chat1', 'user', 'Hi', ?)").run(t);
+    const b = await branchOf("x1");
+    const id = b.id ?? b.chat?.id;
+    const row = db.query("SELECT * FROM chats WHERE id = ?").get(id) as any;
+    expect(row).toMatchObject({ persona_id: "p1", is_group: 1, location: "The ridge", wallpaper: "w.png", fight: "" });
+    const cast = (db.query("SELECT character_id FROM chat_members WHERE chat_id = ? ORDER BY position").all(id) as any[])
+      .map((r) => r.character_id);
+    expect(cast).toEqual(["c1", "c2"]);
+    expect((db.query("SELECT name FROM npcs WHERE chat_id = ?").all(id) as any[]).map((r) => r.name)).toEqual(["Marla"]);
+  });
+
+  test("a table follows the host to another branch of its story, and its guests see the new one", async () => {
+    seed();
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('x1', 'chat1', 'user', 'Hi', ?)").run(Date.now());
+    const share = await openTable();
+    const ana = await seat(share.join, "Ana");
+    const b = await branchOf("x1");
+    const id = b.id ?? b.chat?.id;
+    const r = await ask(`/api/shares/${share.id}/chat`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: id }),
+    }, HOME);
+    expect(r.status).toBe(200);
+    expect((await stateFor(ana.cookie)).chat.id).toBe(id);
+    // And a guest's words now land in the branch the host is in.
+    await say(ana.cookie, "Over here.");
+    expect((db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND content = 'Over here.'").get(id) as any).n).toBe(1);
+  });
+
+  test("but never to a different story", async () => {
+    seed();
+    const t = Date.now();
+    db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at) VALUES ('other', 'c1', 'Other', ?, ?)").run(t, t);
+    const share = await openTable();
+    const r = await ask(`/api/shares/${share.id}/chat`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: "other" }),
+    }, HOME);
+    expect(r.status).toBe(400);
+  });
+
+  test("and a guest cannot move it", async () => {
+    seed();
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('x1', 'chat1', 'user', 'Hi', ?)").run(Date.now());
+    const share = await openTable();
+    const ana = await seat(share.join, "Ana");
+    const b = await branchOf("x1");
+    const r = await ask(`/api/shares/${share.id}/chat`, {
+      method: "PUT", headers: { "content-type": "application/json", cookie: ana.cookie },
+      body: JSON.stringify({ chat_id: b.id ?? b.chat?.id }),
+    }, AWAY);
+    expect(r.status).toBe(403);
   });
 });

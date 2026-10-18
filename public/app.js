@@ -1152,6 +1152,15 @@ async function openChat(id) {
   $("#chatMenuBtn").hidden = false;
   setMsgSelect(false);
   paintChatTitle();
+  // An open table follows the host to another branch of the same story.
+  if (!GUEST.on && TG.share && TG.share.chat_id !== id) {
+    api(`/shares/${TG.share.id}/chat`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: id }),
+    }).then((r) => {
+      if (r?.ok && TG.share) { TG.share.chat_id = r.chat_id; renderTogether(); toast("The table came with you to this branch."); }
+    }).catch(() => {});
+  }
   // Whether this chat's table is waiting on somebody else.
   hostTurnGate();
   // In here the bar is a name, not a sign. See paintModeSwitch.
@@ -10020,6 +10029,9 @@ function guestListen() {
       return;
     }
     if (evt.event === "rolled") { if (evt.thrown) showDie(evt.thrown); return; }
+    // The host moved the table to another branch: everything on screen is
+    // the old one's, so all of it is fetched again.
+    if (evt.event === "moved") { guestSync(); return; }
 
     if (evt.event !== "frame") return;
     // A generation frame: delta, then done.

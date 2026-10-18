@@ -1783,13 +1783,32 @@ api.post("/messages/:id/branch", (c) => {
 
   const newId = uid();
   const t = now();
+  /*
+   * Everything about the chat comes across, the way carrying on already did.
+   *
+   * This listed a handful of columns and left the rest behind — who is in the
+   * scene, which persona you are playing, where everyone is standing, the
+   * wallpaper, the sound, the campaign — so switching to a branch quietly
+   * switched all of those back to defaults: a group scene became a one-on-one
+   * with whoever started it, and the player became somebody else. Branching
+   * is "the same story, told again from here"; only what genuinely belongs
+   * to the moment is left out.
+   *
+   * The fight is the exception. It describes the end of the parent, and a
+   * branch from three exchanges before the wolves arrived must not open with
+   * them already mid-fight.
+   */
   db.query(
     `INSERT INTO chats (id, character_id, title, created_at, updated_at, parent_chat_id, branch_note,
-                        author_note, note_depth, auto_lore_book_id, auto_lore_asked, auto_lore_at,
-                        apocrypha)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                        author_note, note_depth, wallpaper, persona_id, is_group, auto_reply, scenario,
+                        location, fight, campaign, campaign_asked, accent, ambience,
+                        auto_lore_book_id, auto_lore_asked, auto_lore_at, apocrypha)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(newId, src.character_id, `${src.title} — branch`, t, t, src.id,
         (m.content ?? "").slice(0, 80), src.author_note ?? "", src.note_depth ?? 2,
+        src.wallpaper ?? "", src.persona_id ?? null, src.is_group ?? 0, src.auto_reply ?? 0,
+        src.scenario ?? "", src.location ?? "", "", src.campaign ?? "", src.campaign_asked ?? 0,
+        src.accent ?? "", src.ambience ?? "",
         // A branch is the same story told again from a fork, so it keeps its
         // parent's record-keeping. Without this, every branch asks where to
         // file its notes all over again — and branching is exactly the moment
@@ -1798,6 +1817,22 @@ api.post("/messages/:id/branch", (c) => {
         // And its place in the plan, as a copy: from here the two go their
         // own ways through the same book.
         src.apocrypha ?? "");
+
+  // The room — every member of a group, in order — and the people the
+  // narrator has introduced, who are part of the story so far.
+  const members = db.query(
+    "SELECT character_id, position, muted FROM chat_members WHERE chat_id = ? ORDER BY position",
+  ).all(src.id) as any[];
+  const addMember = db.query(
+    "INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES (?,?,?,?,?)",
+  );
+  const npcs = db.query("SELECT name, brief, avatar, created_at FROM npcs WHERE chat_id = ? AND deleted_at IS NULL")
+    .all(src.id) as any[];
+  const addNpc = db.query("INSERT INTO npcs (id, chat_id, name, brief, avatar, created_at) VALUES (?,?,?,?,?,?)");
+  db.transaction(() => {
+    for (const x of members) addMember.run(uid(), newId, x.character_id, x.position, x.muted ?? 0);
+    for (const n of npcs) addNpc.run(uid(), newId, n.name, n.brief, n.avatar, n.created_at);
+  })();
 
   /*
    * Lorebooks pinned to the chat come along too.
@@ -5798,6 +5833,41 @@ api.put("/shares/:id/turns", async (c) => {
 
   publishTurn(row.id);
   return c.json({ ok: true, turn: turnAt(shareOf(row.id)) });
+});
+
+/** The first chat a branch was cut from, however many branches deep. */
+function rootOf(chatId: string): string {
+  let id = chatId;
+  for (let i = 0; i < 200; i++) {
+    const row = db.query("SELECT parent_chat_id FROM chats WHERE id = ?").get(id) as any;
+    if (!row?.parent_chat_id) return id;
+    id = row.parent_chat_id;
+  }
+  return id;
+}
+
+/**
+ * Moving the table to another branch of the same story.
+ *
+ * A table is opened on one chat, and branching makes another. The host moving
+ * to the branch used to leave the guests behind on the old one: they kept
+ * talking into a chat nobody was reading, the host's copy stopped answering
+ * them because it was looking at something else, and the evening came apart.
+ * The table follows the host instead — only within one story, so a link to
+ * one game can never be turned into a seat at a different one.
+ */
+api.put("/shares/:id/chat", async (c) => {
+  const row = shareOf(c.req.param("id"));
+  if (!row || !row.open) return c.json({ error: "No such table." }, 404);
+  const { chat_id } = await c.req.json().catch(() => ({}));
+  const to = db.query("SELECT id FROM chats WHERE id = ? AND deleted_at IS NULL").get(String(chat_id ?? "")) as any;
+  if (!to) return c.json({ error: "That chat is not here." }, 404);
+  if (rootOf(to.id) !== rootOf(row.chat_id)) {
+    return c.json({ error: "A table can follow you between branches of its own story, not to another one." }, 400);
+  }
+  db.query("UPDATE shares SET chat_id = ? WHERE id = ?").run(to.id, row.id);
+  publish(row.id, "moved", { chat_id: to.id });
+  return c.json({ ok: true, chat_id: to.id });
 });
 
 api.delete("/shares/:id", (c) => {
