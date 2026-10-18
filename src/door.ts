@@ -81,6 +81,7 @@ export type DoorState = {
   url: string;
   /** Anything the tunnel said that we could not turn into an address. */
   trouble: string;
+  possible: boolean;
 };
 
 let child: ChildProcess | null = null;
@@ -88,8 +89,15 @@ let url = "";
 let trouble = "";
 let waiters: ((s: DoorState) => void)[] = [];
 
+/**
+ * Whether a door can be opened here at all. Inside the Android app there is no
+ * cloudflared to start and no way to install one, so offering the button
+ * there only ever produced a failure telling you to install it.
+ */
+export const doorPossible = () => process.platform !== "android";
+
 export function doorState(): DoorState {
-  return { running: !!child && !child.killed, url, trouble };
+  return { running: !!child && !child.killed, url, trouble, possible: doorPossible() };
 }
 
 function settle() {

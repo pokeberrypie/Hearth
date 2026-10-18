@@ -9203,6 +9203,15 @@ function renderDoor() {
   const btn = $("#tgDoor"), note = $("#tgDoorState");
   if (!btn || !note) return;
   const d = TG.door;
+  // On the phone: no tunnel to offer, so say what does work instead.
+  btn.hidden = d?.possible === false;
+  if (d?.possible === false) {
+    note.textContent = "A phone cannot open a door to the internet itself. Turn on "
+      + "“Answer the network directly” below: anyone on the same Wi-Fi can then join. "
+      + "For anyone further away, put the same VPN on both devices — Tailscale is free — "
+      + "and use this phone's VPN address.";
+    return;
+  }
   btn.textContent = d?.running ? "Close the door" : "Open the door";
   note.textContent = d?.running
     ? `Open at ${d.url}. Anyone with the link can sit down, so treat it like a door key.`
