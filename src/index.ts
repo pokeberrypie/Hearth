@@ -2847,6 +2847,44 @@ ${DICE_BRIEF}` : DICE_BRIEF;
   }
 
   /*
+   * Hands off the players, said where it is obeyed.
+   *
+   * The rule was already in the prompt — in the roster, at the top of the
+   * table's block, and in a preset tail that said "the player" in the singular
+   * and only existed when the table's own preset was on. A model reads the
+   * end of a long prompt as the instruction and the rest as background, so at
+   * a table with real people in it the narrator kept writing their lines and
+   * their moves, and the only thing that stopped it was a guided swipe — which
+   * lands exactly here. So this lands here every time, naming everybody, and
+   * the steer below still has the last word.
+   *
+   * Not when impersonating: that is the player asking to be written.
+   */
+  const players = (() => {
+    const names = [me.name];
+    if (openTable) {
+      for (const p of db.query("SELECT name FROM players WHERE share_id = ? ORDER BY created_at").all(openTable.id) as any[]) {
+        if (p.name && !names.includes(p.name)) names.push(p.name);
+      }
+    }
+    return names;
+  })();
+  if (mode !== "impersonate" && (s.mode === "tabletop" || players.length > 1)) {
+    const who = players.length > 1
+      ? `${players.slice(0, -1).join(", ")} and ${players[players.length - 1]} are played by real people`
+      : `${players[0]} is played by a real person`;
+    const handsOff =
+      `[${who}. Write only the narration and the people of the world. Never write what ` +
+      `${players.length > 1 ? "any of them" : "they"} say, do, decide, think or feel — not a line, ` +
+      `not a small action, not a reaction. When it comes to one of their moments, stop there and ` +
+      `leave it to them.]`;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === "user") lastMsg.content += `\n\n${handsOff}`;
+    else messages.push({ role: "user", content: handsOff });
+    note("Hands off the players", handsOff);
+  }
+
+  /*
    * The steer, last of all — after the transcript, after the table.
    *
    * It used to be appended to the system prompt, which is the tidier place and

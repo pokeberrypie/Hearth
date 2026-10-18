@@ -606,3 +606,41 @@ describe("branches", () => {
     expect(r.status).toBe(403);
   });
 });
+
+describe("the narrator keeps its hands off the players", () => {
+  const inspect = async (body: object = {}) =>
+    (await (await ask("/api/chats/chat1/inspect", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }, HOME)).json()) as any;
+
+  test("names everyone at the table, at the very end of what is sent", async () => {
+    seed();
+    db.query("INSERT INTO personas (id, name, description, is_active, created_at) VALUES ('p1', 'Bingus', '', 1, ?)").run(Date.now());
+    db.query("UPDATE chats SET persona_id = 'p1' WHERE id = 'chat1'").run();
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('x1', 'chat1', 'user', 'Hiss.', ?)").run(Date.now());
+    const share = await openTable();
+    await seat(share.join, "Dan");
+    const convo = (await inspect()).sections.find((x: any) => x.label === "Conversation").content as string;
+    const tail = convo.slice(-600);
+    expect(tail).toContain("Bingus and Dan are played by real people");
+    expect(tail).toContain("Never write what any of them say");
+  });
+
+  test("a steer still has the last word", async () => {
+    seed();
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('x1', 'chat1', 'user', 'Hiss.', ?)").run(Date.now());
+    const share = await openTable();
+    await seat(share.join, "Dan");
+    const convo = (await inspect({ guide: "Make it snow." })).sections.find((x: any) => x.label === "Conversation").content as string;
+    expect(convo.indexOf("played by real people")).toBeLessThan(convo.indexOf("Make it snow."));
+  });
+
+  test("but not when impersonating, which is the player asking to be written", async () => {
+    seed();
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('x1', 'chat1', 'user', 'Hiss.', ?)").run(Date.now());
+    const share = await openTable();
+    await seat(share.join, "Dan");
+    const all = JSON.stringify((await inspect({ mode: "impersonate" })).sections);
+    expect(all).not.toContain("played by real people");
+  });
+});
