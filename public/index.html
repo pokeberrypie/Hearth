@@ -821,19 +821,19 @@
       <!-- Was a page inside Settings. It is a daily-use surface, not configuration. -->
       <section data-panel="presets" class="panel" hidden>
         <header class="panelhead">
-          <h2>Presets<span class="panelcount" data-count-for="presetList"></span></h2>
+          <h2>Presets <span class="hearth-heading-flourish" aria-hidden="true">✦</span><span class="panelcount" data-count-for="presetList"></span></h2>
           <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
                   title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
           <div class="moremenu" hidden></div>
         </header>
         <!-- The four views of a preset, shared by both panels: three live in
-             this one, the Grimoire is the Regex panel. Either way in lands on
+             this one, the Regex is the Regex panel. Either way in lands on
              the same strip, so they read as one place. See wirePresetViews(). -->
         <nav class="pviews" aria-label="Preset views">
           <button type="button" data-pview="library">Library</button>
           <button type="button" data-pview="generation">Generation</button>
           <button type="button" data-pview="blocks">Prompt blocks</button>
-          <button type="button" data-pview="grimoire">Grimoire</button>
+          <button type="button" data-pview="grimoire">Regex</button>
         </nav>
 
         <!-- Shown only in tabletop mode with the built-in preset on. Naming the
@@ -845,8 +845,9 @@
           it; everything else on this page is still yours. Behaviour has the
           switch.</p>
 
+        <div class="hearth-workspace-intro" aria-hidden="true"><span class="hearth-ornament">✧ ── ✦ ── ✧</span><span class="hearth-workspace-name">The Preset Archive</span></div>
         <!-- ---- Library ---- -->
-        <div data-pview-pane="library">
+        <div data-pview-pane="library" class="hearth-preset-page"><div class="hearth-section-heading"><span class="hearth-kicker">I · THE COLLECTION</span><h3>Preset Library</h3><p>Choose a voice for the story, or preserve a new one.</p></div>
           <label>Active preset
             <select id="presetPick"></select>
           </label>
@@ -883,7 +884,7 @@
         </div>
 
         <!-- ---- Generation ---- -->
-        <div data-pview-pane="generation" hidden>
+        <div data-pview-pane="generation" class="hearth-preset-page" hidden><div class="hearth-section-heading"><span class="hearth-kicker">II · THE SETTINGS</span><h3>Generation</h3><p>Shape the pace, length and character of each reply.</p></div>
           <p class="hint" id="samplingSource"></p>
 
           <section class="gengroup">
@@ -964,7 +965,7 @@
         </div>
 
         <!-- ---- Prompt blocks ---- -->
-        <div data-pview-pane="blocks" hidden>
+        <div data-pview-pane="blocks" class="hearth-preset-page" hidden><div class="hearth-section-heading"><span class="hearth-kicker">III · THE INSTRUCTIONS</span><h3>Prompt Blocks</h3><p>Arrange the instructions that guide your story.</p></div>
           <label>Preset
             <select id="blocksPick"></select>
           </label>
@@ -985,30 +986,30 @@
         </div>
       </section>
 
-      <!-- The Regex Grimoire. Likewise something you reach for while writing. -->
+      <!-- The Regex. Likewise something you reach for while writing. -->
       <section data-panel="regex" class="panel" hidden>
         <header class="panelhead">
-          <h2>Regex Grimoire<span class="panelcount" data-count-for="regexList"></span></h2>
+          <h2>Regex<span class="panelcount" data-count-for="regexList"></span></h2>
           <button class="ico panelmore" hidden aria-haspopup="true" aria-expanded="false"
                   title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
           <div class="moremenu" hidden></div>
         </header>
         <!-- The four views of a preset, shared by both panels: three live in
-             this one, the Grimoire is the Regex panel. Either way in lands on
+             this one, the Regex is the Regex panel. Either way in lands on
              the same strip, so they read as one place. See wirePresetViews(). -->
         <nav class="pviews" aria-label="Preset views">
           <button type="button" data-pview="library">Library</button>
           <button type="button" data-pview="generation">Generation</button>
           <button type="button" data-pview="blocks">Prompt blocks</button>
-          <button type="button" data-pview="grimoire">Grimoire</button>
+          <button type="button" data-pview="grimoire">Regex</button>
         </nav>
 
-        <p class="hint">Find-and-replace spells over message text. <em>shown</em> changes what you
-          read, <em>sent</em> changes what the model gets. A preset's own spells rest while another
+        <p class="hint">Find-and-replace scripts over message text. <em>shown</em> changes what you
+          read, <em>sent</em> changes what the model gets. A preset's own scripts rest while another
           preset is in use.</p>
         <div class="searchrow">
           <svg viewBox="0 0 24 24" class="searchicon" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
-          <input type="search" id="regexSearch" placeholder="Search spells" autocomplete="off" aria-label="Search regex scripts">
+          <input type="search" id="regexSearch" placeholder="Search regex scripts" autocomplete="off" aria-label="Search regex scripts">
         </div>
         <div class="chips" id="regexFilter" role="tablist" aria-label="Show">
           <button type="button" data-filter="all" class="on">All</button>
@@ -1034,7 +1035,7 @@
         </div>
         <div id="regexList" class="list cardlist"></div>
         <input type="file" id="regexImport" accept=".json" multiple hidden>
-        <p class="hint" id="regexHint">A regex export, or a preset — its spells come across either way.</p>
+        <p class="hint" id="regexHint">Import a regex export or a preset; compatible scripts are included.</p>
       </section>
       <!-- Playing together. The host's side of it: open the chat you are in,
            send somebody the link, watch them arrive. The guest never sees this

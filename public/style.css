@@ -7459,6 +7459,110 @@ dialog.fulledit::before, dialog.fulledit::after { content: none; }
 .spellcard .meta code.s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.76rem; color: var(--lumiverse-text-hint); }
 /* A preset's name can be a sentence; on a chip it is a label, and the menu has it in full. */
 .chips.small i.owner { max-width: 13em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Hearth mobile preset editor: manuscript-inspired controls, preserved main rail. */
+.pviews { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.pviews button { min-width:0; min-height:48px; white-space:normal; overflow-wrap:break-word; }
+[data-panel="presets"] .presetname,
+[data-panel="presets"] .presetrow .name,
+[data-panel="presets"] .presetitem .name,
+[data-panel="presets"] .preset-card-title {
+  white-space:normal!important; overflow:visible!important; text-overflow:clip!important;
+  overflow-wrap:anywhere;
+}
+[data-panel="presets"] .presetrow,
+[data-panel="regex"] .regexrow { min-width:0; }
+[data-panel="presets"] .panelhead,
+[data-panel="regex"] .panelhead { border-bottom:1px solid rgba(194,149,78,.52); }
+[data-panel="presets"] .pviews,
+[data-panel="regex"] .pviews { border:1px solid rgba(194,149,78,.32); border-radius:12px; padding:6px; }
+[data-panel="presets"] [data-pview-pane],
+[data-panel="regex"] .list { min-width:0; }
+@media (max-width:650px) {
+  [data-panel="presets"] input, [data-panel="presets"] select,
+  [data-panel="regex"] input, [data-panel="regex"] select { max-width:100%; }
+  [data-panel="presets"] .pviews button, [data-panel="regex"] .pviews button { font-size:.95rem; }
+  [data-panel="presets"] .moremenu, [data-panel="regex"] .moremenu { max-height:70dvh; overflow-y:auto; }
+}
+
+/* Hearth Preset Archive — an original manuscript-style mobile treatment. */
+[data-panel="presets"],[data-panel="regex"] {
+ --archive-gold:#d6ad6e; --archive-dim:#a98a61; --archive-border:rgba(206,164,101,.29);
+ --archive-ink:#e9dfce;
+}
+[data-panel="presets"] .panelhead h2,[data-panel="regex"] .panelhead h2 {
+ font-family:var(--lumiverse-font-heading),"Cinzel",serif; letter-spacing:.055em; font-weight:500;
+}
+.hearth-heading-flourish { color:var(--archive-gold); font-size:.64em; vertical-align:middle; }
+[data-panel="presets"] .pviews,[data-panel="regex"] .pviews {
+ display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+ gap:9px!important; padding:12px!important; margin:12px 0 18px!important;
+ border:1px solid var(--archive-border)!important;border-radius:14px!important;
+ background:linear-gradient(155deg,rgba(104,75,42,.19),rgba(23,20,20,.26))!important;
+ box-shadow:inset 0 0 0 3px rgba(0,0,0,.12);
+}
+[data-panel="presets"] .pviews button,[data-panel="regex"] .pviews button {
+ display:flex;align-items:center;justify-content:center;min-height:51px;
+ padding:10px 8px!important; border:1px solid var(--archive-border)!important;
+ border-radius:9px!important; font-family:var(--lumiverse-font-heading),"Cinzel",serif!important;
+ letter-spacing:.02em;white-space:normal;overflow-wrap:anywhere;line-height:1.25;
+ background:rgba(10,10,12,.34)!important;color:#d8c9b2!important;
+}
+[data-panel="presets"] .pviews button.on,[data-panel="regex"] .pviews button.on {
+ color:#ffe5ad!important;border-color:rgba(239,188,103,.77)!important;
+ background:linear-gradient(160deg,rgba(134,95,46,.4),rgba(74,50,27,.28))!important;
+ box-shadow:inset 0 0 0 1px rgba(246,207,139,.17),0 0 13px rgba(174,119,54,.08);
+}
+.hearth-workspace-intro {display:flex;flex-direction:column;align-items:center;gap:4px;
+ padding:0 8px 15px;color:var(--archive-dim);text-align:center;}
+.hearth-ornament {font-size:14px;letter-spacing:.34em;color:var(--archive-gold);}
+.hearth-workspace-name {font-size:10px;letter-spacing:.12em;word-spacing:.28em;text-transform:uppercase;white-space:normal;text-align:center;}
+.hearth-preset-page {min-width:0;padding-bottom:24px;}
+.hearth-section-heading {text-align:center;margin:0 0 22px;padding:0 8px 16px;
+ border-bottom:1px solid var(--archive-border);}
+.hearth-section-heading .hearth-kicker {display:block;font-size:10px;letter-spacing:.24em;
+ text-transform:uppercase;color:var(--archive-gold);margin-bottom:9px;}
+.hearth-section-heading h3 {font-family:var(--lumiverse-font-display),"Marcellus SC",serif!important;
+ font-size:clamp(22px,6vw,29px)!important;font-weight:normal!important;
+ letter-spacing:.035em;margin:0 0 7px;color:#f0dec0;}
+.hearth-section-heading p {font-size:12px;color:#b8aa96;margin:0;line-height:1.55;}
+[data-panel="presets"] .gengroup {border:1px solid var(--archive-border);
+ border-radius:12px;padding:16px 14px;margin:0 0 13px;
+ background:linear-gradient(145deg,rgba(104,75,43,.12),rgba(0,0,0,.07));}
+[data-panel="presets"] .gengroup h3 {font-family:var(--lumiverse-font-display),"Marcellus SC",serif;
+ font-size:19px;font-weight:normal;color:#ebcc9c;letter-spacing:.035em;}
+[data-panel="presets"] .presetcard {border:1px solid var(--archive-border);
+ border-radius:12px;padding:14px;margin:11px 0 19px;background:rgba(127,89,48,.10);}
+[data-panel="presets"] .presetcard .pname {font-family:var(--lumiverse-font-display),"Marcellus SC",serif;
+ font-size:20px;overflow-wrap:anywhere;white-space:normal;}
+[data-panel="presets"] .pcard {border:1px solid var(--archive-border);
+ border-radius:11px;margin-bottom:8px;padding:11px 9px;min-height:63px;
+ background:rgba(106,74,40,.08);}
+[data-panel="presets"] .pcard.active {border-color:rgba(230,181,99,.72);
+ background:rgba(146,100,42,.17);}
+[data-panel="presets"] .pcard .t {font-family:var(--lumiverse-font-display),"Marcellus SC",serif;
+ font-size:16px;white-space:normal!important;overflow-wrap:anywhere;
+ text-overflow:clip!important;display:block;}
+[data-panel="presets"] .pcard .s {font-size:11px;line-height:1.5;
+ white-space:normal!important;overflow-wrap:anywhere;}
+[data-panel="presets"] .blocklist > * {border-color:var(--archive-border);}
+[data-panel="presets"] .savebar {padding:12px 0;}
+[data-panel="presets"] button:focus-visible,[data-panel="regex"] button:focus-visible {
+ outline:2px solid var(--archive-gold);outline-offset:2px;}
+@media(max-width:480px) {
+ [data-panel="presets"] .row {flex-wrap:wrap;}
+ [data-panel="presets"] .row>label {min-width:125px;flex:1;}
+ [data-panel="presets"] .pviews,[data-panel="regex"] .pviews {margin:8px 0 15px!important;}
+ [data-panel="presets"] .listbar {flex-wrap:wrap;gap:7px;}
+ [data-panel="presets"] input,[data-panel="presets"] select {max-width:100%;}
+}
+
+/* Preserve Hearth's bundled typography across the Presets workspace. */
+[data-panel="presets"], [data-panel="regex"] {font-family:var(--lumiverse-font-family),"EB Garamond",serif;}
+.hearth-workspace-name,.hearth-workspace-intro .hearth-workspace-name {font-family:var(--lumiverse-font-heading),"Cinzel",serif;letter-spacing:.1em;word-spacing:.2em;}
+.hearth-section-heading .hearth-kicker,[data-panel="presets"] .pviews button,[data-panel="regex"] .pviews button {font-family:var(--lumiverse-font-display),"Marcellus SC",serif!important;}
+[data-panel="presets"] input,[data-panel="presets"] select,[data-panel="presets"] textarea,[data-panel="presets"] button {font-family:var(--lumiverse-font-family),"EB Garamond",serif;}
+[data-panel="presets"] input[type="text"].regex-pattern,[data-panel="regex"] textarea,[data-panel="regex"] input[data-regex-pattern] {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;}
 /* The knob is placed against the track, not against the label around it.
    Against the label, the padding that makes a card's switch a decent target
    pushed the knob up and out of its track entirely. */

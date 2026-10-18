@@ -6176,7 +6176,7 @@ for (const [button, input] of [
 makeSelectable("presetList", "preset", "/presets/delete", refreshPresets, "preset");
 
 /**
- * The Regex Grimoire's library. A card says what a spell does and where it
+ * The Regex's library. A card says what a spell does and where it
  * lands: `shown` for the display, `sent` for the prompt, the depth window if it
  * has one — "from 6 back" is what makes a context cleanup a cleanup rather
  * than a way to delete the scene you are in — and who it belongs to. A
@@ -6474,7 +6474,7 @@ async function refreshPresets() {
 
 /*
  * The four views. Library, Generation and Prompt blocks are panes of the
- * Presets panel; the Grimoire is the Regex panel, which carries the same strip
+ * Presets panel; the Regex is the Regex panel, which carries the same strip
  * so the four read as one place whichever way you came in.
  */
 let presetView = "library";
@@ -6547,12 +6547,12 @@ function renderPresetPick() {
       bit("stream", d.stream === undefined ? undefined : d.stream === "0" ? "off" : "on") +
       bit("thinking", d.reasoning_effort) +
       (blocks.length ? `<span class="pstat"><em>blocks</em>${on} of ${blocks.length} on</span>` : "") +
-      (spells ? `<span class="pstat"><em>spells</em>${spells}</span>` : "") +
+      (spells ? `<span class="pstat"><em>regex</em>${spells}</span>` : "") +
     `</div>` +
     `<div class="prow">` +
       `<button class="ghost" data-go="generation">Generation</button>` +
       `<button class="ghost" data-go="blocks">Prompt blocks</button>` +
-      `<button class="ghost" data-go="grimoire">Spells</button>` +
+      `<button class="ghost" data-go="grimoire">Regex</button>` +
     `</div>`;
   card.onclick = (e) => {
     const go = e.target.closest("[data-go]")?.dataset.go;
@@ -6577,7 +6577,7 @@ async function usePreset(id) {
   rescript();
 }
 
-/** The Grimoire, narrowed to one preset's spells. */
+/** The Regex, narrowed to one preset's spells. */
 function showSpellsOf(p) {
   showPresetView("grimoire");
   regexFilter = "preset";
@@ -6616,7 +6616,7 @@ function renderPresetList() {
       d.temperature !== undefined && d.temperature !== "" ? `temp ${d.temperature}` : null,
       d.max_tokens !== undefined && d.max_tokens !== "" ? `${d.max_tokens} out` : null,
       blocks.length ? `${blocks.filter((b) => b.enabled).length}/${blocks.length} blocks` : null,
-      spells ? `${spells} spell${spells > 1 ? "s" : ""}` : null,
+      spells ? `${spells} regex script${spells > 1 ? "s" : ""}` : null,
       d.st ? "from SillyTavern" : null,
     ].filter(Boolean).join(" · ");
     row.innerHTML =
@@ -6639,7 +6639,7 @@ function presetMenu(anchor, p) {
   popMenu(anchor, [
     !p.is_active && { label: "Use this preset", icon: ICON.tick, run: () => usePreset(p.id) },
     { label: "Prompt blocks", icon: ICON.role, run: () => openBlocks(p) },
-    { label: "Spells", icon: ICON.code, run: () => showSpellsOf(p) },
+    { label: "Regex", icon: ICON.code, run: () => showSpellsOf(p) },
     { label: "Rename", icon: ICON.edit, run: async () => {
       const name = await askFor("Rename this preset", p.name);
       if (!name?.trim() || name.trim() === p.name) return;
