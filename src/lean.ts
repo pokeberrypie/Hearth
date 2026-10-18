@@ -44,7 +44,10 @@ export function withLean(fetch: Fetch): Fetch {
 }
 
 async function lean(req: Request, res: Response): Promise<Response> {
-  if (req.method !== "GET" || res.status !== 200 || !res.body) return res;
+  // Not `!res.body`: a response made from a file — which is how the installed
+  // app serves every page and script — reports no body until it is read, and
+  // checking it here quietly skipped everything the installed app sends.
+  if (req.method !== "GET" || res.status !== 200) return res;
   const type = res.headers.get("content-type") ?? "";
   if (/event-stream/i.test(type) || !TAGGED.test(type)) return res;
   if (res.headers.has("content-encoding")) return res;

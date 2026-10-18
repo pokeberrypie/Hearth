@@ -11,6 +11,8 @@ const big = "x".repeat(50_000);
 const serve = withLean((req) => {
   const path = new URL(req.url).pathname;
   if (path === "/app.js") return new Response(big, { headers: { "content-type": "text/javascript" } });
+  // How the installed app serves its pages: straight from a file.
+  if (path === "/fromfile.js") return new Response(Bun.file(new URL("./lean.ts", import.meta.url).pathname));
   if (path === "/fonts/a.woff2") return new Response(new Uint8Array(2000), { headers: { "content-type": "font/woff2" } });
   if (path === "/live") {
     return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("data: 1\n\n")); } }),
@@ -43,6 +45,12 @@ describe("lean responses", () => {
     const r = await get("/app.js", { "if-none-match": tag });
     expect(r.status).toBe(304);
     expect((await r.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  test("a page served straight from a file is compressed and tagged too", async () => {
+    const r = await get("/fromfile.js", { "accept-encoding": "gzip" });
+    expect(r.headers.get("etag")).toBeTruthy();
+    expect(r.headers.get("content-encoding")).toBe("gzip");
   });
 
   test("fonts may simply be kept", async () => {
