@@ -1,0 +1,60 @@
+name: Build Hearth v52 Android APK
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;26.1.10909125'
+      - name: Restore original signing keystore
+        env:
+          HEARTH_DEBUG_KEYSTORE_B64: ${{ secrets.HEARTH_DEBUG_KEYSTORE_B64 }}
+        run: |
+          test -n "$HEARTH_DEBUG_KEYSTORE_B64" || { echo 'Missing signing keystore secret'; exit 1; }
+          mkdir -p "$HOME/.android"
+          printf '%s' "$HEARTH_DEBUG_KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -F 'C2:7F:60:A5:2F:F1:1C:65:A6:B0:40:FC:3F:0F:3A:65:9C:00:DB:6E:EC:A3:94:D5:3D:D4:B1:71:8A:AD:E3:FF'
+      - name: Bundle mobile server and assets
+        run: |
+          cd mobile
+          npm ci
+          node build.mjs
+          mkdir -p android/app/src/main/assets
+          rm -rf android/app/src/main/assets/nodejs-project
+          cp -a dist/nodejs-project android/app/src/main/assets/nodejs-project
+          test -s android/app/src/main/assets/nodejs-project/main.js
+          test -s android/app/src/main/assets/nodejs-project/sql-wasm.wasm
+      - name: Assemble Android APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+      - name: Verify update identity and signature
+        run: |
+          APK=mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | grep -E "package: name='com.hearth.app'.*versionCode='52'"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK" | tee /tmp/hearth-signature.txt
+          grep -i 'c27f60a52ff11c65a6b040fc3f0f3a659c00db6eeca394d53dd4b1718aade3ff' /tmp/hearth-signature.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hearth-v52-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
