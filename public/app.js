@@ -8938,7 +8938,7 @@ $("#kitFile").onchange = async (e) => {
  * it is the thing everyone else is looking at. The guest's view is the same
  * app with the drawer taken away; there is no second client to keep in step.
  */
-const TG = { share: null, feed: null, answering: false, pending: false, door: null, host: null, chats: [] };
+const TG = { share: null, feed: null, answering: false, pending: false, door: null, relay: null, host: null, chats: [] };
 
 /**
  * The address to put in front of the link.
@@ -9208,8 +9208,9 @@ function renderDoor() {
   if (d?.possible === false) {
     note.textContent = "A phone cannot open a door to the internet itself. Turn on "
       + "“Answer the network directly” below: anyone on the same Wi-Fi can then join. "
-      + "For anyone further away, put the same VPN on both devices — Tailscale is free — "
-      + "and use this phone's VPN address.";
+      + "For anyone further away, a computer on this Wi-Fi running Hearth can open the door "
+      + "for you — in its Together, “Open a door for my phone”, with the address shown below — "
+      + "or put the same VPN on both devices; Tailscale is free.";
     return;
   }
   btn.textContent = d?.running ? "Close the door" : "Open the door";
@@ -9224,7 +9225,61 @@ async function refreshDoor() {
   TG.door = await api("/door").catch(() => null);
   renderDoor();
   renderTogether();
+  refreshRelay();
 }
+
+/**
+ * The door this computer holds open for a phone. Its address is not this
+ * machine's, so it never goes into this machine's own links; it is shown to
+ * be copied across to the phone, where it goes in "Use my own address".
+ */
+function renderRelay() {
+  const fold = $("#tgRelayFold");
+  if (!fold) return;
+  const r = TG.relay;
+  // Only where a tunnel can run at all, which is not on the phone.
+  fold.hidden = TG.door?.possible === false;
+  const btn = $("#tgRelay"), note = $("#tgRelayState");
+  btn.textContent = r?.running ? "Close the phone's door" : "Open a door to it";
+  $("#tgRelayTo").disabled = !!r?.running;
+  if (r?.to && !$("#tgRelayTo").value) $("#tgRelayTo").value = r.to;
+  $("#tgRelayLinkRow").hidden = !r?.url;
+  $("#tgRelayLink").value = r?.url || "";
+  note.textContent = r?.running && r.url
+    ? `Open to ${r.to}. On the phone, paste this into “Use my own address instead”, then copy `
+      + "its link and send that. It lasts while this computer and this Hearth stay on."
+    : r?.trouble
+      ? (/not installed|could not be started/.test(r.trouble) ? `${r.trouble} Install cloudflared and try again.` : r.trouble)
+      : "";
+}
+
+async function refreshRelay() {
+  TG.relay = await api("/relay").catch(() => null);
+  renderRelay();
+}
+
+$("#tgRelay").onclick = async () => {
+  const btn = $("#tgRelay");
+  if (TG.relay?.running) {
+    TG.relay = await api("/relay", { method: "DELETE" }).catch(() => null);
+  } else {
+    btn.disabled = true;
+    btn.textContent = "Opening…";
+    $("#tgRelayState").textContent = "Checking the phone, then asking Cloudflare for an address.";
+    TG.relay = await api("/relay", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to: $("#tgRelayTo").value }),
+    }).catch(() => null);
+    btn.disabled = false;
+  }
+  renderRelay();
+};
+$("#tgRelayCopy").onclick = async () => {
+  const v = $("#tgRelayLink").value;
+  if (!v) return;
+  try { await navigator.clipboard.writeText(v); toast("Copied."); }
+  catch { $("#tgRelayLink").select(); }
+};
 
 $("#tgDoor").onclick = async () => {
   const btn = $("#tgDoor");

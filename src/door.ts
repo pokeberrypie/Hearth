@@ -82,12 +82,9 @@ export type DoorState = {
   /** Anything the tunnel said that we could not turn into an address. */
   trouble: string;
   possible: boolean;
+  /** For a relay: the device on this network the tunnel leads to. */
+  to?: string;
 };
-
-let child: ChildProcess | null = null;
-let url = "";
-let trouble = "";
-let waiters: ((s: DoorState) => void)[] = [];
 
 /**
  * Whether a door can be opened here at all. Inside the Android app there is no
@@ -95,15 +92,6 @@ let waiters: ((s: DoorState) => void)[] = [];
  * there only ever produced a failure telling you to install it.
  */
 export const doorPossible = () => process.platform !== "android";
-
-export function doorState(): DoorState {
-  return { running: !!child && !child.killed, url, trouble, possible: doorPossible() };
-}
-
-function settle() {
-  const s = doorState();
-  for (const w of waiters.splice(0)) w(s);
-}
 
 /**
  * The address, out of the noise.
@@ -114,71 +102,187 @@ function settle() {
  */
 const TRYCF = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
 
-export async function openDoor(port: number): Promise<DoorState> {
-  if (child && !child.killed) return doorState();
-  url = "";
-  trouble = "";
+/**
+ * One tunnel, held open by this process. There are two: the door to this
+ * machine, and the relay — a door this machine holds open on behalf of
+ * another device on the same network that cannot run cloudflared itself,
+ * which is to say a phone. They are separate so that opening one for the
+ * phone never changes the address this machine's own tables are sent out on.
+ */
+function tunnel() {
+  let child: ChildProcess | null = null;
+  let url = "";
+  let trouble = "";
+  let to = "";
+  const waiters: ((s: DoorState) => void)[] = [];
 
-  const bin = findCloudflared();
-  if (!bin) {
-    trouble = "cloudflared is not installed.";
-    return doorState();
+  const state = (): DoorState =>
+    ({ running: !!child && !child.killed, url, trouble, possible: doorPossible(), ...(to ? { to } : {}) });
+  const settle = () => { const s = state(); for (const w of waiters.splice(0)) w(s); };
+
+  async function open(target: string, label = ""): Promise<DoorState> {
+    if (child && !child.killed) return state();
+    url = "";
+    trouble = "";
+    to = label;
+
+    const bin = findCloudflared();
+    if (!bin) {
+      trouble = "cloudflared is not installed.";
+      return state();
+    }
+
+    try {
+      const { spawn } = await import("node:child_process");
+      child = spawn(bin, ["tunnel", "--url", target], {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      }) as unknown as ChildProcess;
+    } catch {
+      child = null;
+      trouble = "cloudflared is not installed.";
+      return state();
+    }
+
+    const read = (buf: unknown) => {
+      const found = TRYCF.exec(String(buf));
+      if (found && !url) { url = found[0]; settle(); }
+    };
+    child.stdout?.on("data", read);
+    child.stderr?.on("data", read);
+
+    child.on("exit", () => {
+      // Only a surprise if we had not been told to shut it.
+      if (!url) trouble = trouble || "The tunnel stopped before it gave an address.";
+      child = null;
+      url = "";
+      settle();
+    });
+    child.on("error", () => {
+      child = null;
+      trouble = "cloudflared could not be started.";
+      settle();
+    });
+
+    // A quick tunnel is usually up in two or three seconds; ten is patience.
+    return await new Promise<DoorState>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!url) trouble = trouble || "The tunnel did not give an address in time.";
+        resolve(state());
+      }, 10_000);
+      waiters.push((s) => { clearTimeout(timer); resolve(s); });
+    });
   }
 
-  try {
-    const { spawn } = await import("node:child_process");
-    child = spawn(bin, ["tunnel", "--url", `http://localhost:${port}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    }) as unknown as ChildProcess;
-  } catch {
-    child = null;
-    trouble = "cloudflared is not installed.";
-    return doorState();
-  }
-
-  const read = (buf: unknown) => {
-    const text = String(buf);
-    const found = TRYCF.exec(text);
-    if (found && !url) { url = found[0]; settle(); }
-  };
-  child.stdout?.on("data", read);
-  child.stderr?.on("data", read);
-
-  child.on("exit", () => {
-    // Only a surprise if we had not been told to shut it.
-    if (!url) trouble = trouble || "The tunnel stopped before it gave an address.";
+  function close(): DoorState {
+    const c = child;
     child = null;
     url = "";
-    settle();
-  });
-  child.on("error", () => {
-    child = null;
-    trouble = "cloudflared could not be started.";
-    settle();
-  });
+    trouble = "";
+    to = "";
+    try { c?.kill(); } catch {}
+    return state();
+  }
 
-  // A quick tunnel is usually up in two or three seconds; ten is patience.
-  return await new Promise<DoorState>((resolve) => {
-    const timer = setTimeout(() => {
-      if (!url) trouble = trouble || "The tunnel did not give an address in time.";
-      resolve(doorState());
-    }, 10_000);
-    waiters.push((s) => { clearTimeout(timer); resolve(s); });
-  });
+  /** For when something checked before opening found a reason not to. */
+  function refuse(why: string, label = ""): DoorState {
+    trouble = why;
+    to = label;
+    return state();
+  }
+
+  // A tunnel is a thing this process is holding open. If the process goes, it
+  // goes too, rather than being left running with nothing behind it.
+  for (const sig of ["exit", "SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => { try { child?.kill(); } catch {} });
+  }
+
+  return { open, close, state, refuse };
 }
 
-export function closeDoor(): DoorState {
-  const c = child;
-  child = null;
-  url = "";
-  trouble = "";
-  try { c?.kill(); } catch {}
-  return doorState();
+const door = tunnel();
+const relay = tunnel();
+
+export const doorState = door.state;
+export const openDoor = (port: number) => door.open(`http://localhost:${port}`);
+export const closeDoor = door.close;
+
+/*
+ * The relay: a door for a phone.
+ *
+ * Deliberately narrow, like the door. It leads only to an address on this
+ * network — a home or VPN range, never the internet at large — and only
+ * after that address has answered as a Hearth guest entrance. Without those
+ * two checks this would be a button that publishes anything on the LAN, a
+ * router's admin page included, to anybody who learns the link.
+ */
+
+/** "192.168.1.23:7871", or with http:// in front, into its parts — or null. */
+export function parseRelayTarget(raw: string): { host: string; port: number } | null {
+  const text = String(raw ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const m = text.match(/^([a-z0-9.-]+):(\d{1,5})$/i);
+  if (!m) return null;
+  const port = Number(m[2]);
+  if (!(port > 0 && port < 65536)) return null;
+  return { host: m[1].toLowerCase(), port };
 }
 
-// A tunnel is a thing this process is holding open. If the process goes, it
-// goes too, rather than being left running with nothing behind it.
-for (const sig of ["exit", "SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => { try { child?.kill(); } catch {} });
+/** A home network, a link-local address, or a VPN's — the places a phone sits beside you. */
+export function isNearby(host: string): boolean {
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (v4.slice(1).some((x) => Number(x) > 255)) return false;
+    return a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127);   // Tailscale and other carrier-grade VPN ranges
+  }
+  // Names a home network or a tailnet gives devices.
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.(local|lan|home\.arpa|ts\.net)$/.test(host);
+}
+
+/**
+ * Whether what is at that address is a Hearth's guest entrance: the page is
+ * Hearth's, and the library behind it is shut to somebody with no key. The
+ * second half matters as much as the first — a Hearth whose own front door
+ * is open would hand the whole library to anyone with the tunnel's link.
+ */
+export async function looksLikeGuestDoor(host: string, port: number): Promise<string | null> {
+  const base = `http://${host}:${port}`;
+  const get = async (path: string) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 4000);
+    try { return await fetch(base + path, { signal: ctl.signal, redirect: "manual" }); }
+    finally { clearTimeout(timer); }
+  };
+  let page: Response;
+  try { page = await get("/"); } catch {
+    return `Nothing answered at ${host}:${port}. Is "Answer the network directly" on there, and is this computer on the same Wi-Fi?`;
+  }
+  const html = await page.text().catch(() => "");
+  if (!page.ok || !/<title>[^<]*Hearth/i.test(html)) return `${host}:${port} is not a Hearth.`;
+  let lib: Response;
+  try { lib = await get("/api/settings"); } catch { return `${host}:${port} stopped answering.`; }
+  if (lib.status !== 401 && lib.status !== 403) {
+    return `${host}:${port} is a Hearth with its library open to anybody. Use its guest address — the one Together shows under "Answer the network directly".`;
+  }
+  return null;
+}
+
+export const relayState = relay.state;
+export const closeRelay = relay.close;
+
+export async function openRelay(raw: string): Promise<DoorState> {
+  if (!doorPossible()) return relay.refuse("A phone cannot open a door for another device.");
+  const t = parseRelayTarget(raw);
+  if (!t) return relay.refuse("Give the address as it is shown there, like 192.168.1.23:7871.");
+  const label = `${t.host}:${t.port}`;
+  if (!isNearby(t.host)) {
+    return relay.refuse("Only a device on this network or your VPN — an address like 192.168.x.x, 10.x.x.x or Tailscale's 100.x.x.x.", label);
+  }
+  const why = await looksLikeGuestDoor(t.host, t.port);
+  if (why) return relay.refuse(why, label);
+  return relay.open(`http://${t.host}:${t.port}`, label);
 }

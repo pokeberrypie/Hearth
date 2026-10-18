@@ -1084,6 +1084,24 @@
           <label class="check"><input type="checkbox" id="tgHost">
             Answer the network directly</label>
           <p class="hint" id="tgHostState">Off. Nothing outside this device can reach it.</p>
+          <!-- For a phone on this network, which cannot open a door of its
+               own. Only on a computer; see renderRelay(). -->
+          <details class="fold" id="tgRelayFold" hidden>
+            <summary>Open a door for my phone</summary>
+            <p class="hint">Your phone cannot run a tunnel, but this computer can run one to it.
+              On the phone, in Together, turn on “Answer the network directly” and type the
+              address it shows here.</p>
+            <label>The phone's address
+              <input type="text" id="tgRelayTo" placeholder="192.168.1.23:7871" autocomplete="off"
+                     spellcheck="false" autocapitalize="off" inputmode="url">
+            </label>
+            <button class="solid wide" id="tgRelay">Open a door to it</button>
+            <p class="hint" id="tgRelayState"></p>
+            <div class="linkrow" id="tgRelayLinkRow" hidden>
+              <input type="text" id="tgRelayLink" readonly aria-label="The public address for the phone">
+              <button class="ico" id="tgRelayCopy" title="Copy the address" aria-label="Copy the address"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 6.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1.5"/></svg></button>
+            </div>
+          </details>
           <details class="fold">
             <summary>Use my own address instead</summary>
             <label>Address

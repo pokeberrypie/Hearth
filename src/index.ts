@@ -34,7 +34,7 @@ import { bookIsUsable, seedFromBook } from "./frombook";
 import { readPassport, writePassport } from "./passport";
 import { soundFor, wallpaperFor } from "./scenery";
 import { applyRace, looksWritten as kitWritten, normaliseKit, raceForPrompt, type Kit } from "./kits";
-import { closeDoor, doorState, openDoor } from "./door";
+import { closeDoor, closeRelay, doorState, openDoor, openRelay, relayState } from "./door";
 import { hostingState, setHosting } from "./hosting";
 import {
   clearRoom, guestMayTouch, isLoopback, newToken, publicPlayer, publish, sameToken, subscribe,
@@ -5850,6 +5850,19 @@ api.post("/door", async (c) => {
 });
 
 api.delete("/door", (c) => c.json(closeDoor()));
+
+/*
+ * The relay: this machine holding a door open for another device on its
+ * network — a phone, which has no tunnel of its own. Host-only like the door;
+ * door.ts checks the address is nearby and is a Hearth's guest entrance
+ * before anything is opened.
+ */
+api.get("/relay", (c) => c.json(relayState()));
+api.post("/relay", async (c) => {
+  const { to } = await c.req.json().catch(() => ({}));
+  return c.json(await openRelay(String(to ?? "")));
+});
+api.delete("/relay", (c) => c.json(closeRelay()));
 
 // ---- the guest's half -----------------------------------------------------
 
