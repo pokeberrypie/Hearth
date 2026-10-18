@@ -7459,3 +7459,7 @@ dialog.fulledit::before, dialog.fulledit::after { content: none; }
 .spellcard .meta code.s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.76rem; color: var(--lumiverse-text-hint); }
 /* A preset's name can be a sentence; on a chip it is a label, and the menu has it in full. */
 .chips.small i.owner { max-width: 13em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The knob is placed against the track, not against the label around it.
+   Against the label, the padding that makes a card's switch a decent target
+   pushed the knob up and out of its track entirely. */
+.switch span { position: relative; }

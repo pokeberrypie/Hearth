@@ -6309,11 +6309,30 @@ async function assignScripts(ids) {
   rescript();
 }
 
-/** A changed spell should change the thread already on screen. */
+/**
+ * A changed spell should change the thread already on screen — redrawn where
+ * it stands. Reopening the chat did that too, and also closed the drawer and
+ * jumped to the newest message, so on a phone every switch flipped in this
+ * panel threw you out of it.
+ */
 let rescriptTimer = null;
 function rescript() {
   clearTimeout(rescriptTimer);
-  rescriptTimer = setTimeout(() => { if (S.chatId) openChat(S.chatId); }, 300);
+  rescriptTimer = setTimeout(rethread, 300);
+}
+async function rethread() {
+  const id = S.chatId;
+  // A reply still arriving owns its own message; the next change redraws it.
+  if (!id || S.generating) return;
+  const got = await api("/chats/" + id).catch(() => null);
+  if (!got?.messages || S.chatId !== id || S.generating) return;
+  const scroller = $("#scroll");
+  const at = scroller?.scrollTop ?? 0;
+  const t = $("#thread");
+  t.innerHTML = "";
+  got.messages.forEach((m, i) => t.appendChild(messageEl(m, got.messages.length - 1 - i)));
+  markCutoff();
+  if (scroller) scroller.scrollTop = at;
 }
 
 $("#regexSearch").oninput = renderRegexList;
@@ -6440,6 +6459,8 @@ function showPresetView(view) {
     if (view === "blocks") { renderBlocksPick(); if (!blocksDirty) loadBlocks(); }
     $('[data-panel="presets"]').scrollTop = 0;
   }
+  // Reached from outside the drawer too, so bring the drawer with it.
+  if (!panelShowing()) showPanel();
   paintPresetViews();
 }
 
@@ -7326,14 +7347,24 @@ function popMenu(anchor, items) {
   m.style.top = `${below ? r.bottom + 4 : Math.max(8, r.top - h - 4)}px`;
   m.style.right = `${Math.max(8, innerWidth - r.right)}px`;
   m.querySelector("button")?.focus({ preventScroll: true });
+  popOpenedAt = performance.now();
   setTimeout(() => addEventListener("click", closePopMenu, { once: true }));
 }
+let popOpenedAt = 0;
 function closePopMenu() {
   for (const m of document.querySelectorAll(".popmenu")) m.remove();
 }
 addEventListener("keydown", (e) => { if (e.key === "Escape") closePopMenu(); });
 addEventListener("resize", closePopMenu);
-document.addEventListener("scroll", closePopMenu, true);
+/*
+ * A scroll moves the button out from under its menu, so the menu goes. But
+ * not one that was already under way: on a phone the list is often still
+ * settling from a flick when the ⋯ is tapped, and that tail end of a scroll
+ * was shutting the menu the instant it opened.
+ */
+document.addEventListener("scroll", () => {
+  if (performance.now() - popOpenedAt > 400) closePopMenu();
+}, true);
 
 /** Pick one of several. Resolves to the chosen value, or null if cancelled. */
 function choose(title, options) {
