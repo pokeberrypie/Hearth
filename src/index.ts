@@ -53,12 +53,18 @@ import { listModels } from "./models";
 import { readZip, planBackup, eachZipEntry, type Entry } from "./backup";
 import { listDir, inspect, collect, places, isWanted } from "./localfs";
 import { normaliseBook, normaliseEntry, activate, place, type LoreEntry } from "./lore";
-import { PRESET_FIELDS, DEFAULT_BLOCKS, fromSillyTavern, normaliseBlocks, type PromptBlock } from "./presets";
+import {
+  PRESET_FIELDS, DEFAULT_BLOCKS, fromHearth, fromSillyTavern, isHearthPreset, keptOnly, normaliseBlocks,
+  toSillyTavernPreset, type PresetData, type PromptBlock,
+} from "./presets";
 import { TABLE_PRESET, tablePresetOn } from "./tablepreset";
 import { WRITE_SYSTEM, looksWritten, parseWritten, writePrompt } from "./campaignwrite";
 import { CAMPAIGNS, campaignById, campaignForPrompt, dreamCampaign, normaliseCampaign, openingBrief,
          type Campaign } from "./campaigns";
-import { PLACEMENT, applyScripts, normaliseScript, type RegexScript } from "./regex";
+import {
+  PLACEMENT, RUNS_HERE, applies, applyScripts, compileError, matchesOf, normaliseScript, runScript,
+  toSillyTavern as scriptToSillyTavern, type RegexScript,
+} from "./regex";
 
 const DATA = process.env.DATA_DIR ?? "./data";
 const UPLOADS = join(DATA, "uploads");
@@ -1358,9 +1364,10 @@ api.post("/import/settings", async (c) => {
     const { name, data } = fromSillyTavern(oai);
     const label = oai.preset_settings_openai || name;
     if (Object.keys(data).length) {
+      const pid = uid();
       db.query("INSERT INTO presets (id, name, data, is_active, created_at) VALUES (?,?,?,?,?)")
-        .run(uid(), label, JSON.stringify(data), 0, now());
-      importScriptsFrom(oai, label);
+        .run(pid, label, JSON.stringify(data), 0, now());
+      importScriptsFrom(oai, label, pid);
       preset = label;
     }
   }
@@ -2521,7 +2528,8 @@ export function assemble(
    * every turn. Display-side scripts are the browser's business; the model
    * never sees them, and this never touches the stored rows.
    */
-  const scripts = liveScripts();
+  const scripts = liveScripts().filter((r) => r.active);
+  const names = { char: char.name, user: me.name };
   if (scripts.some((r) => r.enabled && r.prompt)) {
     const last = history.length - 1;
     history = history.map((h, i) => ({
@@ -2532,6 +2540,7 @@ export function assemble(
         "prompt",
         h.role === "user" ? PLACEMENT.userInput : PLACEMENT.aiOutput,
         last - i,
+        names,
       ),
     }));
   }
@@ -3024,9 +3033,14 @@ api.post("/import/persona-files", async (c) => {
 api.get("/presets/:id/export", (c) => {
   const p = db.query("SELECT * FROM presets WHERE id = ?").get(c.req.param("id")) as any;
   if (!p) return c.json({ error: "Preset not found." }, 404);
-  let data = {};
+  let data: PresetData = {};
   try { data = JSON.parse(p.data); } catch {}
-  return download(`${p.name}.preset.json`, { hearth_preset: 1, name: p.name, ...data });
+  // SillyTavern's shape by default, so the file opens where most presets are
+  // made; ?format=hearth for Hearth's own, which is what a Hearth backup reads.
+  if (c.req.query("format") === "hearth") {
+    return download(`${p.name}.preset.json`, { hearth_preset: 1, name: p.name, ...data });
+  }
+  return download(`${p.name}.json`, toSillyTavernPreset(data, presetScripts(p.id)));
 });
 
 api.get("/lorebooks/:id/export", (c) => {
@@ -3547,36 +3561,86 @@ api.get("/chats/:id/lore", (c) => {
 
 // ---- regex scripts --------------------------------------------------------
 
+/** A script as the API hands it out: where it lives, and whether it is running now. */
+type LiveScript = RegexScript & { presetId: string | null; presetName: string; active: boolean; position: number };
+
+/**
+ * The preset whose scripts are live. None while the table's built-in preset is
+ * on, since that preset has no scripts and a story preset's scripts are aimed
+ * at a story's output.
+ */
+function activePresetId(): string | null {
+  if (tablePresetOn(getSettings())) return null;
+  const p = db.query("SELECT id FROM presets WHERE is_active = 1 AND deleted_at IS NULL LIMIT 1").get() as
+    | { id: string } | undefined;
+  return p?.id ?? null;
+}
+
 /**
  * Every live script, in list order. Read on each assembly rather than cached:
  * a script you have just switched off should stop applying to the next reply,
  * not to the one after a restart.
+ *
+ * `active` is whether it runs at all right now: shared scripts always do, and
+ * a preset's own only while that preset is the one in use. Switching presets
+ * therefore brings each one's scripts with it without anything being copied
+ * or toggled — a script's own on/off switch is left exactly as the person set
+ * it.
  */
-function liveScripts(): RegexScript[] {
+function liveScripts(): LiveScript[] {
   const rows = db
-    .query("SELECT * FROM regex_scripts WHERE deleted_at IS NULL ORDER BY position, created_at")
+    .query(`SELECT r.*, p.name AS preset_name, p.deleted_at AS preset_gone FROM regex_scripts r
+            LEFT JOIN presets p ON p.id = r.preset_id
+            WHERE r.deleted_at IS NULL ORDER BY r.position, r.created_at`)
     .all() as any[];
+  const current = activePresetId();
   return rows.flatMap((r) => {
     try {
-      return [{ ...normaliseScript(JSON.parse(r.script), r.source), id: r.id, enabled: !!r.enabled }];
+      return [{
+        ...normaliseScript(JSON.parse(r.script), r.source),
+        id: r.id,
+        enabled: !!r.enabled,
+        presetId: r.preset_id ?? null,
+        presetName: r.preset_id ? String(r.preset_name ?? "") : "",
+        active: !r.preset_id || (r.preset_id === current && !r.preset_gone),
+        position: r.position,
+      }];
     } catch {
       return [];
     }
   });
 }
 
-/** Stores one, keeping SillyTavern's own id so a re-import updates in place. */
-function saveScript(raw: any, source: string, position: number) {
-  const script = normaliseScript(raw, source);
-  const existing = db.query("SELECT id FROM regex_scripts WHERE id = ?").get(script.id) as any;
-  if (existing) {
-    db.query("UPDATE regex_scripts SET name = ?, script = ?, source = ?, deleted_at = NULL WHERE id = ?")
-      .run(script.name, JSON.stringify(script), source, script.id);
-  } else {
-    db.query(
-      "INSERT INTO regex_scripts (id, name, script, enabled, source, position, created_at) VALUES (?,?,?,?,?,?,?)",
-    ).run(script.id, script.name, JSON.stringify(script), script.enabled ? 1 : 0, source, position, now());
+const nextScriptPosition = () =>
+  ((db.query("SELECT MAX(position) AS n FROM regex_scripts WHERE deleted_at IS NULL").get() as any)?.n ?? -1) + 1;
+
+/**
+ * Stores one, keeping SillyTavern's own id so a re-import updates in place.
+ *
+ * With a preset, the script is bound to it — unless the same script is
+ * already here and shared, in which case it stays shared: binding it as well
+ * would leave it running twice whenever that preset is on. If it is already
+ * bound to some other preset that is still around, the newcomer is a copy of
+ * its own rather than a theft from the first.
+ */
+function saveScript(raw: any, source: string, position: number, presetId: string | null = null) {
+  let script = normaliseScript(raw, source);
+  const existing = db.query(
+    `SELECT r.id, r.preset_id, r.deleted_at, p.deleted_at AS preset_gone FROM regex_scripts r
+     LEFT JOIN presets p ON p.id = r.preset_id WHERE r.id = ?`,
+  ).get(script.id) as any;
+  const elsewhere = existing && !existing.deleted_at && existing.preset_id && existing.preset_id !== presetId &&
+    !existing.preset_gone;
+  if (existing && !elsewhere) {
+    const keepShared = !existing.deleted_at && !existing.preset_id;
+    db.query("UPDATE regex_scripts SET name = ?, script = ?, source = ?, preset_id = ?, deleted_at = NULL WHERE id = ?")
+      .run(script.name, JSON.stringify(script), source, keepShared ? null : presetId, script.id);
+    return script;
   }
+  if (elsewhere) script = { ...script, id: crypto.randomUUID() };
+  db.query(
+    "INSERT INTO regex_scripts (id, name, script, enabled, source, position, created_at, preset_id) VALUES (?,?,?,?,?,?,?,?)",
+  ).run(script.id, script.name, JSON.stringify(script), script.enabled ? 1 : 0, source, position, now(), presetId);
   return script;
 }
 
@@ -3584,14 +3648,20 @@ function saveScript(raw: any, source: string, position: number) {
  * Pulls any regex scripts a preset carries. DEUS EX MACHINA and its kind ship
  * sixty of them inside `extensions.regex_scripts`, and half the preset does
  * not work without them — importing the preset and silently dropping them is
- * how you get a preset that "does nothing".
+ * how you get a preset that "does nothing". They come in bound to the preset
+ * they arrived with.
  */
-function importScriptsFrom(json: any, source: string): number {
+function importScriptsFrom(json: any, source: string, presetId: string | null = null): number {
   const list = json?.extensions?.regex_scripts ?? json?.regex_scripts;
   if (!Array.isArray(list) || !list.length) return 0;
-  const base = (db.query("SELECT COUNT(*) AS n FROM regex_scripts WHERE deleted_at IS NULL").get() as any).n;
-  list.forEach((r: any, i: number) => saveScript(r, source, base + i));
+  const base = nextScriptPosition();
+  list.forEach((r: any, i: number) => saveScript(r, source, base + i, presetId));
   return list.length;
+}
+
+/** A preset's own scripts, in SillyTavern's shape, for its export. */
+function presetScripts(presetId: string): Record<string, unknown>[] {
+  return liveScripts().filter((r) => r.presetId === presetId).map(scriptToSillyTavern);
 }
 
 /* ---- extensions -------------------------------------------------------------
@@ -4605,10 +4675,19 @@ api.post("/extensions/delete", async (c) => {
 
 api.get("/regex", (c) => c.json(liveScripts()));
 
+/** Which preset, if any, a request wants a script bound to; checked, so a typo cannot orphan one. */
+function presetFor(v: unknown): { ok: true; id: string | null } | { ok: false } {
+  if (v === null || v === undefined || v === "") return { ok: true, id: null };
+  const row = db.query("SELECT id FROM presets WHERE id = ? AND deleted_at IS NULL").get(String(v)) as any;
+  return row ? { ok: true, id: row.id } : { ok: false };
+}
+
 /** Import: one script, an array, or anything with `regex_scripts` inside it. */
 api.post("/regex/import", async (c) => {
   const body = await c.req.json().catch(() => null);
   const source = String((body as any)?.source ?? "").trim();
+  const owner = presetFor((body as any)?.presetId);
+  if (!owner.ok) return c.json({ error: "That preset no longer exists." }, 400);
   const raw = (body as any)?.scripts ?? body;
   const list: any[] = Array.isArray(raw)
     ? raw
@@ -4617,9 +4696,158 @@ api.post("/regex/import", async (c) => {
     : raw && typeof raw === "object" ? [raw] : [];
   if (!list.length) return c.json({ error: "No regex scripts in that file." }, 400);
 
-  const base = (db.query("SELECT COUNT(*) AS n FROM regex_scripts WHERE deleted_at IS NULL").get() as any).n;
-  list.forEach((r, i) => saveScript(r, source, base + i));
+  const base = nextScriptPosition();
+  list.forEach((r, i) => saveScript(r, source, base + i, owner.id));
   return c.json({ imported: list.length });
+});
+
+/**
+ * A new script, or an edited one. The pattern is compiled before anything is
+ * written: a script that cannot compile does nothing at all when it runs,
+ * silently, and the place to find that out is the editor, not a chat that
+ * looks wrong a week later.
+ */
+function writeScript(id: string | null, body: any): Response {
+  const owner = presetFor(body?.presetId);
+  if (!owner.ok) return Response.json({ error: "That preset no longer exists." }, { status: 400 });
+  const script = normaliseScript({ ...body, id: id ?? body?.id ?? crypto.randomUUID() }, String(body?.source ?? ""));
+  if (!script.name.trim()) return Response.json({ error: "A script needs a name." }, { status: 400 });
+  const bad = compileError(script.find);
+  if (bad) return Response.json({ error: `The find pattern does not compile: ${bad}` }, { status: 400 });
+  if (script.minDepth !== null && script.maxDepth !== null && script.minDepth > script.maxDepth) {
+    return Response.json({ error: "Minimum depth is deeper than maximum depth, so the script could never run." }, { status: 400 });
+  }
+  if (id) {
+    const row = db.query("SELECT id FROM regex_scripts WHERE id = ? AND deleted_at IS NULL").get(id);
+    if (!row) return Response.json({ error: "Script not found." }, { status: 404 });
+    db.query("UPDATE regex_scripts SET name = ?, script = ?, enabled = ?, source = ?, preset_id = ? WHERE id = ?")
+      .run(script.name, JSON.stringify(script), script.enabled ? 1 : 0, script.source, owner.id, id);
+  } else {
+    if (db.query("SELECT id FROM regex_scripts WHERE id = ?").get(script.id)) script.id = crypto.randomUUID();
+    db.query(
+      "INSERT INTO regex_scripts (id, name, script, enabled, source, position, created_at, preset_id) VALUES (?,?,?,?,?,?,?,?)",
+    ).run(script.id, script.name, JSON.stringify(script), script.enabled ? 1 : 0, script.source,
+          nextScriptPosition(), now(), owner.id);
+  }
+  return Response.json(liveScripts().find((r) => r.id === script.id) ?? null);
+}
+
+api.post("/regex", async (c) => writeScript(null, await c.req.json().catch(() => ({}))));
+api.put("/regex/:id", async (c) => writeScript(c.req.param("id"), await c.req.json().catch(() => ({}))));
+
+/** A copy placed straight after the original, switched off so it cannot run twice by surprise. */
+api.post("/regex/:id/duplicate", (c) => {
+  const src = liveScripts().find((r) => r.id === c.req.param("id"));
+  if (!src) return c.json({ error: "Script not found." }, 404);
+  const id = crypto.randomUUID();
+  const copy = { ...src, id, name: `${src.name} (copy)`, enabled: false };
+  db.transaction(() => {
+    db.query("UPDATE regex_scripts SET position = position + 1 WHERE deleted_at IS NULL AND position > ?").run(src.position);
+    db.query(
+      "INSERT INTO regex_scripts (id, name, script, enabled, source, position, created_at, preset_id) VALUES (?,?,?,?,?,?,?,?)",
+    ).run(id, copy.name, JSON.stringify(normaliseScript(copy, src.source)), 0, src.source, src.position + 1, now(), src.presetId);
+  })();
+  return c.json(liveScripts().find((r) => r.id === id));
+});
+
+/** The whole order at once. Scripts run in this order, so it is the order that matters. */
+api.post("/regex/reorder", async (c) => {
+  const { ids } = await c.req.json().catch(() => ({ ids: [] }));
+  const list: string[] = Array.isArray(ids) ? ids.filter((x) => typeof x === "string") : [];
+  if (!list.length) return c.json({ error: "Nothing to order." }, 400);
+  // Anything the client did not mention keeps its relative place, after the rest.
+  const rest = liveScripts().map((r) => r.id).filter((id) => !list.includes(id));
+  const stmt = db.query("UPDATE regex_scripts SET position = ? WHERE id = ?");
+  db.transaction(() => { [...list, ...rest].forEach((id, i) => stmt.run(i, id)); })();
+  return c.json({ ok: true });
+});
+
+/** Switch several on or off together. */
+api.post("/regex/enable", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const list: string[] = Array.isArray(b?.ids) ? b.ids.filter((x: unknown) => typeof x === "string") : [];
+  if (!list.length) return c.json({ error: "Nothing chosen." }, 400);
+  const stmt = db.query("UPDATE regex_scripts SET enabled = ? WHERE id = ?");
+  db.transaction(() => { for (const id of list) stmt.run(b.enabled ? 1 : 0, id); })();
+  return c.json({ changed: list.length });
+});
+
+/** Move several to a preset, or make them shared (`presetId: null`). */
+api.post("/regex/assign", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const list: string[] = Array.isArray(b?.ids) ? b.ids.filter((x: unknown) => typeof x === "string") : [];
+  if (!list.length) return c.json({ error: "Nothing chosen." }, 400);
+  const owner = presetFor(b?.presetId);
+  if (!owner.ok) return c.json({ error: "That preset no longer exists." }, 400);
+  const stmt = db.query("UPDATE regex_scripts SET preset_id = ? WHERE id = ?");
+  db.transaction(() => { for (const id of list) stmt.run(owner.id, id); })();
+  return c.json({ changed: list.length });
+});
+
+/**
+ * SillyTavern's own file shape: one script as an object, several as an array
+ * — the two shapes its regex importer reads.
+ */
+api.get("/regex/export", (c) => {
+  const want = String(c.req.query("ids") ?? "").split(",").filter(Boolean);
+  const all = liveScripts();
+  const picked = want.length ? want.map((id) => all.find((r) => r.id === id)).filter(Boolean) as LiveScript[] : all;
+  if (!picked.length) return c.json({ error: "Nothing to export." }, 404);
+  if (picked.length === 1) {
+    return download(`regex-${picked[0].name || "script"}.json`, scriptToSillyTavern(picked[0]));
+  }
+  return download("regex-scripts.json", picked.map(scriptToSillyTavern));
+});
+
+/**
+ * The test chamber. Runs a script — saved or still being edited — over sample
+ * text with the same functions assembly uses, and returns what came out. It
+ * reads nothing but the request and, for `pipeline`, the list of scripts, and
+ * it writes nothing at all: no chat, no message, no script.
+ */
+api.post("/regex/test", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const text = String(b?.text ?? "").slice(0, 200_000);
+  const where: "prompt" | "display" = b?.where === "prompt" ? "prompt" : "display";
+  const placement = b?.role === "user" ? PLACEMENT.userInput : PLACEMENT.aiOutput;
+  const depth = Number.isFinite(+b?.depth) ? Math.max(0, Math.floor(+b.depth)) : 0;
+  const names = { char: String(b?.names?.char ?? "") || undefined, user: String(b?.names?.user ?? "") || undefined };
+  const script = normaliseScript(b?.script ?? {}, "");
+  const error = compileError(script.find);
+
+  // Why a script would sit this one out, in the order a person would check.
+  const reasons: string[] = [];
+  if (!script.enabled) reasons.push("The script is switched off.");
+  if (where === "prompt" ? !script.prompt : !script.display) {
+    reasons.push(where === "prompt" ? "It does not run on what the model is sent." : "It does not run on what is shown.");
+  }
+  if (!script.placement.includes(placement)) {
+    reasons.push(placement === PLACEMENT.userInput ? "It does not target your messages." : "It does not target replies.");
+  }
+  if (script.minDepth !== null && depth < script.minDepth) reasons.push(`The message is newer than its minimum depth (${script.minDepth}).`);
+  if (script.maxDepth !== null && depth > script.maxDepth) reasons.push(`The message is older than its maximum depth (${script.maxDepth}).`);
+  if (!script.placement.some((p) => RUNS_HERE.has(p))) {
+    reasons.push("Its only targets are ones Hearth has nothing to run on.");
+  }
+
+  const output = error ? text : runScript(text, script, names);
+  // With every other live script in order around it — what a message would
+  // actually go through. The edited version stands in for the saved one.
+  let pipeline: string | null = null;
+  if (b?.pipeline) {
+    const others = liveScripts().filter((r) => r.active);
+    const at = others.findIndex((r) => r.id === script.id);
+    const list = at >= 0 ? others.map((r, i) => (i === at ? script : r)) : [...others, script];
+    pipeline = applyScripts(text, list, where, placement, depth, names);
+  }
+  return c.json({
+    error,
+    applies: !error && applies(script, where, placement, depth),
+    reasons,
+    matches: error ? [] : matchesOf(text, script, names),
+    output,
+    pipeline,
+  });
 });
 
 api.post("/regex/:id/toggle", (c) => {
@@ -4691,9 +4919,62 @@ api.post("/presets", async (c) => {
 
 api.put("/presets/:id", async (c) => {
   const b = await c.req.json();
-  db.query("UPDATE presets SET name = ?, data = ? WHERE id = ?")
-    .run(b.name, JSON.stringify(b.data ?? {}), c.req.param("id"));
+  const id = c.req.param("id");
+  const row = db.query("SELECT name, data FROM presets WHERE id = ?").get(id) as { name: string; data: string } | undefined;
+  if (!row) return c.json({ error: "Preset not found." }, 404);
+  let old: PresetData = {};
+  try { old = JSON.parse(row.data) ?? {}; } catch {}
+  const data: PresetData = { ...(b.data ?? {}) };
+  // The SillyTavern original rides along whether or not the page sent it back:
+  // an editor that only knows about blocks must not be able to drop it.
+  if (data.st === undefined && old.st !== undefined) data.st = old.st;
+  const name = String(b.name ?? "").trim() || row.name;
+  db.query("UPDATE presets SET name = ?, data = ? WHERE id = ?").run(name, JSON.stringify(data), id);
   return c.json({ ok: true });
+});
+
+api.post("/presets/:id/rename", async (c) => {
+  const { name } = await c.req.json().catch(() => ({}));
+  const clean = String(name ?? "").trim();
+  if (!clean) return c.json({ error: "A preset needs a name." }, 400);
+  const r = db.query("UPDATE presets SET name = ? WHERE id = ? AND deleted_at IS NULL").run(clean, c.req.param("id"));
+  if (!r.changes) return c.json({ error: "Preset not found." }, 404);
+  return c.json({ ok: true });
+});
+
+/**
+ * A copy to experiment on. Its scripts come too, bound to the copy, so the
+ * copy behaves like the original the moment it is switched on; it starts
+ * inactive, so nothing changes until it is.
+ */
+api.post("/presets/:id/duplicate", (c) => {
+  const src = db.query("SELECT * FROM presets WHERE id = ? AND deleted_at IS NULL").get(c.req.param("id")) as any;
+  if (!src) return c.json({ error: "Preset not found." }, 404);
+  const id = uid();
+  const name = `${src.name} (copy)`;
+  db.transaction(() => {
+    db.query("INSERT INTO presets (id, name, data, is_active, created_at) VALUES (?,?,?,?,?)")
+      .run(id, name, src.data, 0, now());
+    const own = liveScripts().filter((r) => r.presetId === src.id);
+    let at = nextScriptPosition();
+    for (const r of own) {
+      const copy = { ...r, id: crypto.randomUUID() };
+      db.query(
+        "INSERT INTO regex_scripts (id, name, script, enabled, source, position, created_at, preset_id) VALUES (?,?,?,?,?,?,?,?)",
+      ).run(copy.id, copy.name, JSON.stringify(normaliseScript(copy, r.source)), r.enabled ? 1 : 0, name, at++, now(), id);
+    }
+  })();
+  return c.json({ id, name });
+});
+
+/** What a preset holds that Hearth keeps for SillyTavern but does not use. */
+api.get("/presets/:id/kept", (c) => {
+  const row = db.query("SELECT data FROM presets WHERE id = ?").get(c.req.param("id")) as { data: string } | undefined;
+  if (!row) return c.json({ error: "Preset not found." }, 404);
+  let data: PresetData = {};
+  try { data = JSON.parse(row.data) ?? {}; } catch {}
+  const st = data.st ?? {};
+  return c.json(keptOnly(data).map((k) => ({ key: k, value: st[k] })));
 });
 
 /**
@@ -4749,11 +5030,12 @@ api.post("/import/presets", async (c) => {
   for (const f of files) {
     try {
       const json = JSON.parse(await f.text());
-      const { name, data } = fromSillyTavern(json);
-      const label = name === "Imported preset" ? f.name.replace(/\.json$/i, "") : name;
+      const { name, data } = isHearthPreset(json) ? fromHearth(json) : fromSillyTavern(json);
+      const label = name === "Imported preset" ? f.name.replace(/(\.preset)?\.json$/i, "") : name;
+      const pid = uid();
       db.query("INSERT INTO presets (id, name, data, is_active, created_at) VALUES (?,?,?,?,?)")
-        .run(uid(), label, JSON.stringify(data), 0, now());
-      importScriptsFrom(json, label);
+        .run(pid, label, JSON.stringify(data), 0, now());
+      importScriptsFrom(json, label, pid);
       imported.push(label);
     } catch {}
   }
@@ -5037,9 +5319,10 @@ api.post("/import/backup", async (c) => {
         for (const pr of plan.presets) {
           const { name, data } = fromSillyTavern(pr.json);
           const label = name === "Imported preset" ? pr.name : name;
+          const pid = uid();
           db.query("INSERT INTO presets (id, name, data, is_active, created_at) VALUES (?,?,?,?,?)")
-            .run(uid(), label, JSON.stringify(data), 0, now());
-          importScriptsFrom(pr.json, label);
+            .run(pid, label, JSON.stringify(data), 0, now());
+          importScriptsFrom(pr.json, label, pid);
           count.presets++;
           step(`Presets — ${pr.name}`);
         }

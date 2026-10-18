@@ -219,6 +219,15 @@ export const ALTER_TABLES: string[] = [
   "ALTER TABLE lorebooks ADD COLUMN deleted_at INTEGER",
 
   /*
+   * Which preset a regex script belongs to. Null is shared: it runs whatever
+   * preset is active, which is what every script that already exists was
+   * doing, so every script that already exists stays null and nothing about
+   * how anyone's chats look changes. A preset imported from here on brings
+   * its scripts bound to it, and they rest while another preset is in use.
+   */
+  "ALTER TABLE regex_scripts ADD COLUMN preset_id TEXT",
+
+  /*
    * Taking turns at a shared table.
    *
    * Off by default and off for every table that already exists: a group of

@@ -53,7 +53,28 @@ export const DEFAULT_BLOCKS: PromptBlock[] = [
 
 export type PresetData = Partial<Record<(typeof PRESET_FIELDS)[number], string>> & {
   blocks?: PromptBlock[];
+  /**
+   * The SillyTavern file this preset came from, as it came, less the regex
+   * scripts (which live in their own table). Hearth reads ten of its fields;
+   * the other hundred — top_k, seeds, bias lists, each prompt's injection
+   * depth — are none of Hearth's business, and that is exactly why they are
+   * kept: an export without them would hand SillyTavern back a preset that
+   * had quietly lost its settings in the round trip.
+   */
+  st?: Record<string, unknown>;
 };
+
+/**
+ * SillyTavern keys Hearth reads into its own fields. Everything else in a
+ * preset is kept but not used, and the generation view lists it as such.
+ */
+export const ST_MAPPED = new Set([
+  "temperature", "temp", "top_p", "min_p", "frequency_penalty", "freq_pen",
+  "presence_penalty", "pres_pen", "repetition_penalty", "rep_pen",
+  "openai_max_tokens", "genamt", "max_length", "max_tokens",
+  "openai_max_context", "max_context", "truncation_length",
+  "stream_openai", "reasoning_effort", "prompts", "prompt_order", "extensions", "name",
+]);
 
 /** Accepts our shape or a SillyTavern prompt entry. Empty blocks are dropped. */
 export function normaliseBlocks(raw: unknown): PromptBlock[] {
@@ -164,5 +185,127 @@ export function fromSillyTavern(json: any): { name: string; data: PresetData } {
   }
   if (blocks.length) data.blocks = blocks;
 
+  // Everything as it came, for the export. The scripts are stored apart.
+  const st: Record<string, unknown> = { ...json };
+  if (st.extensions && typeof st.extensions === "object") {
+    const { regex_scripts: _, ...rest } = st.extensions as Record<string, unknown>;
+    st.extensions = rest;
+  }
+  delete st.regex_scripts;
+  data.st = st;
+
   return { name: String(json.name ?? "Imported preset"), data };
+}
+
+/** A file Hearth itself exported, in its own shape. */
+export function isHearthPreset(json: any): boolean {
+  return !!json && typeof json === "object" && json.hearth_preset === 1;
+}
+
+/** Reads Hearth's own export back in, which fromSillyTavern would half-lose. */
+export function fromHearth(json: any): { name: string; data: PresetData } {
+  const data: PresetData = {};
+  for (const f of PRESET_FIELDS) if (json[f] !== undefined) data[f] = String(json[f]);
+  const blocks = normaliseBlocks(json.blocks);
+  if (blocks.length) data.blocks = blocks;
+  if (json.st && typeof json.st === "object") data.st = json.st;
+  return { name: String(json.name ?? "Imported preset"), data };
+}
+
+/**
+ * Back into SillyTavern's chat-completion preset shape.
+ *
+ * Built on top of the file the preset came from, so whatever Hearth does not
+ * understand goes back out unchanged; Hearth's own values are written over the
+ * keys they were read from. A preset made in Hearth has no such file and gets
+ * only the keys it actually has values for — the prompt manager's two lists,
+ * and the sampling numbers that were set. Nothing is invented to fill the
+ * rest; SillyTavern supplies its own defaults for what a file leaves out.
+ */
+export function toSillyTavernPreset(
+  data: PresetData,
+  scripts: Record<string, unknown>[] = [],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(data.st ?? {}) };
+  const n = (v: string | undefined) => (v === undefined || v === "" || !Number.isFinite(+v) ? undefined : +v);
+  const put = (k: string, v: unknown) => { if (v !== undefined) out[k] = v; };
+
+  put("temperature", n(data.temperature));
+  put("top_p", n(data.top_p));
+  put("min_p", n(data.min_p));
+  put("frequency_penalty", n(data.frequency_penalty));
+  put("presence_penalty", n(data.presence_penalty));
+  put("repetition_penalty", n(data.repetition_penalty));
+  put("openai_max_tokens", n(data.max_tokens));
+  put("openai_max_context", n(data.context_tokens));
+  if (data.stream !== undefined && data.stream !== "") out.stream_openai = data.stream === "1";
+  // "off" has no SillyTavern spelling, so the file keeps whatever it said.
+  const effort: Record<string, string> = { "": "auto", minimal: "min", low: "low", medium: "medium", high: "high" };
+  if (data.reasoning_effort !== undefined && data.reasoning_effort in effort) {
+    out.reasoning_effort = effort[data.reasoning_effort];
+  }
+
+  const blocks = normaliseBlocks(data.blocks);
+  if (blocks.length) {
+    const st = data.st ?? {};
+    const pool = new Map<string, Record<string, unknown>>(
+      (Array.isArray(st.prompts) ? st.prompts : [])
+        .filter((b: any) => b && typeof b === "object")
+        .map((b: any) => [String(b.identifier ?? b.name), b]),
+    );
+    const ids = new Set(blocks.map((b) => b.id));
+    out.prompts = [
+      ...blocks.map((b) => {
+        const base = pool.get(b.id) ?? {};
+        // "main" and "jailbreak" are prompts with text in SillyTavern, not
+        // placeholders, though Hearth gives them a marker of its own.
+        const placeholder = typeof base.marker === "boolean"
+          ? base.marker
+          : !!b.marker && b.marker !== "main" && b.marker !== "jailbreak";
+        return {
+          ...base,
+          identifier: b.id,
+          name: b.name,
+          role: b.role,
+          ...(placeholder ? {} : { content: b.content }),
+          system_prompt: base.system_prompt ?? !!b.marker,
+          marker: placeholder,
+        };
+      }),
+      // Blocks Hearth could not use — empty ones, mostly — go back as they came.
+      ...[...pool.entries()].filter(([id]) => !ids.has(id)).map(([, b]) => b),
+    ];
+
+    const mine = blocks.map((b) => ({ identifier: b.id, enabled: b.enabled }));
+    const lists = Array.isArray(st.prompt_order) ? [...(st.prompt_order as any[])] : [];
+    const last = lists[lists.length - 1];
+    if (last && Array.isArray(last.order)) {
+      // Entries Hearth dropped keep their place after whichever neighbour survived.
+      const merged = [...mine];
+      let after = -1;
+      for (const o of last.order) {
+        const id = String(o?.identifier);
+        const at = merged.findIndex((m) => m.identifier === id);
+        if (at >= 0) { after = at; continue; }
+        merged.splice(after + 1, 0, o);
+        after++;
+      }
+      lists[lists.length - 1] = { ...last, order: merged };
+      out.prompt_order = lists;
+    } else {
+      // SillyTavern's global prompt list is the one under this character id.
+      out.prompt_order = [{ character_id: 100001, order: mine }];
+    }
+  }
+
+  if (scripts.length) {
+    const ext = out.extensions && typeof out.extensions === "object" ? out.extensions as Record<string, unknown> : {};
+    out.extensions = { ...ext, regex_scripts: scripts };
+  }
+  return out;
+}
+
+/** The SillyTavern keys this preset carries that Hearth keeps but does not act on. */
+export function keptOnly(data: PresetData): string[] {
+  return Object.keys(data.st ?? {}).filter((k) => !ST_MAPPED.has(k)).sort();
 }
