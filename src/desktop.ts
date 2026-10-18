@@ -18,7 +18,7 @@
  * A static import would be hoisted above these lines and the setting would
  * arrive too late to matter.
  */
-import { mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const here = dirname(process.execPath);
@@ -28,6 +28,21 @@ const dataDir = process.env.DATA_DIR ||
   join(process.env.LOCALAPPDATA ?? process.env.HOME ?? here, "Hearth", "data");
 process.env.DATA_DIR = dataDir;
 mkdirSync(dataDir, { recursive: true });
+
+/*
+ * A diary, beside the data, because this program has no window to say
+ * anything in. A launch that failed used to fail in perfect silence: the
+ * shortcut did nothing, and there was nowhere to look to find out why.
+ * hearth.log says what each launch did, and any error that would otherwise
+ * have vanished with the process.
+ */
+const LOG = join(dataDir, "hearth.log");
+function note(line: string) {
+  try { appendFileSync(LOG, `${new Date().toISOString()}  ${line}\r\n`); } catch {}
+}
+process.on("uncaughtException", (e) => { note(`crashed: ${e?.stack || e}`); process.exit(1); });
+process.on("unhandledRejection", (e: any) => note(`unhandled: ${e?.stack || e}`));
+note(`launched ${process.execPath}`);
 
 const port = Number(process.env.PORT ?? 7870);
 const hostname = process.env.HOST ?? "127.0.0.1";
@@ -40,14 +55,27 @@ function openBrowser() {
   if (process.env.HEARTH_NO_BROWSER) return;
   try {
     if (process.platform === "win32") {
-      Bun.spawn(["cmd", "/c", "start", "", url], { stdio: ["ignore", "ignore", "ignore"] }).unref();
+      /*
+       * Through the shell's own URL handler rather than `cmd /c start`. A
+       * program with no console starting cmd.exe is exactly the shape some
+       * antivirus refuses on sight, and when it did, the browser simply never
+       * appeared. This is what Windows itself uses for "open this link", it
+       * goes to the default browser, and it flashes no window.
+       */
+      Bun.spawn(["rundll32.exe", "url.dll,FileProtocolHandler", url],
+        { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }).unref();
+      note(`asked Windows to open ${url}`);
     } else if (process.platform === "darwin") {
       Bun.spawn(["open", url], { stdio: ["ignore", "ignore", "ignore"] }).unref();
     } else {
       Bun.spawn(["xdg-open", url], { stdio: ["ignore", "ignore", "ignore"] }).unref();
     }
-  } catch {
+  } catch (e) {
     // Not being able to open a browser is not a reason to refuse to serve.
+    note(`could not open a browser: ${e}`);
+    if (process.platform === "win32") {
+      try { Bun.spawn(["cmd", "/c", "start", "", url], { stdio: ["ignore", "ignore", "ignore"], windowsHide: true }).unref(); } catch {}
+    }
   }
 }
 
@@ -59,12 +87,18 @@ function openBrowser() {
  * an app that has no console to show it in. If something is already answering
  * on the port, take that as Hearth and just bring it up.
  */
-const alive = await fetch(`${url}/api/settings`, { signal: AbortSignal.timeout(700) })
+// Generous, because a Hearth that has just been launched by the installer,
+// or is busy with a long reply, can take more than a moment to answer — and
+// guessing wrong here meant trying to take a port that was already taken.
+const alive = await fetch(`${url}/api/settings`, { signal: AbortSignal.timeout(4000) })
   .then((r) => r.ok)
   .catch(() => false);
 
 if (alive) {
+  note("already running; bringing it up");
   openBrowser();
+  // A moment for the handler to be on its way before this process goes.
+  await Bun.sleep(500);
   process.exit(0);
 }
 
@@ -103,7 +137,22 @@ if (fromDisk) {
 // 255 is Bun's ceiling for idleTimeout, and a long reasoning reply can still
 // out-wait it; the generation route sends keep-alive frames so the socket
 // never actually goes idle mid-answer.
-Bun.serve({ port, hostname, fetch: app.fetch, idleTimeout: 255 });
+try {
+  Bun.serve({ port, hostname, fetch: app.fetch, idleTimeout: 255 });
+} catch (e) {
+  /*
+   * The port is taken: almost always another Hearth that did not answer in
+   * time above. Opening the browser at it is what the person wanted; dying
+   * silently, as this used to, is what they got.
+   */
+  note(`could not take port ${port}: ${e}. Opening the browser at whatever has it.`);
+  openBrowser();
+  await Bun.sleep(500);
+  process.exit(0);
+}
 
-console.log(`\n  Hearth is lit.  ${url}\n  Data: ${dataDir}\n`);
+note(`serving ${url}, data in ${dataDir}`);
 openBrowser();
+// Last, and guarded: with no console attached there may be nowhere for this
+// to go, and that must never be what stops the browser opening.
+try { console.log(`\n  Hearth is lit.  ${url}\n  Data: ${dataDir}\n`); } catch {}
