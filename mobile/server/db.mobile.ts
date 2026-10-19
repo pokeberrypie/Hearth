@@ -18,13 +18,14 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync,
+  closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync,
   unlinkSync, writeFileSync, writeSync,
 } from "node:fs";
 import { join } from "node:path";
 import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from "sql.js";
 import { ALTER_TABLES, CREATE_CHAT_MEMBERS, CREATE_KITS, CREATE_SHARES, CREATE_TABLES, DEFAULTS, KEY_FIELDS } from "../../src/schema";
 import { copyAll, describe, inspectHeader, quickCheck, recover, summarise } from "./dbrecover";
+import { SCHEMA_LEVEL, isSnapshot, planOpen, readLevel, snapshotName } from "../../src/upgrade";
 
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 mkdirSync(DATA_DIR, { recursive: true });
@@ -67,6 +68,38 @@ export function setup(d: SqlJsDatabase) {
   d.run(CREATE_KITS);
   for (const stmt of ALTER_TABLES) {
     try { d.run(stmt); } catch {}
+  }
+  // Never lowered: a newer Hearth's library stays marked as its own.
+  if (levelIn(d) < SCHEMA_LEVEL) {
+    d.run(
+      "INSERT INTO settings (key, value) VALUES ('schema_level', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      [String(SCHEMA_LEVEL)],
+    );
+  }
+}
+
+/** The level a library was last left at; 0 for one from before levels were counted. See src/upgrade.ts. */
+function levelIn(d: SqlJsDatabase): number {
+  try {
+    return readLevel(d.exec("SELECT value FROM settings WHERE key = 'schema_level'")[0]?.values[0]?.[0]);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The library as an older Hearth left it, kept aside before this one migrates
+ * it. The bytes are the file as read, which on the phone is the whole library:
+ * there is no write-ahead log to fold in first.
+ */
+function keepBefore(bytes: Uint8Array) {
+  try {
+    for (const name of readdirSync(DATA_DIR)) {
+      if (isSnapshot(name)) unlinkSync(join(DATA_DIR, name));
+    }
+    writeAtomic(join(DATA_DIR, snapshotName(SCHEMA_LEVEL)), bytes);
+  } catch (e) {
+    console.error("[upgrade] Could not set the library aside before upgrading it:", e);
   }
 }
 
@@ -142,6 +175,7 @@ function open(SQL: SqlJsStatic): SqlJsDatabase {
       const check = quickCheck(d);
       if (!check.ok) problem = check.problem;
       else {
+        if (planOpen(levelIn(d)).snapshot) keepBefore(bytes);
         setup(d);
         // Whole, and has just proved it: this is what a snapshot is for.
         if (!existsSync(GOOD_PATH) || Date.now() - statSync(GOOD_PATH).mtimeMs > GOOD_EVERY_MS) refreshGood(bytes);

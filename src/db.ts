@@ -1,36 +1,94 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ALTER_TABLES, CREATE_CHAT_MEMBERS, CREATE_KITS, CREATE_SHARES, CREATE_TABLES, DEFAULTS, KEY_FIELDS } from "./schema";
+import { SCHEMA_LEVEL, isSnapshot, planOpen, readLevel, snapshotName } from "./upgrade";
 
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
-mkdirSync(DATA_DIR, { recursive: true });
 
-export const db = new Database(join(DATA_DIR, "hearth.db"), { create: true });
-db.exec("PRAGMA journal_mode = WAL;");
-db.exec("PRAGMA foreign_keys = ON;");
-
-db.exec(CREATE_TABLES);
-db.exec(CREATE_CHAT_MEMBERS);
-db.exec(CREATE_SHARES);
-db.exec(CREATE_KITS);
-
-/*
- * Additive migrations. Safe to run repeatedly — each is ignored once applied.
+/**
+ * Opens the library in `dir`, bringing it up to this Hearth's shape.
  *
- * After every CREATE, and that ordering is load-bearing. These used to run
- * between the first CREATE and the rest, which worked for years because every
- * migration happened to touch a table in that first batch. The first one that
- * did not — a column on `shares` — failed on a fresh install, where the table
- * did not exist yet, and the failure is swallowed on purpose because that is
- * how "already applied" is detected. So the column was simply missing, on new
- * copies only, with nothing said. Upgrades were fine, which is the worst
- * version of this: it works everywhere it is tested and is broken for
- * everybody arriving for the first time.
+ * A library an older Hearth left behind is copied aside first — see
+ * src/upgrade.ts — and only then migrated. The copy is taken after the
+ * write-ahead log has been folded in, so it is the whole library and not the
+ * part of it that had happened to reach the main file.
+ *
+ * If the copy cannot be made (a full disk, a read-only folder) the library is
+ * still opened and migrated: the migrations are additive and an older Hearth
+ * can still read the result, whereas refusing to start would leave somebody
+ * locked out of everything they have over a safety net they did not ask for.
+ * It is said loudly in the log instead.
  */
-for (const stmt of ALTER_TABLES) {
-  try { db.exec(stmt); } catch {}
+export function openLibrary(dir: string): Database {
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "hearth.db");
+  const existed = existsSync(path) && statSync(path).size > 0;
+  const d = new Database(path, { create: true });
+  d.exec("PRAGMA journal_mode = WAL;");
+  d.exec("PRAGMA foreign_keys = ON;");
+
+  const stored = existed ? storedLevel(d) : null;
+  const plan = planOpen(stored);
+  if (plan.snapshot) setAside(d, dir, path);
+  if (plan.newer) {
+    console.warn(`[upgrade] This library was last opened by a newer Hearth (level ${stored}, ` +
+      `this is ${SCHEMA_LEVEL}). Nothing it added will be touched.`);
+  }
+
+  d.exec(CREATE_TABLES);
+  d.exec(CREATE_CHAT_MEMBERS);
+  d.exec(CREATE_SHARES);
+  d.exec(CREATE_KITS);
+  /*
+   * Additive migrations. Safe to run repeatedly — each is ignored once applied.
+   *
+   * After every CREATE, and that ordering is load-bearing. These used to run
+   * between the first CREATE and the rest, which worked for years because every
+   * migration happened to touch a table in that first batch. The first one that
+   * did not — a column on `shares` — failed on a fresh install, where the table
+   * did not exist yet, and the failure is swallowed on purpose because that is
+   * how "already applied" is detected. So the column was simply missing, on new
+   * copies only, with nothing said. Upgrades were fine, which is the worst
+   * version of this: it works everywhere it is tested and is broken for
+   * everybody arriving for the first time.
+   */
+  for (const stmt of ALTER_TABLES) {
+    try { d.exec(stmt); } catch {}
+  }
+
+  if (plan.mark) {
+    d.query(
+      "INSERT INTO settings (key, value) VALUES ('schema_level', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(String(SCHEMA_LEVEL));
+  }
+  return d;
 }
+
+/** The level a library was last left at; 0 for one from before levels were counted. */
+function storedLevel(d: Database): number {
+  try {
+    const row = d.query("SELECT value FROM settings WHERE key = 'schema_level'").get() as { value: string } | null;
+    return readLevel(row?.value);
+  } catch {
+    return 0;
+  }
+}
+
+/** The library as it was, kept beside it under the level it is about to become. */
+function setAside(d: Database, dir: string, path: string) {
+  try {
+    d.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    for (const name of readdirSync(dir)) {
+      if (isSnapshot(name)) rmSync(join(dir, name), { force: true });
+    }
+    copyFileSync(path, join(dir, snapshotName(SCHEMA_LEVEL)));
+  } catch (e) {
+    console.error("[upgrade] Could not set the library aside before upgrading it:", e);
+  }
+}
+
+export const db = openLibrary(DATA_DIR);
 
 export const now = () => Date.now();
 export const uid = () => crypto.randomUUID();
