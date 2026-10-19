@@ -163,6 +163,29 @@ CREATE TABLE IF NOT EXISTS apocrypha (
   updated_at INTEGER NOT NULL
 );
 
+-- The chronicle: what has happened in one chat's story, appended to and never
+-- rewritten. Each entry is tied to the message it belongs to, so a branch can
+-- take exactly the history it was cut from; the tie clears, rather than the
+-- entry going, when that message is deleted. See src/chronicle.ts.
+CREATE TABLE IF NOT EXISTS chronicle (
+  id         TEXT PRIMARY KEY,
+  chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+  kind       TEXT NOT NULL DEFAULT 'event',
+  day        INTEGER,
+  minute     INTEGER,
+  span       INTEGER NOT NULL DEFAULT 0,
+  title      TEXT NOT NULL DEFAULT '',
+  body       TEXT NOT NULL DEFAULT '',
+  visibility TEXT NOT NULL DEFAULT 'table',
+  source     TEXT NOT NULL DEFAULT 'user',
+  evidence   TEXT NOT NULL DEFAULT '',
+  scene_id   TEXT,
+  created_at INTEGER NOT NULL,
+  undone_at  INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_chronicle_chat ON chronicle(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_npcs_chat ON npcs(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_rolls_chat ON rolls(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_links_book ON lorebook_links(book_id);
@@ -300,6 +323,11 @@ export const ALTER_TABLES: string[] = [
   // This chat's bookmark in an apocryphon, as JSON — see src/apocrypha.ts.
   // Kept on the chat rather than the book so one plan can run in many chats.
   "ALTER TABLE chats ADD COLUMN apocrypha TEXT NOT NULL DEFAULT ''",
+  // The calendar this chat counts its days in, as the whole calendar's JSON —
+  // a copy, not a reference, so editing or deleting one in the library can
+  // never quietly move the dates of a story already four hundred messages in.
+  // Empty is Undated. See src/calendar.ts.
+  "ALTER TABLE chats ADD COLUMN calendar TEXT NOT NULL DEFAULT ''",
 ];
 
 /** Group chats. A chat keeps its `character_id` as the one it was started

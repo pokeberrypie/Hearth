@@ -25,8 +25,11 @@
  * Which shape of database this Hearth expects. 0 is every library from before
  * this was counted — 0.2.6 and earlier. Bump it with any migration, so the
  * next launch knows to take its copy first.
+ *
+ *   1  levels began
+ *   2  the chronicle, and a calendar on each chat
  */
-export const SCHEMA_LEVEL = 1;
+export const SCHEMA_LEVEL = 2;
 
 const SNAPSHOT_PREFIX = "hearth.db.before-level-";
 

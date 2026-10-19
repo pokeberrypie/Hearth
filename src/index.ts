@@ -46,6 +46,8 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, startBookmark, type Apocryphon, type Bookmark } from "./apocrypha";
+import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, normaliseCalendar, readSpan, type Calendar } from "./calendar";
+import { clockOf, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -1802,8 +1804,8 @@ api.post("/messages/:id/branch", (c) => {
     `INSERT INTO chats (id, character_id, title, created_at, updated_at, parent_chat_id, branch_note,
                         author_note, note_depth, wallpaper, persona_id, is_group, auto_reply, scenario,
                         location, fight, campaign, campaign_asked, accent, ambience,
-                        auto_lore_book_id, auto_lore_asked, auto_lore_at, apocrypha)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                        auto_lore_book_id, auto_lore_asked, auto_lore_at, apocrypha, calendar)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(newId, src.character_id, `${src.title} — branch`, t, t, src.id,
         (m.content ?? "").slice(0, 80), src.author_note ?? "", src.note_depth ?? 2,
         src.wallpaper ?? "", src.persona_id ?? null, src.is_group ?? 0, src.auto_reply ?? 0,
@@ -1813,10 +1815,13 @@ api.post("/messages/:id/branch", (c) => {
         // parent's record-keeping. Without this, every branch asks where to
         // file its notes all over again — and branching is exactly the moment
         // you least want to be interrupted with a question you have answered.
+        // (It is then given a copy of that book to write into: ownNotesBook, below.)
         src.auto_lore_book_id ?? null, src.auto_lore_asked ?? 0, src.auto_lore_at ?? 0,
         // And its place in the plan, as a copy: from here the two go their
         // own ways through the same book.
-        src.apocrypha ?? "");
+        src.apocrypha ?? "",
+        // The same calendar: the story is still counting the same days.
+        src.calendar ?? "");
 
   // The room — every member of a group, in order — and the people the
   // narrator has introduced, who are part of the story so far.
@@ -1858,11 +1863,30 @@ api.post("/messages/:id/branch", (c) => {
     `INSERT INTO messages (id, chat_id, role, name, content, created_at, swipes, swipe_index, reasoning, tokens, ms)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
   );
+  // Which copy each message became, so the chronicle can follow them across.
+  const kept = new Map<string, string>();
   db.transaction(() => {
-    for (const r of rows)
-      ins.run(uid(), newId, r.role, r.name, r.content, r.created_at, r.swipes, r.swipe_index,
+    for (const r of rows) {
+      const copy = uid();
+      kept.set(r.id, copy);
+      ins.run(copy, newId, r.role, r.name, r.content, r.created_at, r.swipes, r.swipe_index,
               r.reasoning ?? "", r.tokens ?? 0, r.ms ?? 0);
+    }
   })();
+
+  // The story so far, exactly as far as the fork and no further.
+  copyChronicle(forBranch(chronicleOf(src.id), kept, m.created_at), newId);
+
+  /*
+   * And a notes book of its own.
+   *
+   * A branch used to go on writing into its parent's book, so two versions of
+   * one story filed contradictory notes in the same place and each was fed
+   * the other's. It now writes into a copy, named for what it is. Only for
+   * branches made from here on: a branch that already shares a book is left
+   * sharing it until somebody asks for it to be split (/own-notes, below).
+   */
+  ownNotesBook(newId);
 
   return c.json({ id: newId, copied: rows.length });
 });
@@ -1948,8 +1972,8 @@ api.post("/chats/:id/carry-on", async (c) => {
     `INSERT INTO chats (id, character_id, title, created_at, updated_at, parent_chat_id, branch_note,
                         author_note, note_depth, wallpaper, persona_id, is_group, auto_reply, scenario,
                         location, fight, campaign, campaign_asked, accent, ambience,
-                        auto_lore_book_id, auto_lore_asked, auto_lore_at, apocrypha)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                        auto_lore_book_id, auto_lore_asked, auto_lore_at, apocrypha, calendar)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     newId, src.character_id, carriedTitle(src.title || char.name), t, t, src.id,
     "Summed up and carried on",
@@ -1964,6 +1988,7 @@ api.post("/chats/:id/carry-on", async (c) => {
     0,
     // Still in the same scene of the same plan: carrying on is not starting over.
     src.apocrypha ?? "",
+    src.calendar ?? "",
   );
 
   /*
@@ -1984,6 +2009,9 @@ api.post("/chats/:id/carry-on", async (c) => {
   db.transaction(() => {
     for (const m of members) addMember.run(uid(), newId, m.character_id, m.position, m.muted ?? 0);
   })();
+
+  // The same story, so all of what has happened in it so far.
+  copyChronicle(forCarryOn(chronicleOf(src.id)), newId);
 
   // The books pinned to the old chat, exactly as a branch inherits them.
   const pinned = db
@@ -3246,6 +3274,149 @@ api.delete("/apocrypha/:id", (c) => {
 /** Which book this chat follows, and where it has got to. */
 api.get("/chats/:id/apocrypha", (c) => c.json(taleOf(c.req.param("id"))));
 
+// ---- the chronicle ---------------------------------------------------------
+//
+// What has happened in one chat, and when. See src/chronicle.ts for why it is
+// a list that is only ever added to, and src/calendar.ts for why a date is a
+// number. Host only for now: none of these routes is on the guests' list in
+// src/share.ts, so a seat at a shared table cannot reach them.
+
+/** The calendar a chat counts in — its own copy, or Undated. */
+function calendarOf(chatId: string): Calendar {
+  const row = db.query("SELECT calendar FROM chats WHERE id = ?").get(chatId) as any;
+  return (row?.calendar && normaliseCalendar(row.calendar)) || UNDATED;
+}
+
+function chronicleOf(chatId: string): ChronicleEntry[] {
+  return (db.query("SELECT * FROM chronicle WHERE chat_id = ? ORDER BY created_at, rowid").all(chatId) as any[])
+    .map(normaliseChronicleEntry);
+}
+
+/** Writes entries into a chat as they are — a copy keeps its times and its undone marks. */
+function copyChronicle(entries: ChronicleEntry[], chatId: string) {
+  const ins = db.query(
+    `INSERT INTO chronicle (id, chat_id, message_id, kind, day, minute, span, title, body, visibility,
+                            source, evidence, scene_id, created_at, undone_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  db.transaction(() => {
+    for (const e of entries) {
+      ins.run(uid(), chatId, e.message_id, e.kind, e.day, e.minute, e.span, e.title, e.body, e.visibility,
+              e.source, e.evidence, e.scene_id, e.created_at, e.undone_at);
+    }
+  })();
+}
+
+/** Whether anybody else is sitting at this chat, which is when secrets start to matter. */
+const isShared = (chatId: string) =>
+  !!db.query("SELECT 1 FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chatId);
+
+function chronicleState(chatId: string) {
+  const cal = calendarOf(chatId);
+  const entries = chronicleOf(chatId);
+  const at = clockOf(cal, entries);
+  return {
+    calendar: cal,
+    now: { ...at, text: formatDate(cal, at) },
+    entries: chronicleView(entries, { shared: isShared(chatId), host: true }),
+  };
+}
+
+api.get("/calendars", (c) => c.json(BUILTINS));
+
+api.get("/chats/:id/chronicle", (c) => {
+  const id = c.req.param("id");
+  if (!db.query("SELECT 1 FROM chats WHERE id = ?").get(id)) return c.json({ error: "No such chat." }, 404);
+  return c.json(chronicleState(id));
+});
+
+/**
+ * Adding to it by hand: an event, time passing, or the clock set to a date.
+ *
+ * Time passing takes either a number of minutes or words ("three days",
+ * "until dawn"), read by the same function the steward's answers will go
+ * through — so the person and the model are held to one rule, and words it
+ * cannot read are refused rather than guessed at.
+ */
+api.post("/chats/:id/chronicle", async (c) => {
+  const chatId = c.req.param("id");
+  if (!db.query("SELECT 1 FROM chats WHERE id = ?").get(chatId)) return c.json({ error: "No such chat." }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const cal = calendarOf(chatId);
+  const at = clockOf(cal, chronicleOf(chatId));
+  const kind = ["event", "time", "set"].includes(b.kind) ? b.kind : "event";
+
+  let span = 0;
+  let day: number | null = at.day;
+  let minute: number | null = at.minute;
+  if (kind === "time") {
+    const read = Number.isFinite(Number(b.span)) && Number(b.span) > 0 ? Math.round(Number(b.span)) : readSpan(cal, b.text, at);
+    if (!read) return c.json({ error: "Hearth could not tell how long that is. Try \"3 days\" or \"until dawn\"." }, 400);
+    span = read;
+    day = minute = null;
+  } else if (kind === "set") {
+    const d = b.date && typeof b.date === "object"
+      ? fromParts(cal, Number(b.date.year), Number(b.date.month), Number(b.date.day))
+      : Number.isInteger(Number(b.day)) && b.day !== null && b.day !== "" ? Number(b.day) : null;
+    if (d === null) return c.json({ error: "That is not a date in this chat's calendar." }, 400);
+    day = d;
+    minute = Number.isFinite(Number(b.minute)) ? Math.round(Number(b.minute)) : 0;
+  }
+
+  const last = db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+    .get(chatId) as any;
+  const e = normaliseChronicleEntry({
+    id: uid(), kind, message_id: last?.id ?? null, day, minute, span,
+    title: b.title, body: b.body, visibility: b.visibility, source: "user",
+    scene_id: b.scene_id, created_at: now(),
+  });
+  if (kind === "event" && !e.title) return c.json({ error: "An event needs a name." }, 400);
+  copyChronicle([e], chatId);
+  return c.json(chronicleState(chatId));
+});
+
+/** Taking an entry back, and changing your mind about that. Nothing is ever deleted. */
+function markUndone(c: any, undone: number | null) {
+  const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
+  if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
+  db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?").run(undone, c.req.param("id"));
+  return c.json(chronicleState(row.chat_id));
+}
+api.post("/chronicle/:id/undo", (c) => markUndone(c, now()));
+api.post("/chronicle/:id/restore", (c) => markUndone(c, null));
+
+/** A secret, told: everybody at the table may read it from now on. */
+api.post("/chronicle/:id/reveal", (c) => {
+  const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
+  if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
+  db.query("UPDATE chronicle SET visibility = 'table' WHERE id = ?").run(c.req.param("id"));
+  return c.json(chronicleState(row.chat_id));
+});
+
+/**
+ * Choosing a chat's calendar: a built-in by id, or a whole custom calendar.
+ * Stored as a copy either way. Undated is stored as nothing at all, which is
+ * also what every chat from before calendars has.
+ */
+api.put("/chats/:id/calendar", async (c) => {
+  const chatId = c.req.param("id");
+  if (!db.query("SELECT 1 FROM chats WHERE id = ?").get(chatId)) return c.json({ error: "No such chat." }, 404);
+  const b = await c.req.json().catch(() => ({}));
+  const cal = typeof b.id === "string" && builtin(b.id) ? builtin(b.id)! : normaliseCalendar(b.calendar);
+  if (!cal) return c.json({ error: "That is not a calendar Hearth can read." }, 400);
+  db.query("UPDATE chats SET calendar = ? WHERE id = ?").run(cal.kind === "undated" ? "" : JSON.stringify(cal), chatId);
+  return c.json(chronicleState(chatId));
+});
+
+/** Splitting a branch that already shares its parent's notes book, when asked. */
+api.post("/chats/:id/own-notes", (c) => {
+  const chatId = c.req.param("id");
+  if (!db.query("SELECT 1 FROM chats WHERE id = ?").get(chatId)) return c.json({ error: "No such chat." }, 404);
+  const book = ownNotesBook(chatId);
+  if (!book) return c.json({ error: "This chat does not keep notes." }, 400);
+  return c.json({ book });
+});
+
 /**
  * Following a book, choosing a scene, or putting the book down.
  *
@@ -3418,6 +3589,31 @@ function notesBookOf(chatId: string): string | null {
   }
   db.query("UPDATE chats SET auto_lore_book_id = NULL, auto_lore_asked = 0 WHERE id = ?").run(chatId);
   return null;
+}
+
+/**
+ * Gives a chat a notes book of its own: a copy of the one it writes into now,
+ * named "— BRANCH", which it writes into from then on. The book it shared is
+ * left exactly as it was for whoever else is using it. Returns the copy's id,
+ * or null for a chat that keeps no notes.
+ */
+function ownNotesBook(chatId: string): string | null {
+  const bookId = notesBookOf(chatId);
+  if (!bookId) return null;
+  const book = db.query("SELECT * FROM lorebooks WHERE id = ?").get(bookId) as any;
+  // A branch of a branch is still "— BRANCH", not "— BRANCH — BRANCH";
+  // freeBookName tells the copies apart.
+  const base = String(book.name ?? "Notes").replace(/\s+— BRANCH\b.*$/, "");
+  const copy = uid();
+  db.transaction(() => {
+    db.query("INSERT INTO lorebooks (id, name, entries, created_at, world) VALUES (?,?,?,?,?)")
+      .run(copy, freeBookName(`${base} — BRANCH`), book.entries ?? "[]", now(), book.world ?? "story");
+    db.query("DELETE FROM lorebook_links WHERE book_id = ? AND scope = 'chat' AND ifnull(target_id,'') = ?")
+      .run(bookId, chatId);
+    attachToChat(copy, chatId);
+    db.query("UPDATE chats SET auto_lore_book_id = ? WHERE id = ?").run(copy, chatId);
+  })();
+  return copy;
 }
 
 /** Links a book to one chat, once. */
