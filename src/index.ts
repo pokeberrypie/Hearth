@@ -3307,6 +3307,19 @@ function copyChronicle(entries: ChronicleEntry[], chatId: string) {
   })();
 }
 
+/**
+ * Something happened, now: stamped with the story's current moment and tied to
+ * the chat's latest message, which is the one it happened after.
+ */
+function recordEvent(chatId: string, fields: Partial<ChronicleEntry>) {
+  const at = clockOf(calendarOf(chatId), chronicleOf(chatId));
+  const last = db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+    .get(chatId) as any;
+  copyChronicle([normaliseChronicleEntry({
+    ...fields, id: uid(), kind: "event", message_id: last?.id ?? null, day: at.day, minute: at.minute, created_at: now(),
+  })], chatId);
+}
+
 /** Whether anybody else is sitting at this chat, which is when secrets start to matter. */
 const isShared = (chatId: string) =>
   !!db.query("SELECT 1 FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chatId);
@@ -3445,8 +3458,20 @@ api.post("/chats/:id/apocrypha/advance", async (c) => {
   const { book, mark } = taleOf(chatId);
   if (!book || !mark) return c.json({ error: "This chat is not following a story." }, 400);
   const b = await c.req.json().catch(() => ({}));
-  const moved = advance(book, mark, b.how === "skipped" ? "skipped" : "done");
+  const how = b.how === "skipped" ? "skipped" : "done";
+  const moved = advance(book, mark, how);
   setTale(chatId, moved);
+  // A scene played is something that happened, so the chronicle says so. A
+  // scene passed over did not happen, and is left out of it.
+  const played = how === "done" && scenesOf(book).find(({ scene }) => scene.id === mark.scene);
+  if (played) {
+    recordEvent(chatId, {
+      title: played.scene.title || "A scene of the story",
+      body: played.chapter.title ? `From "${played.chapter.title}".` : "",
+      source: "scene",
+      scene_id: played.scene.id,
+    });
+  }
   return c.json({ book, mark: moved });
 });
 

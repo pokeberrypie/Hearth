@@ -116,6 +116,18 @@ describe("in a chat", () => {
     expect(h?.content).not.toContain("SECRET-WEDDING-BEAT");
   });
 
+  test("a scene played goes into the chronicle; a scene skipped does not", async () => {
+    const id = await seed();
+    await send("/api/chats/ch/apocrypha", "PUT", { book: id });
+    await send("/api/chats/ch/apocrypha/advance", "POST", { how: "done" });
+    await send("/api/chats/ch/apocrypha/advance", "POST", { how: "skipped" });
+    const { entries } = await (await ask("/api/chats/ch/chronicle")).json();
+    expect(entries.map((e: any) => [e.title, e.source, e.scene_id, e.message_id])).toEqual([
+      ["The Contract", "scene", "s7", "m1"],
+    ]);
+    expect(entries[0].body).toBe('From "The Lion\'s Bargain".');
+  });
+
   test("progress belongs to the chat: a branch takes a copy and goes its own way", async () => {
     const id = await seed();
     await send("/api/chats/ch/apocrypha", "PUT", { book: id });
