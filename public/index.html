@@ -215,7 +215,15 @@
           <path d="M141 22h6" stroke-width="1.1" opacity=".6"/>
         </g>
       </svg>
-        <h1 id="barTitle">Hearth</h1>
+        <div class="titlestack">
+          <h1 id="barTitle">Hearth</h1>
+          <!-- Story World, as the title's second line: today in the story, and
+               anything waiting for you. Opens the Story World window. See
+               public/storyworld.js. -->
+          <button type="button" class="worldline" id="worldLine" hidden aria-label="Open Story World">
+            <span class="wlstar" aria-hidden="true">✧</span><span id="worldDate"></span><span id="worldNote" hidden></span>
+          </button>
+        </div>
         <svg class="flourish" viewBox="0 0 150 44" aria-hidden="true" focusable="false">
         <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2 22H58" stroke-width="1.6"/>
@@ -244,11 +252,6 @@
       </div>
     </header>
 
-    <!-- Story World, in a line: today in the story, and anything waiting for
-         you. Opens the Story World window. See public/storyworld.js. -->
-    <button type="button" class="worldline" id="worldLine" hidden aria-label="Open Story World">
-      <span class="wlstar" aria-hidden="true">✧</span><span id="worldDate"></span><span id="worldNote" hidden></span>
-    </button>
 
     <div class="castbar" id="castBar" hidden></div>
 

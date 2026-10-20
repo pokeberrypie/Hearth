@@ -8106,3 +8106,43 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
 @media (prefers-reduced-motion: reduce) { .inlaystatus { animation: none; } }
 .apwrite { display: block; margin: 0.25rem 0 0.7rem; }
 .apwrite:disabled { opacity: 0.6; cursor: progress; }
+
+/* The title and, under it, Story World's line: one block in the bar. */
+.titlestack {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.titlestack #barTitle { max-width: 100%; }
+.titlestack .worldline {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0.05rem 0.4rem 0.1rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.titlestack .worldline > span { display: inline; }
+/* On a phone the bar takes a little more height while the line is there, so
+   a title on two lines and the line under it are not packed against the top. */
+@media (max-width: 700px) {
+  :root:has(#worldLine:not([hidden])) { --bar-h: 74px; }
+  .title:has(#worldLine:not([hidden])) .flourish { display: none; }
+  .title:has(#worldLine:not([hidden])) .titlestack { flex: 1 1 auto; }
+  .titlestack .worldline { font-size: 0.74rem; }
+}
+
+/* The diamond between messages sits in the gap between the plates, in front
+   of them, rather than on the top edge where the plate now covers it. */
+body[data-msgstyle="banner"] .msg + .msg::before,
+body[data-msgstyle="portrait"] .msg + .msg::before {
+  top: calc(-0.55rem - 3px);
+  z-index: 5;
+}
