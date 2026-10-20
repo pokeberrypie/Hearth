@@ -1,0 +1,494 @@
+{
+ "hearth": "faction_charges",
+ "version": 1,
+ "viewBox": "0 0 100 100",
+ "assets": [
+  {
+   "id": "badger_alt",
+   "name": "Badger (alternate)",
+   "category": "alternates",
+   "svg": "alternates/badger_alt.svg"
+  },
+  {
+   "id": "griffin_alt",
+   "name": "Griffin (alternate)",
+   "category": "alternates",
+   "svg": "alternates/griffin_alt.svg"
+  },
+  {
+   "id": "lion_rampant_alt",
+   "name": "Lion Rampant (alternate)",
+   "category": "alternates",
+   "svg": "alternates/lion_rampant_alt.svg"
+  },
+  {
+   "id": "manticore_alt",
+   "name": "Manticore (alternate)",
+   "category": "alternates",
+   "svg": "alternates/manticore_alt.svg"
+  },
+  {
+   "id": "sea_serpent_alt",
+   "name": "Sea Serpent (alternate)",
+   "category": "alternates",
+   "svg": "alternates/sea_serpent_alt.svg"
+  },
+  {
+   "id": "stag_alt",
+   "name": "Stag (alternate)",
+   "category": "alternates",
+   "svg": "alternates/stag_alt.svg"
+  },
+  {
+   "id": "wolf_alt",
+   "name": "Wolf (alternate)",
+   "category": "alternates",
+   "svg": "alternates/wolf_alt.svg"
+  },
+  {
+   "id": "wyvern_alt",
+   "name": "Wyvern (alternate)",
+   "category": "alternates",
+   "svg": "alternates/wyvern_alt.svg"
+  },
+  {
+   "id": "badger",
+   "name": "Badger",
+   "category": "beasts",
+   "svg": "beasts/badger.svg"
+  },
+  {
+   "id": "bear",
+   "name": "Bear",
+   "category": "beasts",
+   "svg": "beasts/bear.svg"
+  },
+  {
+   "id": "boar",
+   "name": "Boar",
+   "category": "beasts",
+   "svg": "beasts/boar.svg"
+  },
+  {
+   "id": "bull",
+   "name": "Bull",
+   "category": "beasts",
+   "svg": "beasts/bull.svg"
+  },
+  {
+   "id": "fox",
+   "name": "Fox",
+   "category": "beasts",
+   "svg": "beasts/fox.svg"
+  },
+  {
+   "id": "horse",
+   "name": "Horse",
+   "category": "beasts",
+   "svg": "beasts/horse.svg"
+  },
+  {
+   "id": "hound",
+   "name": "Hound",
+   "category": "beasts",
+   "svg": "beasts/hound.svg"
+  },
+  {
+   "id": "lion_passant",
+   "name": "Lion Passant",
+   "category": "beasts",
+   "svg": "beasts/lion_passant.svg"
+  },
+  {
+   "id": "lion_rampant",
+   "name": "Lion Rampant",
+   "category": "beasts",
+   "svg": "beasts/lion_rampant.svg"
+  },
+  {
+   "id": "stag",
+   "name": "Stag",
+   "category": "beasts",
+   "svg": "beasts/stag.svg"
+  },
+  {
+   "id": "wolf",
+   "name": "Wolf",
+   "category": "beasts",
+   "svg": "beasts/wolf.svg"
+  },
+  {
+   "id": "eagle_displayed",
+   "name": "Eagle Displayed",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/eagle_displayed.svg"
+  },
+  {
+   "id": "falcon",
+   "name": "Falcon",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/falcon.svg"
+  },
+  {
+   "id": "fish",
+   "name": "Fish",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/fish.svg"
+  },
+  {
+   "id": "kraken",
+   "name": "Kraken",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/kraken.svg"
+  },
+  {
+   "id": "owl",
+   "name": "Owl",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/owl.svg"
+  },
+  {
+   "id": "raven",
+   "name": "Raven",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/raven.svg"
+  },
+  {
+   "id": "scallop_shell",
+   "name": "Scallop Shell",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/scallop_shell.svg"
+  },
+  {
+   "id": "swan",
+   "name": "Swan",
+   "category": "birds_and_sea",
+   "svg": "birds_and_sea/swan.svg"
+  },
+  {
+   "id": "anchor",
+   "name": "Anchor",
+   "category": "built",
+   "svg": "built/anchor.svg"
+  },
+  {
+   "id": "bridge",
+   "name": "Bridge",
+   "category": "built",
+   "svg": "built/bridge.svg"
+  },
+  {
+   "id": "castle_gate",
+   "name": "Castle Gate",
+   "category": "built",
+   "svg": "built/castle_gate.svg"
+  },
+  {
+   "id": "ship",
+   "name": "Ship",
+   "category": "built",
+   "svg": "built/ship.svg"
+  },
+  {
+   "id": "tower",
+   "name": "Tower",
+   "category": "built",
+   "svg": "built/tower.svg"
+  },
+  {
+   "id": "eastern_dragon",
+   "name": "Eastern Dragon",
+   "category": "east_asian",
+   "svg": "east_asian/eastern_dragon.svg"
+  },
+  {
+   "id": "fenghuang",
+   "name": "Fenghuang",
+   "category": "east_asian",
+   "svg": "east_asian/fenghuang.svg"
+  },
+  {
+   "id": "nine_tailed_fox",
+   "name": "Nine Tailed Fox",
+   "category": "east_asian",
+   "svg": "east_asian/nine_tailed_fox.svg"
+  },
+  {
+   "id": "qilin",
+   "name": "Qilin",
+   "category": "east_asian",
+   "svg": "east_asian/qilin.svg"
+  },
+  {
+   "id": "dragon",
+   "name": "Dragon",
+   "category": "fantastic",
+   "svg": "fantastic/dragon.svg"
+  },
+  {
+   "id": "griffin",
+   "name": "Griffin",
+   "category": "fantastic",
+   "svg": "fantastic/griffin.svg"
+  },
+  {
+   "id": "phoenix",
+   "name": "Phoenix",
+   "category": "fantastic",
+   "svg": "fantastic/phoenix.svg"
+  },
+  {
+   "id": "serpent",
+   "name": "Serpent",
+   "category": "fantastic",
+   "svg": "fantastic/serpent.svg"
+  },
+  {
+   "id": "unicorn",
+   "name": "Unicorn",
+   "category": "fantastic",
+   "svg": "fantastic/unicorn.svg"
+  },
+  {
+   "id": "wyvern",
+   "name": "Wyvern",
+   "category": "fantastic",
+   "svg": "fantastic/wyvern.svg"
+  },
+  {
+   "id": "chimera",
+   "name": "Chimera",
+   "category": "greek_roman",
+   "svg": "greek_roman/chimera.svg"
+  },
+  {
+   "id": "harpy",
+   "name": "Harpy",
+   "category": "greek_roman",
+   "svg": "greek_roman/harpy.svg"
+  },
+  {
+   "id": "hippocamp",
+   "name": "Hippocamp",
+   "category": "greek_roman",
+   "svg": "greek_roman/hippocamp.svg"
+  },
+  {
+   "id": "hydra",
+   "name": "Hydra",
+   "category": "greek_roman",
+   "svg": "greek_roman/hydra.svg"
+  },
+  {
+   "id": "manticore",
+   "name": "Manticore",
+   "category": "greek_roman",
+   "svg": "greek_roman/manticore.svg"
+  },
+  {
+   "id": "minotaur",
+   "name": "Minotaur",
+   "category": "greek_roman",
+   "svg": "greek_roman/minotaur.svg"
+  },
+  {
+   "id": "pegasus",
+   "name": "Pegasus",
+   "category": "greek_roman",
+   "svg": "greek_roman/pegasus.svg"
+  },
+  {
+   "id": "cockatrice",
+   "name": "Cockatrice",
+   "category": "medieval_heraldry",
+   "svg": "medieval_heraldry/cockatrice.svg"
+  },
+  {
+   "id": "salamander_in_flames",
+   "name": "Salamander In Flames",
+   "category": "medieval_heraldry",
+   "svg": "medieval_heraldry/salamander_in_flames.svg"
+  },
+  {
+   "id": "sea_serpent",
+   "name": "Sea Serpent",
+   "category": "medieval_heraldry",
+   "svg": "medieval_heraldry/sea_serpent.svg"
+  },
+  {
+   "id": "thunderbird",
+   "name": "Thunderbird",
+   "category": "north_american",
+   "svg": "north_american/thunderbird.svg"
+  },
+  {
+   "id": "chalice",
+   "name": "Chalice",
+   "category": "objects",
+   "svg": "objects/chalice.svg"
+  },
+  {
+   "id": "crossed_swords",
+   "name": "Crossed Swords",
+   "category": "objects",
+   "svg": "objects/crossed_swords.svg"
+  },
+  {
+   "id": "crown",
+   "name": "Crown",
+   "category": "objects",
+   "svg": "objects/crown.svg"
+  },
+  {
+   "id": "hammer",
+   "name": "Hammer",
+   "category": "objects",
+   "svg": "objects/hammer.svg"
+  },
+  {
+   "id": "hand",
+   "name": "Hand",
+   "category": "objects",
+   "svg": "objects/hand.svg"
+  },
+  {
+   "id": "heart",
+   "name": "Heart",
+   "category": "objects",
+   "svg": "objects/heart.svg"
+  },
+  {
+   "id": "key",
+   "name": "Key",
+   "category": "objects",
+   "svg": "objects/key.svg"
+  },
+  {
+   "id": "scales",
+   "name": "Scales",
+   "category": "objects",
+   "svg": "objects/scales.svg"
+  },
+  {
+   "id": "skull",
+   "name": "Skull",
+   "category": "objects",
+   "svg": "objects/skull.svg"
+  },
+  {
+   "id": "sword",
+   "name": "Sword",
+   "category": "objects",
+   "svg": "objects/sword.svg"
+  },
+  {
+   "id": "fleur_de_lis",
+   "name": "Fleur De Lis",
+   "category": "plants",
+   "svg": "plants/fleur_de_lis.svg"
+  },
+  {
+   "id": "oak_leaf",
+   "name": "Oak Leaf",
+   "category": "plants",
+   "svg": "plants/oak_leaf.svg"
+  },
+  {
+   "id": "oak_tree",
+   "name": "Oak Tree",
+   "category": "plants",
+   "svg": "plants/oak_tree.svg"
+  },
+  {
+   "id": "rose",
+   "name": "Rose",
+   "category": "plants",
+   "svg": "plants/rose.svg"
+  },
+  {
+   "id": "thorned_vine",
+   "name": "Thorned Vine",
+   "category": "plants",
+   "svg": "plants/thorned_vine.svg"
+  },
+  {
+   "id": "wheat_sheaf",
+   "name": "Wheat Sheaf",
+   "category": "plants",
+   "svg": "plants/wheat_sheaf.svg"
+  },
+  {
+   "id": "comet",
+   "name": "Comet",
+   "category": "sky",
+   "svg": "sky/comet.svg"
+  },
+  {
+   "id": "crescent_moon",
+   "name": "Crescent Moon",
+   "category": "sky",
+   "svg": "sky/crescent_moon.svg"
+  },
+  {
+   "id": "six_pointed_star",
+   "name": "Six Pointed Star",
+   "category": "sky",
+   "svg": "sky/six_pointed_star.svg"
+  },
+  {
+   "id": "sun_in_splendour",
+   "name": "Sun In Splendour",
+   "category": "sky",
+   "svg": "sky/sun_in_splendour.svg"
+  },
+  {
+   "id": "basilisk",
+   "name": "Basilisk",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/basilisk.svg"
+  },
+  {
+   "id": "centaur",
+   "name": "Centaur",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/centaur.svg"
+  },
+  {
+   "id": "giant_spider",
+   "name": "Giant Spider",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/giant_spider.svg"
+  },
+  {
+   "id": "hippogriff",
+   "name": "Hippogriff",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/hippogriff.svg"
+  },
+  {
+   "id": "merfolk",
+   "name": "Merfolk",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/merfolk.svg"
+  },
+  {
+   "id": "skeletal_winged_horse",
+   "name": "Skeletal winged horse",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/skeletal_winged_horse.svg"
+  },
+  {
+   "id": "sphinx",
+   "name": "Sphinx",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/sphinx.svg"
+  },
+  {
+   "id": "three_headed_dog",
+   "name": "Three Headed Dog",
+   "category": "wizarding_world",
+   "svg": "wizarding_world/three_headed_dog.svg"
+  }
+ ],
+ "note": "Single-colour silhouettes on a 100 x 100 canvas, fill=currentColor, so the app colours them. Image-generated, then cleaned: scraps of neighbouring tiles removed and every charge re-centred in the middle 80. badger and chimera were cut by their source tile and should be regenerated."
+}
