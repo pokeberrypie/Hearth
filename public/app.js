@@ -4082,8 +4082,13 @@ $("#thread").addEventListener("click", async (e) => {
    * character's picture large — which is a shame, because it is usually the
    * best thing about the card.
    */
+  // In Hearthside and Banner the portrait is the status button, and only that.
   const inlaid = e.target.closest(".inlay");
-  if (inlaid && typeof openStatus === "function") return openStatus(msg, inlaid);
+  if (inlaid) {
+    e.preventDefault();
+    if (typeof openStatus === "function") openStatus(msg, inlaid);
+    return;
+  }
 
   const face = e.target.closest(".who .medallion");
   if (face && !face.classList.contains("blank")) {
