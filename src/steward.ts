@@ -245,20 +245,35 @@ export function parseAnswer(raw: string): Parsed {
 
 // ---- checking it against the story ---------------------------------------
 
+/*
+ * No \p{...} in here, and nothing else that needs ICU. The phone's Node is
+ * built without it, and there a Unicode property escape is not a slow regex
+ * but a syntax error in the whole bundle: Node stops before the first line
+ * runs and the app dies with nothing recorded. Plain ranges do the same job.
+ * PUNCTUATION is ASCII and Latin-1 symbols, the general and supplemental
+ * punctuation blocks, CJK punctuation and the full-width forms; the apostrophe
+ * is left out of it on purpose.
+ */
+const PUNCTUATION = /[\u0000-\u0026\u0028-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u00BF\u00D7\u00F7\u2000-\u206F\u2E00-\u2E7F\u3000-\u303F\uFF00-\uFF0F\uFF1A-\uFF20\uFF3B-\uFF40\uFF5B-\uFF65]+/g;
+
+/** NFKC where the runtime can do it; the text as it is where it cannot. */
+function folded(text: string): string {
+  try { return text.normalize("NFKC"); } catch { return text; }
+}
+
 /** Text reduced to its words: case, accents of punctuation, quotes and dashes no longer matter. */
 function words(text: string): string[] {
-  return String(text ?? "")
-    .normalize("NFKC")
+  return folded(String(text ?? ""))
     .toLowerCase()
     .replace(/[’‘`´]/g, "'")
-    .replace(/[^\p{L}\p{N}'\s]+/gu, " ")
+    .replace(PUNCTUATION, " ")
     .replace(/'/g, "")
     .split(/\s+/)
     .filter(Boolean);
 }
 
 /** Languages written without spaces are compared by characters instead of words. */
-const unspaced = (s: string) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}]/u.test(s);
+const unspaced = (s: string) => /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF\uFF66-\uFF9F\u0E00-\u0E7F]/.test(s);
 
 function lcs(a: string[], b: string[]): number {
   let prev = new Array(b.length + 1).fill(0);
