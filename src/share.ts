@@ -115,6 +115,10 @@ const GUEST_ROUTES: { method: string; re: RegExp }[] = [
   { method: "GET",  re: /^\/api\/table\/races$/ },
   { method: "POST", re: /^\/api\/table\/roll-sheet$/ },
   { method: "PUT",  re: /^\/api\/table\/sheet$/ },
+  // The story as the table may see it: the date, what has happened, how
+  // everyone is, who feels what, the factions. Never the host's secrets,
+  // never what is waiting for the host to accept — see tableWorld in index.ts.
+  { method: "GET",  re: /^\/api\/table\/world$/ },
   // Your character, to carry away or to bring with you.
   { method: "GET",  re: /^\/api\/table\/passport$/ },
   { method: "POST", re: /^\/api\/table\/passport$/ },

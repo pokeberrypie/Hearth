@@ -3326,6 +3326,54 @@ function copyChronicle(entries: ChronicleEntry[], chatId: string) {
               e.created_at, e.undone_at, e.proposed ? 1 : 0);
     }
   })();
+  if (entries.length) worldChanged(chatId);
+}
+
+/**
+ * Anyone sitting at this chat's table is told the world moved on — only the
+ * small summary, so a phone on a slow tunnel is not sent the whole chronicle
+ * every time somebody's mood changes. The rest is fetched when they look.
+ */
+function worldChanged(chatId: string) {
+  const share = db.query("SELECT id FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chatId) as any;
+  if (share) publish(share.id, "world", { world: worldSummary(chatId) });
+}
+
+/** The few words a guest's screen shows without opening Story World: the date, and the latest thing that happened. */
+function worldSummary(chatId: string) {
+  const cal = calendarOf(chatId);
+  const entries = chronicleOf(chatId).filter((e) => e.visibility === "table");
+  const at = clockOf(cal, entries);
+  const last = liveEntries(entries).filter((e) => e.kind === "event").pop();
+  return { today: formatDate(cal, at), latest: last?.title ?? "" };
+}
+
+/**
+ * Story World as a guest sees it. Built from what the table may read and
+ * nothing else — a hidden entry is left out before anything is worked out
+ * from it, so no date, status, bond or faction can give it away. No
+ * proposals, which are the host's to decide; no evidence, which quotes the
+ * transcript in ways a secret could ride along with. Bonds come seen from
+ * the guest's own character, theirs first.
+ */
+function tableWorld(chatId: string, seenFrom: string) {
+  const cal = calendarOf(chatId);
+  const entries = chronicleOf(chatId).filter((e) => e.visibility === "table");
+  const at = clockOf(cal, entries);
+  const bonds = bondsOf(entries).map((b) => ({ from: b.from, to: b.to, score: b.score, label: b.label }));
+  const mine = (b: { from: string; to: string }) => (b.from === seenFrom || b.to === seenFrom ? 0 : 1);
+  return {
+    calendar: cal.name,
+    now: { ...at, text: formatDate(cal, at) },
+    seenFrom,
+    events: liveEntries(entries).filter((e) => e.kind === "event")
+      .map((e) => ({ id: e.id, title: e.title, body: e.body, day: e.day, minute: e.minute,
+        when: e.day === null ? "" : formatDate(cal, { day: e.day, minute: e.minute ?? 0 }) })),
+    status: Object.fromEntries(Object.entries(statusOf(entries)).map(([who, fields]) => [who,
+      Object.fromEntries(Object.entries(fields).map(([f, e]) => [f, e!.title]))])),
+    bonds: bonds.sort((a, b) => mine(a) - mine(b)),
+    factions: factionsOf(entries).map((f) => ({ key: f.key, name: f.name, description: f.description, members: f.members, standing: f.standing })),
+  };
 }
 
 /**
@@ -3402,7 +3450,11 @@ api.get("/calendars", (c) => c.json(BUILTINS));
 
 api.get("/chats/:id/chronicle", (c) => {
   const id = c.req.param("id");
-  if (!db.query("SELECT 1 FROM chats WHERE id = ?").get(id)) return c.json({ error: "No such chat." }, 404);
+  const chat = db.query("SELECT persona_id FROM chats WHERE id = ?").get(id) as any;
+  if (!chat) return c.json({ error: "No such chat." }, 404);
+  // The players' view: exactly what a seat at the table is shown, so the host
+  // can check what is visible before revealing anything — or after.
+  if (c.req.query("as") === "players") return c.json(tableWorld(id, whoAmI(chat.persona_id)?.name ?? ""));
   return c.json(chronicleState(id));
 });
 
@@ -3425,7 +3477,7 @@ api.post("/chats/:id/chronicle", async (c) => {
     (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
   const add = (fields: Record<string, unknown>) => {
     copyChronicle([normaliseChronicleEntry({ ...fields, id: uid(), kind, message_id: lastMessage(), day: at.day, minute: at.minute,
-      source: "user", created_at: now() })], chatId);
+      visibility: b.visibility, source: "user", created_at: now() })], chatId);
     return c.json(chronicleState(chatId));
   };
   if (kind === "bond") {
@@ -3465,7 +3517,7 @@ api.post("/chats/:id/chronicle", async (c) => {
     const last = db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any;
     copyChronicle([normaliseChronicleEntry({
       id: uid(), kind, subject, field, title: value, message_id: last?.id ?? null, day: at.day, minute: at.minute,
-      source: "user", created_at: now(),
+      visibility: b.visibility, source: "user", created_at: now(),
     })], chatId);
     return c.json(chronicleState(chatId));
   }
@@ -3504,6 +3556,7 @@ function markUndone(c: any, undone: number | null) {
   const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
   if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
   db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?").run(undone, c.req.param("id"));
+  worldChanged(row.chat_id);
   return c.json(chronicleState(row.chat_id));
 }
 api.post("/chronicle/:id/undo", (c) => markUndone(c, now()));
@@ -3514,16 +3567,23 @@ api.post("/chronicle/:id/accept", (c) => {
   const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
   if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
   db.query("UPDATE chronicle SET proposed = 0 WHERE id = ?").run(c.req.param("id"));
+  worldChanged(row.chat_id);
   return c.json(chronicleState(row.chat_id));
 });
 
-/** A secret, told: everybody at the table may read it from now on. */
-api.post("/chronicle/:id/reveal", (c) => {
+/**
+ * A secret, told: everybody at the table may read it from now on. And the
+ * other way, for the host: something the table should not see yet.
+ */
+function setVisibility(c: any, visibility: "table" | "hidden") {
   const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
   if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
-  db.query("UPDATE chronicle SET visibility = 'table' WHERE id = ?").run(c.req.param("id"));
+  db.query("UPDATE chronicle SET visibility = ? WHERE id = ?").run(visibility, c.req.param("id"));
+  worldChanged(row.chat_id);
   return c.json(chronicleState(row.chat_id));
-});
+}
+api.post("/chronicle/:id/reveal", (c) => setVisibility(c, "table"));
+api.post("/chronicle/:id/hide", (c) => setVisibility(c, "hidden"));
 
 /**
  * Choosing a chat's calendar: a built-in by id, or a whole custom calendar.
@@ -3537,6 +3597,7 @@ api.put("/chats/:id/calendar", async (c) => {
   const cal = typeof b.id === "string" && builtin(b.id) ? builtin(b.id)! : normaliseCalendar(b.calendar);
   if (!cal) return c.json({ error: "That is not a calendar Hearth can read." }, 400);
   db.query("UPDATE chats SET calendar = ? WHERE id = ?").run(cal.kind === "undated" ? "" : JSON.stringify(cal), chatId);
+  worldChanged(chatId);
   return c.json(chronicleState(chatId));
 });
 
@@ -3637,14 +3698,17 @@ function forgetSteward(messageIds: string[], reread = true) {
   // The narrator's own marks go with the words they were written in, as the Steward's readings do.
   const undo = db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN ('steward', 'narrator') AND undone_at IS NULL");
   const rewind = db.query("UPDATE chats SET steward_at = MIN(steward_at, ?) WHERE id = ?");
+  const chats = new Set<string>();
   db.transaction(() => {
     for (const id of messageIds) {
       const m = db.query("SELECT chat_id, created_at FROM messages WHERE id = ?").get(id) as any;
       if (!m) continue;
       undo.run(t, id);
       if (reread) rewind.run(m.created_at - 1, m.chat_id);
+      chats.add(m.chat_id);
     }
   })();
+  for (const id of chats) worldChanged(id);
 }
 
 /**
@@ -6825,8 +6889,18 @@ function tableState(share: any, player: any) {
     turn: turnAt(share),
     messages: msgs,
     fight: fightIn(share.chat_id),
+    // Story World, in a line: the full view is fetched only when opened.
+    world: worldSummary(share.chat_id),
   };
 }
+
+/** Story World for a seat at the table, seen from that seat's character. */
+api.get("/table/world", (c) => {
+  const g = guestOf(c);
+  if (!g) return c.json({ error: "Not a seat at this table." }, 403);
+  const persona = g.player.persona_id ? (db.query("SELECT name FROM personas WHERE id = ?").get(g.player.persona_id) as any) : null;
+  return c.json(tableWorld(g.share.chat_id, persona?.name || g.player.name));
+});
 
 api.get("/table/state", (c) => {
   const g = guestOf(c);
