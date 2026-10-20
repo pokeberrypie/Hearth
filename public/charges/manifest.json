@@ -490,5 +490,5 @@
    "svg": "wizarding_world/three_headed_dog.svg"
   }
  ],
- "note": "Single-colour silhouettes on a 100 x 100 canvas, fill=currentColor, so the app colours them. Image-generated, then cleaned: scraps of neighbouring tiles removed and every charge re-centred in the middle 80. badger and chimera were cut by their source tile and should be regenerated."
+ "note": "Single-colour silhouettes on a 100 x 100 canvas, fill=currentColor, so the app colours them. Image-generated, then cleaned: scraps of neighbouring tiles removed and every charge re-centred in the middle 80."
 }
