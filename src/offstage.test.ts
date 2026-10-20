@@ -461,3 +461,157 @@ describe("Threads, moved by the world: hidden until the story shows them", () =>
     } finally { Math.random = roll; }
   });
 });
+
+describe("Living World, joined up: participants, discretion, the author's plan, and who knows what", () => {
+  const act = (lines: string) => `CHOOSE | it | x\nACT | ${lines}`;
+  const rows = (kind: string) => db.query("SELECT * FROM chronicle WHERE chat_id = 'ch' AND kind = ? AND undone_at IS NULL").all(kind) as any[];
+  const asked = () => sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages)).join("\n");
+
+  test("a thread says who it involves, so she sees it whatever it is called — and threads moved together stay tied", async () => {
+    seed();
+    setSettings({ gossip_level: "off" });
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "The Northern Alliance", people: ["Cersei Lannister"] });
+    await goal("Cersei Lannister", "keep her father's favour");
+    answers = [act("writes to the Starks | easy | none\nTHREAD | complicate | The Northern Alliance | a letter to Winterfell\nTHREAD | open | Whispers at Court | the septa is paid")];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(asked()).toContain("- The Northern Alliance");
+    const opened = rows("thread").find((e) => e.title === "Whispers at Court");
+    expect(JSON.parse(opened.data)).toMatchObject({ people: ["Cersei Lannister"], related: ["northern alliance"] });
+    // A thread named in the story records who it names.
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "Jaime's promise to Yvenna" });
+    expect(JSON.parse(rows("thread").find((e) => e.title === "Jaime's promise to Yvenna").data).people.sort()).toEqual(["Jaime Lannister", "Yvenna Hightower"]);
+  });
+
+  test("how careful someone is: the author's to set, told to the Offstage, and it moves the odds of a trace", async () => {
+    seed();
+    setSettings({ gossip_level: "off" });
+    await goal("Cersei Lannister", "get the contract");
+    const r = await (await send("/api/chats/ch/offstage/trait", "POST", { who: "Cersei Lannister", discretion: "masterful" })).json();
+    expect(r.discretion).toEqual({ "Cersei Lannister": "masterful" });
+    expect((await ledger()).discretion).toEqual({ "Cersei Lannister": "masterful" });
+    const roll = Math.random;
+    try {
+      // Fails (1), then a trace roll of 3: an ordinary person under 13 leaves one; a masterful one only under 7 — still left.
+      // A trace roll of 8 is the difference.
+      Math.random = (() => { const q = [0, 7 / 20]; return () => q.shift() ?? 0.5; })();
+      answers = [act("bribes the archivist | uncertain | none\nCLUE | a Lannister pin by the shelves")];
+      await send("/api/chats/ch/offstage/run", "POST");
+    } finally { Math.random = roll; }
+    expect(asked()).toContain("By nature they are masterful");
+    expect((await ledger()).actions[0]).toMatchObject({ outcome: "failed", trace_roll: 8, trace_dc: 7, traced: false });
+  });
+
+  describe("the author's plan", () => {
+    const BOOK = "# The Hand\nA betrothal.\n## The Court\n### The Affirmation\nCast: Jaime, Yvenna\nPurpose: Jaime makes the wedding public\n### Tyrion Finds the Letter\nCast: Tyrion\nPurpose: Tyrion learns of the plot\n### The Feast\nSetting: the gardens";
+    async function follow() {
+      const imp = await (await send("/api/apocrypha/import", "POST", { text: BOOK })).json();
+      await send("/api/chats/ch/apocrypha", "PUT", { book: imp.books[0].id });
+    }
+    const proposals = async () => (await (await ask("/api/chats/ch/chronicle")).json()).proposals;
+
+    test("the Offstage is told it — as the referee, not as her — and a conflict is flagged, never rewritten", async () => {
+      seed();
+      setSettings({ gossip_level: "off" });
+      await follow();
+      await goal("Cersei Lannister", "stop the Hightower wedding");
+      answers = [act("burns every letter in the Hand's solar | easy | none\nFACT | the Hand's letters are ash\nPLAN | 2 | conflicts | the letter Tyrion was to find is gone\nPLAN | 1 | complicates | the court is uneasy")];
+      await send("/api/chats/ch/offstage/run", "POST");
+      expect(asked()).toContain("the author's plan for scenes ahead, which Cersei Lannister knows nothing of");
+      expect(asked()).toContain("2. Tyrion Finds the Letter — with Tyrion; Tyrion learns of the plot");
+      const p = await proposals();
+      expect(p).toMatchObject([{ kind: "conflict", title: "Tyrion Finds the Letter" }]);
+      // Which scene, never who or how.
+      expect(JSON.stringify(p)).not.toContain("ash");
+      expect(JSON.stringify(p)).not.toContain("Cersei");
+      expect((await ledger()).actions[0].plan).toMatchObject([
+        { relation: "conflicts", title: "Tyrion Finds the Letter", how: "the letter Tyrion was to find is gone" },
+        { relation: "complicates", title: "The Affirmation" }]);
+      // The plan itself is untouched.
+      const tale = await (await ask("/api/chats/ch/apocrypha")).json();
+      expect(tale.book.chapters[0].scenes.map((s: any) => s.title)).toEqual(["The Affirmation", "Tyrion Finds the Letter", "The Feast"]);
+      // Asked once per scene.
+      answers = [act("burns more letters | easy | none\nPLAN | 2 | conflicts | more ash")];
+      await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "1 day" });
+      await send("/api/chats/ch/offstage/run", "POST");
+      expect((await proposals()).filter((x: any) => x.kind === "conflict")).toHaveLength(1);
+    });
+
+    test("played blind, a scene not reached is not named; and help that failed helped nothing", async () => {
+      seed();
+      setSettings({ gossip_level: "off", apocrypha_blind: "1" });
+      await follow();
+      await goal("Cersei Lannister", "stop the Hightower wedding");
+      const roll = Math.random;
+      try {
+        Math.random = () => 0;
+        answers = [act("tries to steal the letter | uncertain | none\nPLAN | 2 | conflicts | the letter may vanish\nPLAN | 1 | supports | it brings the court together")];
+        await send("/api/chats/ch/offstage/run", "POST");
+      } finally { Math.random = roll; }
+      expect(await proposals()).toMatchObject([{ kind: "conflict", title: "" }]);
+      expect((await ledger()).actions[0].plan.map((p: any) => p.relation)).toEqual(["conflicts"]);
+    });
+  });
+
+  describe("who knows what", () => {
+    test("a witness to a theft that worked: the theft stands, the witness knows what they saw, and it reaches the story only through them", async () => {
+      seed();
+      setSettings({ gossip_level: "court" });
+      db.query("INSERT INTO npcs (id, chat_id, name, created_at) VALUES ('n1', 'ch', 'Pod', 1)").run();
+      await goal("Cersei Lannister", "get the contract");
+      const roll = Math.random;
+      try {
+        // Works (20), trace left (1), the witness will talk (0.9 ≥ refuse), then a quiet day of gossip.
+        Math.random = (() => { const q = [0.99, 0, 0.9]; return () => q.shift() ?? 0.99; })();
+        answers = [act("takes the contract from the study | hard | none\nFACT | the marriage contract is missing\nCLUE | a Lannister pin by the desk\nWITNESS | Pod | a woman in a hooded cloak leaving the study late")];
+        await send("/api/chats/ch/offstage/run", "POST");
+      } finally { Math.random = roll; }
+      const l = await ledger();
+      expect(l.whispers).toMatchObject([{ holder: "Pod", source: "saw", version: "a woman in a hooded cloak leaving the study late", spreads: true, by: ["Cersei Lannister"] }]);
+      const told = await narrator();
+      expect(told).toContain("the marriage contract is missing");
+      expect(told).toContain("Pod saw: “a woman in a hooded cloak leaving the study late”");
+      expect(told).toContain("It is not the truth");
+      // The ledger's account of the deed is still the deed.
+      expect(l.actions[0].what).toBe("takes the contract from the study");
+    });
+
+    test("never the player's character as a witness; never the one who did it", async () => {
+      seed();
+      const roll = Math.random;
+      try {
+        Math.random = (() => { const q = [0.99, 0]; return () => q.shift() ?? 0.99; })();
+        answers = [act("takes the contract | hard | none\nCLUE | a pin\nWITNESS | Yvenna | someone in the study")];
+        await goal("Cersei Lannister", "get the contract");
+        await send("/api/chats/ch/offstage/run", "POST");
+      } finally { Math.random = roll; }
+      const l = await ledger();
+      expect(l.whispers).toEqual([]);
+      expect(l.actions[0].notes).toContain("the witness was the player's character");
+    });
+
+    test("gossip moves on the day it turns, and goes back with the reply that turned it", async () => {
+      seed();
+      setSettings({ gossip_level: "chaotic" });
+      await goal("Cersei Lannister", "get the contract");
+      await offstageTurn("ch");
+      // Something already known, waiting to spread.
+      db.query("INSERT INTO chronicle (id, chat_id, kind, subject, title, data, visibility, source, created_at, day) VALUES ('k0', 'ch', 'knows', 'a kitchen maid', 'a cloaked woman left the study', ?, 'private', 'offstage', 1, 0)")
+        .run(JSON.stringify({ of: "h1", source: "saw", spreads: true, day: 0, by: ["Cersei Lannister"] }));
+      await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "1 day" });
+      const roll = Math.random;
+      try {
+        Math.random = () => 0.01;
+        answers = [act("rests | easy | none")];
+        story = "Morning.";
+        await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We wait." })).text();
+        for (let i = 0; i < 50 && (await ledger()).whispers.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
+      } finally { Math.random = roll; }
+      const l = await ledger();
+      expect(l.whispers.length).toBeGreaterThanOrEqual(2);
+      expect(l.whispers.some((k: any) => k.source === "told" && k.from === "a kitchen maid")).toBe(true);
+      const reply = db.query("SELECT id FROM messages WHERE chat_id = 'ch' AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any;
+      await send(`/api/messages/${reply.id}`, "DELETE");
+      expect((await ledger()).whispers.map((k: any) => k.holder)).toEqual(["a kitchen maid"]);
+    });
+  });
+});

@@ -231,3 +231,13 @@ export function related(a: string, b: string): boolean {
   const ca = conceptsIn(a);
   return [...conceptsIn(b)].some((c) => ca.has(c));
 }
+
+/** Which of these people a text names: in full, or by the first part of their name. */
+export function namedIn(text: string, people: string[]): string[] {
+  const p = plain(text);
+  return [...new Set(people.filter((n) => {
+    const full = plain(n).trim();
+    const first = full.split(" ")[0] ?? "";
+    return !!full && (has(p, full) || (first.length > 2 && (has(p, first) || has(p, `${first}'s`))));
+  }))];
+}

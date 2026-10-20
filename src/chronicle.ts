@@ -27,7 +27,11 @@ import { later, type Calendar, type Moment } from "./calendar";
 
 export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing", "thread", "scene",
   // The Offstage (src/offstage.ts): goals, what people did, what could be noticed, what became true, and threats to be played out.
-  "agenda", "offstage", "hook", "consequence", "threat"] as const;
+  "agenda", "offstage", "hook", "consequence", "threat",
+  // How careful someone is (set by the author), and who knows what — never the thing itself, always a version of it.
+  "trait", "knows",
+  // Something offstage that makes a planned scene impossible as written: a question for the author.
+  "conflict"] as const;
 
 /**
  * Bonds run from 0 to 100 and start in the middle: a stranger is neither
@@ -249,6 +253,10 @@ export type Thread = { key: string; title: string; open: boolean; since: number;
   hidden: boolean;
   /** Who has had a hand in it offstage. */
   by: string[];
+  /** Who it involves, as recorded when it was opened or moved — not guessed from its name later. */
+  people: string[];
+  /** Other threads it was moved together with: the same matter seen from another side. */
+  related: string[];
   notes: ThreadNote[] };
 
 export function threadsOf(entries: Entry[], o: { hidden?: boolean } = {}): Thread[] {
@@ -263,6 +271,10 @@ export function threadsOf(entries: Entry[], o: { hidden?: boolean } = {}): Threa
     const by = was?.by ?? [];
     if (d.by && !by.includes(d.by)) by.push(String(d.by));
     const notes = was?.notes ?? [];
+    const people = was?.people ?? [];
+    for (const n of Array.isArray(d.people) ? d.people : []) if (n && !people.includes(String(n))) people.push(String(n));
+    const related = was?.related ?? [];
+    for (const k of Array.isArray(d.related) ? d.related : []) if (k && k !== e.subject && !related.includes(String(k))) related.push(String(k));
     if (e.amount === 0 || e.body) notes.push({ text: e.body || e.title, move: String(d.move ?? (e.amount === 0 ? "advance" : e.amount > 0 ? "open" : "settle")), by: String(d.by ?? ""), day: e.day, private: secret });
     out.set(e.subject, {
       key: e.subject,
@@ -273,6 +285,8 @@ export function threadsOf(entries: Entry[], o: { hidden?: boolean } = {}): Threa
       id: e.id,
       hidden: (was?.hidden ?? true) && secret,
       by,
+      people,
+      related,
       notes,
     });
   }

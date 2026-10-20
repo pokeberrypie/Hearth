@@ -594,6 +594,17 @@ export const DEFAULTS: Record<string, string> = {
   offstage_per_day: "2",
   offstage_provider: "",
   offstage_model: "",
+  /**
+   * Whispers & Rumours (src/whispers.ts): how much people talk — off, natural,
+   * court or chaotic; how much a rumour drifts with each telling; whether it
+   * can come to blame the wrong person; and after how many days it stops
+   * going around. Natural by default: gossip exists, but a cottage romance is
+   * not a court.
+   */
+  gossip_level: "natural",
+  gossip_distortion: "15",
+  gossip_misinfo: "1",
+  gossip_decay: "10",
   /** "since" the last note, or a "window" of the last `auto_lore_every`. */
   auto_lore_scope: "since",
   lore_budget: "8000",

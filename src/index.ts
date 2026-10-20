@@ -22,7 +22,8 @@ function connectionFrom(s: Record<string, string>, provider = s.provider) {
 import { dirname, join } from "node:path";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { buildParts, buildMessages, buildPostHistory, estimateTokens, macros, stripSpeakerLabel, type Character } from "./prompt";
-import { recall, recallBrief, related } from "./recall";
+import { namedIn, recall, recallBrief, related } from "./recall";
+import { GOSSIP_RATES, active as stillGoing, gossipDay, gossipOf, told as knowingTold, type Knowing } from "./whispers";
 import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNote, NOTE_SYSTEM, type Scope } from "./autolore";
 import { CARRY_SYSTEM, carryEntry, carryPrompt, carriedTitle, cleanSummary, recentFor, tailBudget } from "./carryon";
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
@@ -51,7 +52,7 @@ import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, min
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
-         resolve as resolveAttempt, rule as ruleOn, traceOf, type Agenda, type View } from "./offstage";
+         resolve as resolveAttempt, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
 import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
@@ -2792,7 +2793,7 @@ ${DICE_BRIEF}` : DICE_BRIEF;
   // The plan this chat follows, if any: only ever the scene being played.
   const tale = taleBrief(chat.id);
   // And the record of what is so: the date, and how everyone is.
-  const storyWorld = worldBrief(chat, s);
+  const storyWorld = worldBrief(chat, s, history);
 
   if (s.mode === "tabletop") {
     const table: string[] = [];
@@ -3524,8 +3525,11 @@ function recordEvent(chatId: string, fields: Partial<ChronicleEntry>) {
  * messages; what is already in the conversation being sent is not remembered
  * twice, so the cut-off is worked out the way buildMessages makes it.
  */
-function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEntry[], cal: Calendar, threads: string[]) {
-  const rows = db.query("SELECT id, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC").all(chat.id) as any[];
+function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEntry[], cal: Calendar, threads: string[],
+  history?: { id: string; content: string }[]) {
+  // The conversation as this reply will see it — without a reply being swiped away, with words not yet sent — newest first.
+  const rows = history ? [...history].reverse()
+    : db.query("SELECT id, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC").all(chat.id) as any[];
   const budget = Number(s.context_tokens) > 0 ? Number(s.context_tokens) : 8000;
   const inContext = new Set<string>();
   let used = 0;
@@ -3549,7 +3553,7 @@ function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEnt
   });
 }
 
-function worldBrief(chat: any, s: Record<string, string>): string | null {
+function worldBrief(chat: any, s: Record<string, string>, history?: { id: string; content: string }[]): string | null {
   // Story World off: a plain story, with nothing of it in the prompt.
   if (s.story_world === "0") return null;
   const cal = calendarOf(chat.id);
@@ -3575,7 +3579,7 @@ function worldBrief(chat: any, s: Record<string, string>): string | null {
   // newest first; each a possibility to return to, not something to force.
   const open = threadsOf(entries).filter((t) => t.open).slice(0, 8);
   if (open.length) lines.push(`Threads still open, to pick up when it fits: ${open.map((t) => t.title).join("; ")}.`);
-  lines.push(...recallBrief(rememberFor(chat, s, entries, cal, open.map((t) => t.title))));
+  lines.push(...recallBrief(rememberFor(chat, s, entries, cal, open.map((t) => t.title), history)));
   lines.push(...offstageBrief(chat.id, entries));
   return lines.length ? lines.join("\n") : null;
 }
@@ -3613,12 +3617,16 @@ function chronicleState(chatId: string) {
       ...chronicleView(pending(entries).filter(onStage).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
       // A threat is asked about without being told: who is coming, and how, stays in the ledger.
       ...pending(entries).filter((e) => e.kind === "threat").map((e) => ({ id: e.id, kind: "threat", title: "", data: e.data })),
+      // So is a conflict with the plan: which scene, and nothing of what happened. A scene not yet reached
+      // in a book read blind is not named either.
+      ...pending(entries).filter((e) => e.kind === "conflict").map((e) => ({ id: e.id, kind: "conflict", scene_id: e.scene_id,
+        title: blindAhead(chatId, e.scene_id) ? "" : e.title })),
     ],
   };
 }
 
 /** Not the Offstage's: its ledger is private, and what it hands the narrator is the narrator's alone. */
-const OFFSTAGE_KINDS = new Set(["agenda", "offstage", "hook", "consequence", "threat"]);
+const OFFSTAGE_KINDS = new Set(["agenda", "offstage", "hook", "consequence", "threat", "trait", "knows", "conflict"]);
 const onStage = (e: ChronicleEntry) => e.visibility !== "private" && !OFFSTAGE_KINDS.has(e.kind);
 
 api.get("/calendars", (c) => c.json(BUILTINS));
@@ -3688,7 +3696,10 @@ api.post("/chats/:id/chronicle", async (c) => {
     if (!known && !name) return c.json({ error: "A thread needs a name." }, 400);
     const subject = known?.key ?? groupKey(name);
     if (!subject) return c.json({ error: "A thread needs a name." }, 400);
-    return add({ subject, title: name || known!.title, amount: b.open === false || b.settled ? -1 : 1 });
+    const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+    const everyone = chat ? peopleOf(chat).map((p) => p.name) : [];
+    return add({ subject, title: name || known!.title, amount: b.open === false || b.settled ? -1 : 1,
+      data: { people: Array.isArray(b.people) ? b.people.map((p: unknown) => String(p).slice(0, 120)).slice(0, 20) : namedIn(name, everyone) } });
   }
   if (kind === "standing") {
     if (!factionsOf(chronicleOf(chatId)).some((f) => f.key === b.key)) return c.json({ error: "No such faction in this chat." }, 404);
@@ -3954,6 +3965,13 @@ const cannotAct = (fields: Record<string, { title: string } | undefined> | undef
  * feel. Never the ledger's other entries, never anything hidden they had no
  * part in. A secret they could not have does not reach the prompt.
  */
+/** How careful each person is, as the author last set it. */
+function discretions(entries: ChronicleEntry[]): Record<string, Discretion> {
+  const out: Record<string, Discretion> = {};
+  for (const e of liveEntries(entries)) if (e.kind === "trait" && e.subject) out[e.subject] = discretionOf(e.title);
+  return out;
+}
+
 /** Words too common to say two things are about the same matter. */
 const NOT_TELLING = new Set(["about", "their", "there", "which", "would", "could", "other", "where", "while", "after", "before", "again"]);
 
@@ -3965,6 +3983,8 @@ function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calenda
   const mine = live.filter((e) => e.kind === "offstage" && e.subject === who);
   const known = live.filter((e) => e.kind === "event" && e.visibility !== "private" && namesIn(`${e.title} ${e.body}`, who))
     .slice(-12).map((e) => `${e.day !== null ? `${formatDate(cal, { day: e.day, minute: e.minute ?? 0 })}: ` : ""}${e.title}${e.body ? ` (${e.body})` : ""}`);
+  // What they have seen, found or been told — their version, garbled or not.
+  known.push(...knowingsOf(entries).filter((k) => k.holder === who).slice(-6).map((k) => knowingTold(k, "self")));
   const lately = mine.slice(-5).map((e) => {
     const d = dataOf(e);
     return `${e.title}${d.outcome === "failed" ? " — it failed" : d.outcome === "succeeded" ? " — it worked" : ""}`;
@@ -3973,8 +3993,12 @@ function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calenda
   // The unresolved matters they are caught up in: open threads the story has that name them or touch what
   // they want, and those they have had a hand in — their own secret ones included, which nobody else is shown.
   const wanting = new Set(goals.flatMap((g) => groupKey(g.goal).split(" ")).filter((w) => w.length > 4 && !NOT_TELLING.has(w)));
-  const threads = threadsOf(entries, { hidden: true }).filter((t) => t.open && (t.by.includes(who) || (!t.hidden
-    && (namesIn(`${t.title} ${t.evidence}`, who) || t.key.split(" ").some((w) => wanting.has(w))))))
+  const all = threadsOf(entries, { hidden: true });
+  const theirs = all.filter((t) => t.open && (t.by.includes(who) || (!t.hidden
+    && (t.people.includes(who) || namesIn(`${t.title} ${t.evidence}`, who) || t.key.split(" ").some((w) => wanting.has(w))))));
+  // And the public threads tied to theirs: Cersei's secret matter is bound up with the wedding, whatever either is called.
+  const tied = all.filter((t) => t.open && !t.hidden && !theirs.includes(t) && theirs.some((m) => m.related.includes(t.key) || t.related.includes(m.key)));
+  const threads = [...theirs, ...tied]
     .slice(0, 6).map((t) => {
       const mine = t.notes.filter((n) => n.by === who).at(-1);
       return `${t.title}${t.hidden ? " (nobody else knows of it yet)" : ""}${mine ? ` — last: ${mine.text}` : ""}`;
@@ -3990,6 +4014,7 @@ function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calenda
     known,
     lately,
     threads,
+    discretion: discretions(entries)[who],
     pressure: pressureOf(mine.slice(-3).map((e) => { const o = dataOf(e).outcome; return { succeeded: o === "succeeded" ? true : o === "failed" ? false : null }; }), at.day - oldest),
   };
 }
@@ -4007,8 +4032,13 @@ function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calenda
  * checked for pointing at anyone.
  */
 function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "failed", who: string, entries: ChronicleEntry[],
-  base: Record<string, unknown>, next: () => number) {
+  base: Record<string, unknown>, next: () => number, everyone: string[] = []) {
   const known = threadsOf(entries, { hidden: true });
+  // Threads moved by one decision are one matter seen from two sides — the wedding, and the plot against it.
+  const together = r.threads.map((m) => {
+    const key = groupKey(m.name);
+    return (known.find((t) => t.key === key) ?? known.find((t) => Math.min(t.key.length, key.length) >= 6 && (t.key.includes(key) || key.includes(t.key))))?.key ?? key;
+  }).filter(Boolean);
   const out: ChronicleEntry[] = [];
   const kept: { move: string; name: string; note: string }[] = [];
   let secretOpen = known.filter((t) => t.hidden && t.open).length;
@@ -4027,7 +4057,8 @@ function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "faile
     if (move === "open" && secretOpen >= 12) { r.notes.push("too many matters already moving out of sight"); continue; }
     if (kept.some((k) => groupKey(k.name) === (same?.key ?? key))) continue;
     const note = m.note || r.act;
-    const data = { by: who, move };
+    const data = { by: who, move, people: [...new Set([who, ...namedIn(`${m.name} ${note}`, everyone)])],
+      related: together.filter((k) => k !== (same?.key ?? key)) };
     if (move === "open") {
       out.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "thread", subject: same?.key ?? key, title: m.name, amount: 1, body: note, data, created_at: next() }));
       secretOpen++;
@@ -4080,9 +4111,17 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   const protection = protectionOf(s.offstage_protection);
   let acted = 0, quiet = 0, threats = 0;
   let t = now();
+  // The author's plan, the scene now and the two after: for the referee, never for the person deciding.
+  const { book: taleBook, mark: taleMark } = taleOf(chatId);
+  const planned = taleBook && taleMark?.scene ? (() => {
+    const now_ = scenesOf(taleBook).find(({ scene }) => scene.id === taleMark.scene)?.scene;
+    const ahead = scenesAhead(taleBook, taleMark).slice(0, 2).map((a) => scenesOf(taleBook).find(({ scene }) => scene.id === a.id)!.scene);
+    return [now_, ...ahead].filter(Boolean).map((sc, i) => ({ n: i + 1, id: sc!.id, title: sc!.title.trim() || "untitled",
+      about: [sc!.cast.trim() && `with ${sc!.cast.trim()}`, sc!.purpose.trim() || sc!.ending.trim()].filter(Boolean).join("; ").slice(0, 240) }));
+  })() : [];
   for (const person of who) {
     const theirs = goals.filter((g) => g.who === person);
-    const view = viewFor(chat, person, entries, cal, theirs);
+    const view = { ...viewFor(chat, person, entries, cal, theirs), plan: planned.map(({ n, title, about }) => ({ n, title, about })) };
     const prompt = offstagePrompt(view);
     let said = "";
     try {
@@ -4106,23 +4145,47 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     const outcome = r.kind === "dropped" ? "dropped" : r.threat ? "threat" : r.kind !== "act" ? "routine"
       : out.roll === null ? "succeeded" : out.succeeded ? "succeeded" : "failed";
     // Whether it worked and whether it was seen are two questions, rolled apart.
-    const trace = r.clue && (outcome === "succeeded" || outcome === "failed") ? traceOf(r.difficulty, outcome === "succeeded") : { left: false, roll: null, dc: 0 };
+    const trace = r.clue && (outcome === "succeeded" || outcome === "failed") ? traceOf(r.difficulty, outcome === "succeeded", Math.random, discretions(entries)[person]) : { left: false, roll: null, dc: 0 };
     const add: ChronicleEntry[] = [];
     const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
-    const moved = outcome === "succeeded" || outcome === "failed" ? threadMoves(r, outcome, person, entries, base, () => t++) : { entries: [], kept: [] };
+    // How it bore on the plan, matched to the scenes that were listed. A failure bears on nothing.
+    const planMarks = outcome === "succeeded" || outcome === "failed"
+      ? r.plan.filter((m) => outcome === "succeeded" || m.relation !== "supports").map((m) => {
+        const sc = planned.find((p) => p.n === m.n);
+        return sc ? { scene: sc.id, title: sc.title, relation: m.relation, how: m.how } : null;
+      }).filter((m): m is NonNullable<typeof m> => !!m) : [];
+    const moved = outcome === "succeeded" || outcome === "failed" ? threadMoves(r, outcome, person, entries, base, () => t++, [...peopleOfChat(chatId), player]) : { entries: [], kept: [] };
     add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "offstage", subject: person,
       title: r.act || (r.kind === "abandon" ? "Gave something up" : "An ordinary day"), body: r.why, created_at: t++,
       data: { day: at.day, want: d.want, fear: d.fear, considered: d.considered.slice(0, 4), choice: d.choice, kind: r.kind,
               difficulty: r.difficulty, harm: r.harm, roll: out.roll, dc: out.dc, outcome, notes: r.notes,
-              seen: r.seen, fact: r.fact, clue: r.clue, traced: trace.left, trace_roll: trace.roll, trace_dc: trace.dc, threads: moved.kept } }));
+              seen: r.seen, fact: r.fact, clue: r.clue, traced: trace.left, trace_roll: trace.roll, trace_dc: trace.dc, threads: moved.kept, plan: planMarks } }));
     add.push(...moved.entries);
+    // A conflict with the plan is the author's to know about — not to have solved for them. Asked once per scene,
+    // above the writing line, like a threat: which scene, never who or how; that stays in the ledger.
+    if (outcome === "succeeded" || outcome === "failed") {
+      const flagged = new Set(pending(entries).filter((e) => e.kind === "conflict" && e.scene_id).map((e) => e.scene_id));
+      for (const m of planMarks) {
+        if (m.relation !== "conflicts" || flagged.has(m.scene)) continue;
+        flagged.add(m.scene);
+        add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "conflict", scene_id: m.scene, title: m.title, body: m.how,
+          created_at: t++, proposed: true, data: { relation: m.relation } }));
+      }
+    }
     // What the narrator may have: what could be seen — even of a failure — and what is now true, only on success.
     if (r.seen && outcome !== "dropped" && !r.threat) {
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.seen, created_at: t++, data: { until: at.day + 3 } }));
     }
     // The one deliberate clue, which may point to them — left when their discretion failed, whether or not the thing worked.
     if (r.clue && trace.left) {
-      add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.clue, created_at: t++, data: { until: at.day + 5, clue: true } }));
+      const hook = uid();
+      add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: hook, kind: "hook", title: r.clue, created_at: t++, data: { until: at.day + 5, clue: true, by: [person] } }));
+      // Someone saw: their own knowledge, apart from the trace — what they took in, which may not be who.
+      if (r.witness) {
+        const g = gossipOf(s.gossip_level);
+        add.push(knowingEntry({ holder: r.witness.who, version: r.witness.saw, of: hook, source: "saw", from: "", distortion: 0, blames: "",
+          spreads: g !== "off" && Math.random() >= GOSSIP_RATES[g].refuse, day: at.day, by: [person] }, base, t++));
+      }
     }
     if (r.fact && outcome === "succeeded") {
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "consequence", title: r.fact, created_at: t++ }));
@@ -4138,7 +4201,35 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     entries = chronicleOf(chatId);
     if (outcome === "routine") quiet++; else if (outcome !== "dropped") acted++;
   }
+  // And then the day's whispering: traces found, things told on. See src/whispers.ts.
+  const g = gossipOf(s.gossip_level);
+  if (g !== "off") {
+    const live = liveEntries(entries);
+    const knowings = knowingsOf(entries);
+    const traces = live.filter((e) => e.kind === "hook" && dataOf(e).clue)
+      .map((e) => ({ id: e.id, text: e.title, by: Array.isArray(dataOf(e).by) ? dataOf(e).by : [], day: e.day ?? at.day }));
+    const fresh = gossipDay({ level: g, distortion: Number(s.gossip_distortion) || 0, misinformation: s.gossip_misinfo !== "0",
+      decayDays: Number(s.gossip_decay) > 0 ? Number(s.gossip_decay) : 10, day: at.day, knowings, traces,
+      people: peopleOfChat(chatId), player, rng: Math.random });
+    const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
+    if (fresh.length) copyChronicle(fresh.map((k) => knowingEntry(k, base, t++)), chatId);
+  }
   return { acted, quiet, threats };
+}
+
+/** Someone knowing something, as a record: private, never the thing itself, pointing back at it. */
+function knowingEntry(k: Knowing, base: Record<string, unknown>, at: number) {
+  return normaliseChronicleEntry({ ...base, id: uid(), kind: "knows", subject: k.holder, title: k.version, created_at: at,
+    data: { of: k.of, source: k.source, from: k.from, distortion: k.distortion, blames: k.blames, spreads: k.spreads, day: k.day, by: k.by } });
+}
+
+function knowingsOf(entries: ChronicleEntry[]): Knowing[] {
+  return liveEntries(entries).filter((e) => e.kind === "knows" && e.subject).map((e) => {
+    const d = dataOf(e);
+    return { holder: e.subject!, version: e.title, of: String(d.of ?? ""), source: d.source === "saw" || d.source === "found" ? d.source : "told",
+      from: String(d.from ?? ""), distortion: Number(d.distortion) || 0, blames: String(d.blames ?? ""), spreads: !!d.spreads,
+      day: Number.isFinite(Number(d.day)) ? Number(d.day) : e.day ?? 0, by: Array.isArray(d.by) ? d.by.map(String) : [] };
+  });
 }
 
 /** After a reply: when the story's day has turned, the Offstage takes its turn — once per day, never per message. */
@@ -4169,6 +4260,17 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   const hooks = live.filter((e) => e.kind === "hook" && (dataOf(e).until ?? day) >= day).slice(-4).map((e) => e.title);
   const threat = live.filter((e) => e.kind === "threat").at(-1);
   const out: string[] = [];
+  // Rumours held by people in the scene: theirs to bring up, believe or keep — never the truth of it.
+  const s = getSettings();
+  if (gossipOf(s.gossip_level) !== "off") {
+    const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+    const here = new Set(chat ? peopleOf(chat).filter((p) => p.present && p.note !== "the player").map((p) => p.name) : []);
+    const decay = Number(s.gossip_decay) > 0 ? Number(s.gossip_decay) : 10;
+    const rumours = knowingsOf(entries).filter((k) => here.has(k.holder) && !k.by.includes(k.holder) && stillGoing(k, day, decay * 2)).slice(-4);
+    if (rumours.length) {
+      out.push(`What some of the people here have seen or heard — each knows only their own, may be wrong, and may or may not choose to share it. It is not the truth, and the player's character does not know it unless told in the story: ${rumours.map((k) => knowingTold(k, "narrator")).join("; ")}.`);
+    }
+  }
   if (facts.length) {
     out.push(`True in the world now, whether or not the player's character knows it — let it show only through what they could actually see or hear: ${facts.join("; ")}.`);
   }
@@ -4196,6 +4298,9 @@ api.get("/chats/:id/offstage", (c) => {
       facts: live.filter((e) => e.kind === "consequence").reverse().slice(0, 20).map((e) => ({ id: e.id, text: e.title, when: when(e) })),
       hooks: live.filter((e) => e.kind === "hook").reverse().slice(0, 20).map((e) => ({ id: e.id, text: e.title, when: when(e) })),
     },
+    discretion: discretions(entries),
+    // Who knows what: every version, where it came from, and whether it is still going around.
+    whispers: knowingsOf(entries).reverse().slice(0, 60),
     // Matters moving out of sight, and what was done offstage to the ones the story has.
     threads: threadsOf(entries, { hidden: true }).filter((t) => t.hidden || t.notes.some((n) => n.private))
       .map((t) => ({ key: t.key, title: t.title, open: t.open, hidden: t.hidden, notes: t.notes.filter((n) => n.private).map((n) => ({ ...n, when: n.day === null ? "" : formatDate(cal, { day: n.day, minute: 0 }) })) })),
@@ -4223,6 +4328,17 @@ api.post("/chats/:id/offstage/goal", async (c) => {
   copyChronicle([normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: who, title: goal, body: String(b.why ?? "").slice(0, 300),
     visibility: "private", source: "user", day: at.day, minute: at.minute, created_at: now() })], chatId);
   return c.json({ ok: true });
+});
+
+/** How careful someone is: the author's to say. Not a secret, and not tied to any message — it is not something the story did. */
+api.post("/chats/:id/offstage/trait", async (c) => {
+  const chatId = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const who = String(b.who ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!who) return c.json({ error: "Who?" }, 400);
+  copyChronicle([normaliseChronicleEntry({ id: uid(), kind: "trait", subject: who, title: discretionOf(b.discretion),
+    visibility: "private", source: "user", created_at: now() })], chatId);
+  return c.json({ ok: true, discretion: discretions(chronicleOf(chatId)) });
 });
 
 api.post("/chats/:id/offstage/goal/:goal", async (c) => {
@@ -4443,6 +4559,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           id: uid(), kind: "thread", message_id: claim.message_id, day: at.day, minute: at.minute,
           subject: groupKey(claim.name), title: claim.name, amount: claim.open ? 1 : -1,
           evidence: claim.evidence, source: "steward", created_at: t++,
+          data: { people: namedIn(`${claim.name} ${claim.evidence}`, people.map((p) => p.name)) },
         }));
       } else {
         entries.push(normaliseChronicleEntry({
@@ -4585,6 +4702,14 @@ api.post("/chats/:id/apocrypha/advance", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   return c.json(advanceTale(chatId, b.how === "skipped" ? "skipped" : "done"));
 });
+
+/** A scene the person has not reached yet, in a story they are playing blind: not to be named to them. */
+function blindAhead(chatId: string, sceneId: string | null) {
+  if (getSettings().apocrypha_blind !== "1" || !sceneId) return false;
+  const { book, mark } = taleOf(chatId);
+  if (!book || !mark) return false;
+  return mark.scene !== sceneId && !mark.done.includes(sceneId) && !mark.skipped.includes(sceneId);
+}
 
 /** The scenes still to come after the current one, in order: neither played nor passed over. */
 function scenesAhead(book: Apocryphon, mark: Bookmark) {

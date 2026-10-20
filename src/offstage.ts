@@ -61,6 +61,15 @@ export type View = {
   threads?: string[];
   /** Said plainly when things have been going badly: what pushes a careful person to a risk. */
   pressure: string;
+  /** How careful they are, when the author has said. */
+  discretion?: Discretion;
+  /**
+   * The author's plan, ahead: scenes they hope will happen. The person does
+   * not know it, and is not to be steered toward it; it is here only so what
+   * they do can be said to bear on it — help it, get in its way, or make it
+   * impossible as written, which the author is then told about.
+   */
+  plan?: { n: number; title: string; about: string }[];
 };
 
 export const OFFSTAGE_SYSTEM = [
@@ -77,8 +86,10 @@ export const OFFSTAGE_SYSTEM = [
   "SEEN | something another person might notice, without saying who did it or why",
   "FACT | what is now true in the world because of it, without saying who did it",
   "CLUE | a trace it could leave, whether or not it works: something someone could find or notice that points toward who was behind it",
+  "WITNESS | who might have seen it — someone in the story by name, or a role like a kitchen maid | what they saw, as they saw it",
   "THREAD | open or advance or complicate or settle | its name | what changed, in a few words",
   "GOAL | a new goal, only if they take one up | why",
+  "PLAN | the number of a planned scene, if one is listed | supports or complicates or conflicts | how, in a few words",
   "",
   "Rules:",
   "- ACT is only what this person does themselves. Never what the player's character does, says, thinks or feels.",
@@ -86,7 +97,9 @@ export const OFFSTAGE_SYSTEM = [
   "- The last field of ACT is the harm it would do to the player's character: none, social (their name, standing, friendships), physical (their body or freedom), grave (death, maiming, imprisonment for good).",
   "- SEEN and FACT never name the person acting, never point to them — not by title, house, household, servants or friends — and never say why. \"The marriage contract is missing\", not \"the queen's handmaiden took it\". Leave them out when nothing would show or nothing changed.",
   "- CLUE is the only line that may point to them: the trace a careless or unlucky moment leaves — a witness, a dropped pin, a smell of their perfume. A theft can succeed and still be seen. Whether it is left at all is decided separately, by chance.",
+  "- WITNESS goes with CLUE: who might have caught sight of it, and what they took in — often not who it was. Never the player's character, never the person acting. It counts only if the trace is left.",
   "- THREAD only when what they do moves a matter that will take more than a day: open a new one (named as people would speak of it if it came out — \"Unrest in the Guild\", never \"the Duke's plot\"), or advance, complicate or settle one of the matters listed, by its name exactly as listed. At most two. Leave it out on an ordinary day.",
+  "- PLAN only if a plan is listed and what they do bears on it: supports (it makes the scene likelier or possible), complicates (an obstacle, or the scene will play differently), conflicts (the scene cannot happen as written). Never choose what they do because of the plan.",
   "- NOTHING when they simply live their day: then ACT is the ordinary thing they do, easy, none, and there is no SEEN or FACT.",
   "- ABANDON when they give up a goal because it is costing them more than it is worth: then name the goal in the why.",
 ].join("\n");
@@ -105,6 +118,8 @@ export function offstagePrompt(v: View): string {
     part("How their own recent attempts went:", v.lately),
     part("Unresolved matters they are caught up in — these weigh on what they do next:", v.threads ?? []),
     v.pressure && `Their situation: ${v.pressure}`,
+    v.plan?.length ? `For you, not for them — the author's plan for scenes ahead, which ${v.who} knows nothing of. Do not steer them toward it; their own wants come first. Only say, with a PLAN line, if what they do bears on one:\n${v.plan.map((p) => `${p.n}. ${p.title}${p.about ? ` — ${p.about}` : ""}`).join("\n")}` : "",
+    v.discretion && v.discretion !== "ordinary" && `By nature they are ${v.discretion}${v.discretion === "careless" ? " — they leave traces and talk too much" : v.discretion === "masterful" ? " — they plan for being watched and rarely leave a trace" : " — they cover themselves"}.`,
     `The player's character is ${v.player || "the player"}: someone ${v.who} may act toward, never someone they decide for.`,
     "Write the lines now.",
   ].filter(Boolean).join("\n\n");
@@ -128,7 +143,11 @@ export type Decision = {
   clue: string;
   goal: { goal: string; why: string } | null;
   threads: ThreadMove[];
+  plan: PlanMark[];
+  witness: { who: string; saw: string } | null;
 };
+
+export type PlanMark = { n: number; relation: "supports" | "complicates" | "conflicts"; how: string };
 
 export type ThreadMove = { move: "open" | "advance" | "complicate" | "settle"; name: string; note: string };
 
@@ -138,7 +157,7 @@ const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/
 /** A model's answer, read. Untidy answers are read as far as they go; nothing here is believed yet. */
 export function readDecision(raw: string): Decision {
   const d: Decision = { want: "", fear: "", considered: [], choice: "", why: "", kind: "nothing", act: "", difficulty: "easy",
-    harm: "none", seen: "", fact: "", clue: "", goal: null, threads: [] };
+    harm: "none", seen: "", fact: "", clue: "", goal: null, threads: [], plan: [], witness: null };
   const text = String(raw ?? "")
     .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
     .replace(/```[a-z]*\n?/gi, "");
@@ -166,6 +185,13 @@ export function readDecision(raw: string): Decision {
       const move = /^(open|new|start|begin)/.test(m) ? "open" : /^(settle|resolve|close|end|finish)/.test(m) ? "settle"
         : /^(complicat|worsen|twist|setback|hinder)/.test(m) ? "complicate" : /^(advance|progress|move|further|develop)/.test(m) ? "advance" : null;
       if (move) d.threads.push({ move, name: parts[2], note: parts.slice(3).join(" | ") });
+    } else if ((key === "WITNESS" || key === "WITNESSES") && parts[1] && parts[2]) {
+      d.witness = { who: parts[1], saw: parts.slice(2).join(" | ") };
+    } else if (key === "PLAN" && parts[1] && parts[2]) {
+      const n = parseInt(parts[1].replace(/[^0-9]/g, ""), 10);
+      const rel = parts[2].toLowerCase();
+      const relation = /^conflict|imposs|prevent/.test(rel) ? "conflicts" : /^complicat|hinder|obstacle/.test(rel) ? "complicates" : /^support|help|enable/.test(rel) ? "supports" : null;
+      if (n > 0 && relation) d.plan.push({ n, relation, how: parts.slice(3).join(" | ") });
     } else if (key === "GOAL" && parts[1]) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
   }
   if (d.kind === "act" && !d.act) d.kind = "nothing";
@@ -189,6 +215,10 @@ export type Ruling = {
   goal: { goal: string; why: string } | null;
   /** What they do to the story's unresolved matters. Matched against the real threads, and kept, in the run. */
   threads: ThreadMove[];
+  /** How it bears on the author's plan. Matched against the scenes listed, in the run. */
+  plan: PlanMark[];
+  /** Who may have seen it, kept only with a trace, and only if the trace is left. */
+  witness: { who: string; saw: string } | null;
   /** Which goal was given up, when one was. */
   abandons: string;
   /** Why anything was taken out. Shown in the author's ledger, so a dull run can be understood. */
@@ -233,7 +263,7 @@ export function identityOf(who: string, card: string, factions: string[] = []): 
 export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[] }): Ruling {
   const notes: string[] = [];
   const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
-    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], abandons: "", notes };
+    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", notes };
   if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.clue = ""; r.harm = "none"; r.difficulty = "easy"; }
   // Something that cannot fail leaves no careless trace.
   if (r.difficulty === "easy") r.clue = "";
@@ -247,6 +277,20 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
   if (playerWords.length && d.act && playerWords.includes(words(d.act)[0] ?? "")) {
     notes.push("acted for the player's character");
     return { ...r, kind: "dropped", act: "", seen: "", fact: "", clue: "", threat: false };
+  }
+  // A witness: someone else, never the player's character (whose eyes are the player's), with something they saw.
+  if (d.kind === "act" && d.witness && r.clue) {
+    const who = d.witness.who.replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!who || names(who, o.who)) notes.push("the witness was the one acting");
+    else if (o.player && names(who, o.player)) notes.push("the witness was the player's character");
+    else r.witness = { who, saw: d.witness.saw.replace(/\s+/g, " ").trim().slice(0, 240) };
+  }
+  // How it bears on the plan: only for something they actually did, once per scene, at most two.
+  if (d.kind === "act") {
+    for (const m of d.plan) {
+      if (r.plan.length >= 2 || r.plan.some((p) => p.n === m.n)) continue;
+      r.plan.push({ n: m.n, relation: m.relation, how: m.how.replace(/\s+/g, " ").trim().slice(0, 240) });
+    }
   }
   // A thread's name is public the moment it comes out: it may no more point to them than what could be seen.
   if (d.kind === "act") {
@@ -265,7 +309,7 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
       return { ...r, kind: "dropped", act: "", seen: "", fact: "", clue: "", threat: false };
     }
     // Fair: anything to their body or freedom is played out. Grim: only the grave is.
-    if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; r.clue = ""; r.threads = []; }
+    if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; r.clue = ""; r.threads = []; r.plan = []; r.witness = null; }
   }
   const id = o.identity ?? [];
   if (r.seen && names(r.seen, o.who, id)) { notes.push("what could be seen pointed to who did it"); r.seen = ""; }
@@ -301,9 +345,21 @@ export const TRACE_DC: Record<Difficulty, { worked: number; failed: number }> = 
 
 export type Trace = { left: boolean; roll: number | null; dc: number };
 
-export function traceOf(difficulty: Difficulty, succeeded: boolean, rng: () => number = Math.random): Trace {
-  const dc = TRACE_DC[difficulty][succeeded ? "worked" : "failed"];
-  if (!dc) return { left: false, roll: null, dc: 0 };
+/**
+ * How careful someone is, set by the author — never guessed from their card,
+ * where nearly everyone would read as "careful". A master spy and a first-time
+ * thief do not leave a trace equally often. It moves the line, never past
+ * the point where a bad enough moment (a 1) can still give anyone away.
+ */
+export const DISCRETION = ["careless", "ordinary", "careful", "masterful"] as const;
+export type Discretion = (typeof DISCRETION)[number];
+export const discretionOf = (v: unknown): Discretion => (DISCRETION.includes(v as Discretion) ? (v as Discretion) : "ordinary");
+const DISCRETION_SHIFT: Record<Discretion, number> = { careless: 4, ordinary: 0, careful: -3, masterful: -6 };
+
+export function traceOf(difficulty: Difficulty, succeeded: boolean, rng: () => number = Math.random, discretion: Discretion = "ordinary"): Trace {
+  const base = TRACE_DC[difficulty][succeeded ? "worked" : "failed"];
+  if (!base) return { left: false, roll: null, dc: 0 };
+  const dc = Math.max(2, Math.min(20, base + DISCRETION_SHIFT[discretion]));
   const roll = 1 + Math.floor(rng() * 20);
   return { left: roll < dc, roll, dc };
 }

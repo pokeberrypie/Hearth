@@ -92,7 +92,7 @@ addEventListener("resize", fitWorldLine);
  * reason to.
  */
 function paintScenePrompt(s) {
-  const q = GUEST.on ? null : (s?.proposals ?? []).find((p) => (p.kind === "scene" || p.kind === "threat") && !p.sealed);
+  const q = GUEST.on ? null : (s?.proposals ?? []).find((p) => (p.kind === "scene" || p.kind === "threat" || p.kind === "conflict") && !p.sealed);
   let box = $("#scenePrompt");
   if (!q) { if (box) box.hidden = true; return; }
   if (!box) {
@@ -105,22 +105,33 @@ function paintScenePrompt(s) {
   let d = {};
   try { d = q.data ? JSON.parse(q.data) : {}; } catch {}
   const threat = q.kind === "threat";
-  const text = threat
+  const conflict = q.kind === "conflict";
+  const text = conflict
+    ? `Something that happened offstage means ${q.title ? `<b>${txt(q.title)}</b>` : "a scene ahead in your plan"} may not be able to happen as written. Your plan has not been changed.`
+    : threat
     ? `Something is stirring against <b>${txt(d.player || "you")}</b>. Let it come into the story?`
     : d.to
     ? `The story seems to be at <b>${txt(d.toTitle || "a later scene")}</b>. Jump there?`
     : `<b>${txt(q.title)}</b> seems to be over.${d.next ? ` Move on to <b>${txt(d.next)}</b>?` : " Close it?"}`;
   box.innerHTML = `<span class="spstar" aria-hidden="true">✦</span>
     <div class="sptext">${text}${q.evidence ? `<div class="spwhy">“${txt(q.evidence)}”</div>` : ""}</div>
-    <div class="spbtns"><button type="button" class="solid" data-yes>Yes</button>
+    <div class="spbtns">${conflict
+      ? `<button type="button" class="solid" data-yes>I'll adapt it</button>
+      <button type="button" class="linkish" data-no>Keep it as written</button>`
+      : `<button type="button" class="solid" data-yes>Yes</button>
       <button type="button" class="linkish" data-no>Not yet</button>
-      ${threat ? "" : `<button type="button" class="linkish" data-pick-scene>Pick the scene…</button>`}</div>`;
+      ${threat ? "" : `<button type="button" class="linkish" data-pick-scene>Pick the scene…</button>`}`}</div>`;
   box.hidden = false;
   box.querySelector("[data-yes]").onclick = async () => {
     box.hidden = true;
     await act(`/chronicle/${q.id}/accept`);
+    // Adapting it: straight to the book, on the shelf.
+    if (conflict && typeof openApoc === "function") {
+      const tale = await api(`/chats/${S.chatId}/apocrypha`).catch(() => null);
+      if (tale?.book) { openApoc(tale.book); return; }
+    }
     if (typeof refreshTaleNav === "function") refreshTaleNav();
-    toast(threat ? "It will come in the next reply." : d.to ? `Now in: ${d.toTitle || "the later scene"}` : d.next ? `Now: ${d.next}` : "That was the last scene.");
+    toast(conflict ? "Noted. What happened is in the Living World ledger, if you want to see it." : threat ? "It will come in the next reply." : d.to ? `Now in: ${d.toTitle || "the later scene"}` : d.next ? `Now: ${d.next}` : "That was the last scene.");
   };
   box.querySelector("[data-no]").onclick = async () => { box.hidden = true; await act(`/chronicle/${q.id}/undo`); };
   // The guess is wrong: say where the story really is. Choosing answers the question.
@@ -466,7 +477,7 @@ async function paintOffstage() {
   const level = $("#offstage_level")?.value ?? "off";
   const active = l.goals.filter((g) => g.status === "active");
   const off = level === "off"
-    ? `<p class="hint">The Living World is off, so nobody acts on their own. Turn it on in Behavior → Living World; until then, a day can still be run by hand.</p>` : "";
+    ? `<p class="hint">The Living World is off, so nobody acts on their own. Turn it on in Story World → Living World; until then, a day can still be run by hand.</p>` : "";
   const people = l.people.map((p) => `<option value="${txt(p)}">`).join("");
   const addGoal = `<div class="wdkicker">Give someone a goal</div>
     <div class="wdoffadd">
@@ -476,6 +487,13 @@ async function paintOffstage() {
       <input id="wdGoalWhy" placeholder="Why it matters to them (optional)">
       <button type="button" class="ghost" id="wdGoalAdd">Add the goal</button>
     </div>`;
+  // How careful each person with a goal is: not a secret, so it is here whether the ledger is sealed or not.
+  const MANNER = { careless: "Careless", ordinary: "Ordinary", careful: "Careful", masterful: "Masterful" };
+  const schemers = [...new Set(active.map((g) => g.who))];
+  const manner = schemers.length ? `<div class="wdkicker">How careful they are</div>
+    <p class="hint">How often what they do leaves a trace someone could find. A master spy and a first-time thief are not alike.</p>
+    <ul class="wdledger">${schemers.map((w) => `<li class="wdrow"><span>${txt(w)}</span>
+      <select data-manner="${txt(w)}">${Object.entries(MANNER).map(([k, v]) => `<option value="${k}"${(l.discretion?.[w] ?? "ordinary") === k ? " selected" : ""}>${v}</option>`).join("")}</select></li>`).join("")}</ul>` : "";
   const run = `<button type="button" class="solid wide" id="wdRunDay">Run a day offstage</button>`;
   if (!W.ledgerOpen) {
     const did = l.actions.filter((a) => a.outcome !== "dropped" && a.outcome !== "routine").length;
@@ -486,7 +504,7 @@ async function paintOffstage() {
         <p class="hint">What people plan and do when nobody is watching stays here. The story only learns what becomes true and what could be noticed — and you find the rest by playing.</p>
         <button type="button" class="linkish" id="wdUnseal">Unseal the ledger (spoilers)</button>
       </div>
-      ${run}${addGoal}`;
+      ${run}${addGoal}${manner}`;
   } else {
     const OUT = { succeeded: "it worked", failed: "it failed", routine: "an ordinary day", threat: "held as a scene", dropped: "not allowed" };
     const goals = l.goals.map((g) => `<li class="${g.status}"><div><b>${txt(g.who)}</b> — ${txt(g.goal)}${g.why ? `<div class="wdwhen">${txt(g.why)}</div>` : ""}
@@ -496,6 +514,7 @@ async function paintOffstage() {
         <div>${txt(a.what)}</div>
         <div class="wdwhen">${OUT[a.outcome] ?? ""}${a.roll ? ` · rolled ${a.roll} against ${a.dc}` : ""}${a.trace_roll ? (a.traced ? ` · left a trace (${a.trace_roll} under ${a.trace_dc})` : " · left no trace") : ""}</div>
         ${a.traced && a.clue ? `<div class="wdwhen">The trace: ${txt(a.clue)}</div>` : ""}
+        ${a.plan?.length ? a.plan.map((p) => `<div class="wdwhen">Your plan — ${txt(p.relation)} “${txt(p.title)}”${p.how ? `: ${txt(p.how)}` : ""}</div>`).join("") : ""}
         ${a.why ? `<div class="wdwhy">“${txt(a.why)}”</div>` : ""}
         ${a.considered?.length ? `<details><summary>What they weighed</summary><ul>${a.considered.map((c) => `<li>${txt(c.option)}${c.stakes ? ` — <i>${txt(c.stakes)}</i>` : ""}</li>`).join("")}</ul>${a.want ? `<p class="hint">Wanted: ${txt(a.want)}${a.fear ? `; afraid of: ${txt(a.fear)}` : ""}</p>` : ""}</details>` : ""}
         ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("");
@@ -503,17 +522,25 @@ async function paintOffstage() {
     const threads = (l.threads ?? []).map((t) => `<li><div><b>${txt(t.title)}</b></div>
         <div class="wdwhen">${t.hidden ? "out of sight — the story does not know of it" : "a thread the story has"} · ${t.open ? "open" : "settled"}</div>
         ${t.notes.length ? `<ul>${t.notes.map((n) => `<li><span class="wdwhen">${txt(n.when)}${n.by ? ` · ${txt(n.by)}` : ""} · ${MOVE[n.move] ?? txt(n.move)}</span> ${txt(n.text)}</li>`).join("")}</ul>` : ""}</li>`).join("");
+    const HOW = { saw: "saw", found: "found", told: "was told" };
+    const whispers = (l.whispers ?? []).map((k) => `<li><div><b>${txt(k.holder)}</b> ${HOW[k.source] ?? ""}${k.from ? ` by ${txt(k.from)}` : ""}: “${txt(k.version)}”</div>
+        <div class="wdwhen">${k.distortion ? `${k.distortion}% garbled` : "as it was"}${k.blames ? ` · blames ${txt(k.blames)}` : ""} · ${k.by.includes(k.holder) ? "it is about them" : k.spreads ? "will pass it on" : "keeps it to themselves"}</div></li>`).join("");
     const told = [...l.told.facts.map((f) => `<li>True now: ${txt(f.text)}</li>`), ...l.told.hooks.map((h) => `<li>Could be noticed: ${txt(h.text)}</li>`)].join("");
     body.innerHTML = `${off}
       <div class="wdrow wdledgerbar"><span class="wdkicker">The ledger</span><button type="button" class="linkish" id="wdReseal">Seal it again</button></div>
       ${run}
       <div class="wdkicker">Goals</div>${goals ? `<ul class="wdledger">${goals}</ul>` : `<p class="hint">None yet.</p>`}
-      ${addGoal}
+      ${addGoal}${manner}
       ${threads ? `<div class="wdkicker">Threads, behind the scenes</div><ul class="wdledger">${threads}</ul>` : ""}
+      ${whispers ? `<div class="wdkicker">Who knows what</div><ul class="wdledger">${whispers}</ul>` : ""}
       <div class="wdkicker">What the story has been told</div>${told ? `<ul class="wdledger">${told}</ul>` : `<p class="hint">Nothing yet.</p>`}
       <div class="wdkicker">What they did</div>${acts ? `<ul class="wdledger">${acts}</ul>` : `<p class="hint">Nothing yet.</p>`}`;
   }
   $("#wdUnseal")?.addEventListener("click", () => { W.ledgerOpen = true; paintOffstage(); });
+  for (const sel of body.querySelectorAll("[data-manner]")) {
+    sel.onchange = () => api(`/chats/${S.chatId}/offstage/trait`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ who: sel.dataset.manner, discretion: sel.value }) }).catch(() => toast("That could not be saved."));
+  }
   $("#wdReseal")?.addEventListener("click", () => { W.ledgerOpen = false; paintOffstage(); });
   for (const b of body.querySelectorAll("[data-giveup]")) {
     b.onclick = async () => { await api(`/chats/${S.chatId}/offstage/goal/${b.dataset.giveup}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "abandoned" }) }); paintOffstage(); };
@@ -785,8 +812,8 @@ function paintSetDate() {
  */
 const WORLD_KEYS = ["story_world", "steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source",
   "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day",
-  "offstage_provider", "offstage_model"];
-const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind"]);
+  "offstage_provider", "offstage_model", "gossip_level", "gossip_distortion", "gossip_misinfo", "gossip_decay"];
+const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind", "gossip_misinfo"]);
 
 /** Whether Story World is on at all; until the settings are read, it is. */
 const worldOn = () => W.enabled !== false;
@@ -841,6 +868,19 @@ async function paintWorldSettings() {
         <label>The Offstage's provider <select id="offstage_provider">${providers("The same as the Steward")}</select></label>
         <label>The Offstage's model <input id="offstage_model" type="text" autocomplete="off" spellcheck="false" placeholder="The same as the Steward"></label>
         <p class="hint">It makes decisions rather than notes, so a little more thought pays off here than for the Steward.</p>
+        <div class="wdkicker">Whispers &amp; rumours</div>
+        <p class="hint">Who saw what, who found a trace, who told whom. Every telling is someone's version — the truth
+          underneath is never changed — and people can keep what they know to themselves.</p>
+        <label>How much people talk
+          <select id="gossip_level"><option value="off">Off — what someone knows stays with them</option>
+            <option value="natural">Natural — gossip happens, now and then</option>
+            <option value="court">Court intrigue — information is currency</option>
+            <option value="chaotic">Chaotic — everyone talks, and much of it is wrong</option></select></label>
+        <label>How much it changes in the telling <span class="v" id="v_gossip_distortion"></span>
+          <input type="range" id="gossip_distortion" min="0" max="50" step="5"></label>
+        <label class="check"><input type="checkbox" id="gossip_misinfo"> Rumours can come to blame the wrong person</label>
+        <label>A rumour stops going around after <span class="v" id="v_gossip_decay"></span>
+          <input type="range" id="gossip_decay" min="2" max="30" step="1"></label>
       </div></details>
       <details class="fold"><summary><span>Apocrypha</span></summary><div class="foldbody">
         <label class="check"><input type="checkbox" id="apocrypha_blind"> Play blind</label>
@@ -860,6 +900,8 @@ async function paintWorldSettings() {
   const every = () => {
     const n = Number($("#steward_every").value); $("#v_steward_every").textContent = `${n} new messages`;
     $("#v_offstage_per_day").textContent = String(Number($("#offstage_per_day").value || 2));
+    $("#v_gossip_distortion").textContent = `${Number($("#gossip_distortion").value || 0)}% a telling`;
+    $("#v_gossip_decay").textContent = `${Number($("#gossip_decay").value || 10)} days`;
   };
   const parts = () => { const p = $("#worldParts"); p.classList.toggle("notinuse", !$("#story_world").checked); p.inert = !$("#story_world").checked; };
   every();
@@ -878,7 +920,7 @@ async function paintWorldSettings() {
     if (!el || el.dataset.wired) continue;
     el.dataset.wired = "1";
     el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => {
-      if (k === "steward_every" || k === "offstage_per_day") every();
+      if (k === "steward_every" || k === "offstage_per_day" || k === "gossip_distortion" || k === "gossip_decay") every();
       if (k === "apocrypha_blind" && typeof drawTaleScenes === "function") drawTaleScenes();
       if (k === "story_world") { W.enabled = el.checked; parts(); paintWorldLine(); }
       save();
