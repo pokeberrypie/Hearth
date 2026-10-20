@@ -66,7 +66,8 @@ const CHARGE_WORDS: Record<string, string> = {
   squid: "kraken", octopus: "kraken", bird: "falcon", hawk: "falcon", crow: "raven",
   eagle: "eagle_displayed", fishes: "fish", salmon: "fish", shell: "scallop_shell", scallop: "scallop_shell",
   tree: "oak_tree", oak: "oak_tree", leaf: "oak_leaf", flower: "rose", lily: "fleur_de_lis", fleur: "fleur_de_lis",
-  wheat: "wheat_sheaf", grain: "wheat_sheaf", vine: "thorned_vine", thorns: "thorned_vine",
+  wheat: "wheat_sheaf", grain: "wheat_sheaf", vine: "thorned_vine", thorns: "thorned_vine", thorn: "thorned_vine",
+  ash: "oak_tree", king: "crown", queen: "crown", crowned: "crown", sail: "ship", sails: "ship",
   sun: "sun_in_splendour", moon: "crescent_moon", crescent: "crescent_moon", star: "six_pointed_star",
   castle: "castle_gate", gate: "castle_gate", keep: "tower", boat: "ship", galley: "ship",
   swords: "crossed_swords", blade: "sword", cup: "chalice", grail: "chalice", goblet: "chalice",
@@ -187,25 +188,74 @@ function hash(s: string): number {
   return h;
 }
 
+/** A charge a single word names outright — its id, or a known word for one. No loose matching. */
+function namedCharge(word: string, have: Set<string>): string | null {
+  for (const w of [word, word.replace(/s$/, "")]) {
+    if (have.has(w)) return w;
+    const mapped = CHARGE_WORDS[w];
+    if (mapped && have.has(mapped)) return mapped;
+  }
+  return null;
+}
+
 /**
- * Arms for a faction nobody has given any, from its name alone. The same name
- * always gives the same shield, on every machine, so a faction does not
- * change its colours between one look and the next. Always keeps the rule of
- * tincture, whatever the setting, since nobody chose to break it.
+ * What a faction's name says about its arms, if anything: a charge it names
+ * ("House Hightower" — a tower) and a colour ("the Black Brotherhood"),
+ * including inside a name made of two words run together ("Blackthorn",
+ * "Ravenhill", "Redwyne"). Only whole words and whole halves count, and a half
+ * has to be long enough to mean something, so "Stark" is not a star.
+ */
+export function readName(name: string, ids: string[]): { charge: string | null; tincture: Tincture | null } {
+  const have = new Set(ids.filter((id) => !/_alt/.test(id)));
+  const words = String(name ?? "").toLowerCase().replace(/[^a-z\s]+/g, " ").split(/\s+/).filter(Boolean);
+  let charge: string | null = null;
+  let tincture: Tincture | null = null;
+  for (const w of words) {
+    // The last word that names something wins: the noun comes last — the
+    // Crowned Stag bears a stag, not a crown.
+    charge = namedCharge(w, have) ?? charge;
+    tincture ??= TINCTURE_WORDS[w] ?? null;
+  }
+  for (const w of words.filter((x) => x.length >= 6)) {
+    for (let i = 3; i <= w.length - 3; i++) {
+      const left = w.slice(0, i);
+      const right = w.slice(i);
+      if (!charge && right.length >= 4) charge = namedCharge(right, have);
+      if (!charge && left.length >= 4) charge = namedCharge(left, have);
+      tincture ??= TINCTURE_WORDS[left] ?? null;
+    }
+  }
+  return { charge, tincture };
+}
+
+/**
+ * Arms for a faction nobody has given any, from its name alone. What the name
+ * says comes first — House Hightower bears a tower, the Blackthorn Guild a
+ * black thorn — and a hash of the name settles only what it does not say, so
+ * the same name always gives the same shield, on every machine. Always keeps
+ * the rule of tincture, whatever the setting, since nobody chose to break it.
  */
 export function armsFromName(name: string, ids: string[]): Blazon {
   const h = hash(name);
+  const said = readName(name, ids);
   const metals: Tincture[] = ["or", "argent"];
   const colours: Tincture[] = ["gules", "azure", "vert", "sable", "purpure"];
-  const metal = metals[h % 2];
-  const colour = colours[(h >>> 1) % colours.length];
-  const metalField = ((h >>> 4) & 3) === 0;
+  let metal = metals[h % 2];
+  let colour = colours[(h >>> 1) % colours.length];
+  let metalField = ((h >>> 4) & 3) === 0;
+  // A colour in the name is the colour of the thing it names, or of the field
+  // when it names nothing: the Black Brotherhood's field is black.
+  if (said.tincture) {
+    if (isMetal(said.tincture)) metal = said.tincture; else colour = said.tincture;
+    metalField = said.charge ? !isMetal(said.tincture) : isMetal(said.tincture);
+  }
   const ground = metalField ? metal : colour;
   const other = metalField ? colour : metal;
-  const splitRoll = (h >>> 6) % 6;
+  // A named charge on a plain field, where it is seen whole.
+  const splitRoll = said.charge || said.tincture ? 5 : (h >>> 6) % 6;
   const split: Split = splitRoll === 0 ? "per_pale" : splitRoll === 1 ? "per_fess" : "none";
   const usable = ids.filter((id) => !/_alt/.test(id)).sort();
-  const charge = usable.length ? usable[(h >>> 9) % usable.length] : null;
+  const charge = said.charge ?? (usable.length ? usable[(h >>> 9) % usable.length] : null);
   return withContrast({
     field: split === "none" ? { split, colours: [ground] } : { split, colours: [ground, other] },
     band: null,

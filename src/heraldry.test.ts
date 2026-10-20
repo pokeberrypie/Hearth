@@ -8,7 +8,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { armsFromName, chargeFor, contrastProblems, drawArms, normaliseBlazon, tinctureOf, withContrast, type Blazon } from "./heraldry";
+import { armsFromName, chargeFor, readName, contrastProblems, drawArms, normaliseBlazon, tinctureOf, withContrast, type Blazon } from "./heraldry";
 
 const ROOT = join(import.meta.dir, "..", "public", "charges");
 const IDS: string[] = JSON.parse(readFileSync(join(ROOT, "manifest.json"), "utf8")).assets.map((a: any) => a.id);
@@ -67,6 +67,26 @@ test("arms from a name: the same every time, always legible, always from the rea
     expect(IDS).toContain(b.charge!.type);
   }
   expect(new Set(["A", "B", "C", "D", "E", "F", "G"].map((n) => JSON.stringify(armsFromName(`House ${n}`, IDS)))).size).toBeGreaterThan(4);
+});
+
+test("a name's own words come first: House Hightower bears a tower", () => {
+  expect(readName("House Hightower", IDS)).toEqual({ charge: "tower", tincture: null });
+  expect(readName("The Blackthorn Guild", IDS)).toEqual({ charge: "thorned_vine", tincture: "sable" });
+  expect(readName("Ravenhill", IDS).charge).toBe("raven");
+  expect(readName("House Redwyne", IDS)).toEqual({ charge: null, tincture: "gules" });
+  expect(readName("The Golden Company", IDS)).toEqual({ charge: null, tincture: "or" });
+  expect(readName("Order of the Ash", IDS).charge).toBe("oak_tree");
+  expect(readName("The Crowned Stag", IDS).charge).toBe("stag");
+  expect(readName("Kingsguard", IDS).charge).toBe("crown");
+  // Not every word that contains a charge names one.
+  expect(readName("House Stark", IDS).charge).toBeNull();
+  expect(readName("House Lannister", IDS).charge).toBeNull();
+
+  expect(armsFromName("House Hightower", IDS).charge?.type).toBe("tower");
+  const thorn = armsFromName("The Blackthorn Guild", IDS);
+  expect(thorn.charge).toMatchObject({ type: "thorned_vine", colour: "sable" });
+  expect(thorn.field.colours).toHaveLength(1);
+  expect(armsFromName("The Black Brotherhood", IDS).field.colours).toEqual(["sable"]);
 });
 
 test("drawn as one safe SVG, as a shield or a badge", () => {
