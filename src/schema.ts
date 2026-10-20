@@ -585,6 +585,9 @@ export const DEFAULTS: Record<string, string> = {
   heraldry_style: "auto",
   // The Apocrypha played blind: a chat shows only the scenes already reached.
   apocrypha_blind: "0",
+  // Story World as a whole. Off, and a chat is a plain story: no Steward, no
+  // Offstage, no date read from replies, nothing of it in the prompt.
+  story_world: "1",
   // The Living World (src/offstage.ts): off until asked for.
   offstage_level: "off",
   offstage_protection: "fair",

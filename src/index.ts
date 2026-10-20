@@ -49,7 +49,7 @@ import { WRITE_APOC_SYSTEM, catchUpTo, steeringOf, advance, apocFieldPrompt, apo
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
-import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
+import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
          resolve as resolveAttempt, rule as ruleOn, type Agenda, type View } from "./offstage";
 import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
@@ -3509,6 +3509,8 @@ function recordEvent(chatId: string, fields: Partial<ChronicleEntry>) {
  * two versions of one person.
  */
 function worldBrief(chat: any, s: Record<string, string>): string | null {
+  // Story World off: a plain story, with nothing of it in the prompt.
+  if (s.story_world === "0") return null;
   const cal = calendarOf(chat.id);
   const entries = chronicleOf(chat.id);
   const lines: string[] = [];
@@ -3990,7 +3992,10 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
       return { acted, quiet, threats, error: e?.message || "The Offstage could not be reached." };
     }
     const d = readDecision(withoutThinking(said));
-    const r = ruleOn(d, { who: person, player, protection, goals: theirs });
+    const card = db.query("SELECT description, personality FROM characters WHERE name = ? LIMIT 1").get(person) as any;
+    const theirFactions = factionsOf(entries).filter((f) => f.members.includes(person)).map((f) => f.name);
+    const identity = identityOf(person, `${card?.description ?? ""} ${card?.personality ?? ""}`, theirFactions);
+    const r = ruleOn(d, { who: person, player, protection, goals: theirs, identity });
     const out = r.kind === "act" && !r.threat ? resolveAttempt(r.difficulty) : { succeeded: r.kind !== "dropped", roll: null, dc: 0 };
     const outcome = r.kind === "dropped" ? "dropped" : r.threat ? "threat" : r.kind !== "act" ? "routine"
       : out.roll === null ? "succeeded" : out.succeeded ? "succeeded" : "failed";
@@ -3999,10 +4004,15 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "offstage", subject: person,
       title: r.act || (r.kind === "abandon" ? "Gave something up" : "An ordinary day"), body: r.why, created_at: t++,
       data: { day: at.day, want: d.want, fear: d.fear, considered: d.considered.slice(0, 4), choice: d.choice, kind: r.kind,
-              difficulty: r.difficulty, harm: r.harm, roll: out.roll, dc: out.dc, outcome, notes: r.notes } }));
+              difficulty: r.difficulty, harm: r.harm, roll: out.roll, dc: out.dc, outcome, notes: r.notes,
+              seen: r.seen, fact: r.fact, clue: outcome === "failed" ? r.clue : "" } }));
     // What the narrator may have: what could be seen — even of a failure — and what is now true, only on success.
     if (r.seen && outcome !== "dropped" && !r.threat) {
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.seen, created_at: t++, data: { until: at.day + 3 } }));
+    }
+    // The one deliberate clue: a failed attempt's trace, which may point to them. Success leaves none.
+    if (r.clue && outcome === "failed") {
+      add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.clue, created_at: t++, data: { until: at.day + 5, clue: true } }));
     }
     if (r.fact && outcome === "succeeded") {
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "consequence", title: r.fact, created_at: t++ }));
@@ -4024,7 +4034,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
 /** After a reply: when the story's day has turned, the Offstage takes its turn — once per day, never per message. */
 export async function offstageTurn(chatId: string) {
   const s = getSettings();
-  if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop") return;
+  if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
   const chat = db.query("SELECT offstage_day FROM chats WHERE id = ?").get(chatId) as any;
   if (!chat) return;
   const day = clockOf(calendarOf(chatId), chronicleOf(chatId)).day;
@@ -4156,11 +4166,20 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
   // when the words change. The Steward reading the same words again replaces only its own.
   const undo = db.query(`UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN (${narrator ? "'steward', 'narrator', 'offstage'" : "'steward'"}) AND undone_at IS NULL`);
   const rewind = db.query("UPDATE chats SET steward_at = MIN(steward_at, ?) WHERE id = ?");
+  // A day the Offstage acted on because of these words is a day it has not acted on any more:
+  // its marker goes back with them, so the day gets its turn again from whatever replaces them.
+  const offstageDays = db.query("SELECT data FROM chronicle WHERE message_id = ? AND kind = 'offstage' AND undone_at IS NULL");
+  const unturn = db.query("UPDATE chats SET offstage_day = MIN(offstage_day, ?) WHERE id = ? AND offstage_day >= 0");
   const chats = new Set<string>();
   db.transaction(() => {
     for (const id of messageIds) {
       const m = db.query("SELECT chat_id, created_at FROM messages WHERE id = ?").get(id) as any;
       if (!m) continue;
+      if (narrator) {
+        const days = (offstageDays.all(id) as any[]).map((r) => { try { return Number(JSON.parse(r.data || "{}").day); } catch { return NaN; } })
+          .filter(Number.isFinite);
+        if (days.length) unturn.run(Math.min(...days) - 1, m.chat_id);
+      }
       undo.run(t, id);
       if (reread) rewind.run(m.created_at - 1, m.chat_id);
       chats.add(m.chat_id);
@@ -4333,7 +4352,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
 /** After a reply: read the new messages if enough of them have arrived. */
 export async function stewardTurn(chatId: string) {
   const s = getSettings();
-  if (s.steward_on !== "1") return;
+  if (s.steward_on !== "1" || s.story_world === "0") return;
   const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
   if (!chat) return;
   const fresh = db.query(
@@ -5737,6 +5756,7 @@ export function openingClause(text: string): string {
 }
 
 function openingTime(chatId: string, messageId: string, text: string) {
+  if (getSettings().story_world === "0") return;
   const entries = chronicleOf(chatId);
   if (liveEntries(entries).some((e) => e.kind === "time" && e.message_id === messageId)) return;
   const said = openingClause(text);

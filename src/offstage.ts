@@ -74,13 +74,15 @@ export const OFFSTAGE_SYSTEM = [
   "ACT | what they do, in one plain sentence | easy or uncertain or hard | none or social or physical or grave",
   "SEEN | something another person might notice, without saying who did it or why",
   "FACT | what is now true in the world because of it, without saying who did it",
+  "CLUE | if it went wrong: something someone could find that points toward who was behind it",
   "GOAL | a new goal, only if they take one up | why",
   "",
   "Rules:",
   "- ACT is only what this person does themselves. Never what the player's character does, says, thinks or feels.",
   "- easy: it simply happens (writing a letter, a walk, a word with a friend). uncertain or hard: it could fail (bribing a loyal servant, a theft, a lie to someone sharp).",
   "- The last field of ACT is the harm it would do to the player's character: none, social (their name, standing, friendships), physical (their body or freedom), grave (death, maiming, imprisonment for good).",
-  "- SEEN and FACT never name the person acting and never say why. Leave them out when nothing would show or nothing changed.",
+  "- SEEN and FACT never name the person acting, never point to them — not by title, house, household, servants or friends — and never say why. \"The marriage contract is missing\", not \"the queen's handmaiden took it\". Leave them out when nothing would show or nothing changed.",
+  "- CLUE is the only line that may point to them: the trace a careless or unlucky attempt leaves. It is used only if the attempt fails.",
   "- NOTHING when they simply live their day: then ACT is the ordinary thing they do, easy, none, and there is no SEEN or FACT.",
   "- ABANDON when they give up a goal because it is costing them more than it is worth: then name the goal in the why.",
 ].join("\n");
@@ -118,6 +120,7 @@ export type Decision = {
   harm: Harm;
   seen: string;
   fact: string;
+  clue: string;
   goal: { goal: string; why: string } | null;
 };
 
@@ -127,7 +130,7 @@ const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/
 /** A model's answer, read. Untidy answers are read as far as they go; nothing here is believed yet. */
 export function readDecision(raw: string): Decision {
   const d: Decision = { want: "", fear: "", considered: [], choice: "", why: "", kind: "nothing", act: "", difficulty: "easy",
-    harm: "none", seen: "", fact: "", goal: null };
+    harm: "none", seen: "", fact: "", clue: "", goal: null };
   const text = String(raw ?? "")
     .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
     .replace(/```[a-z]*\n?/gi, "");
@@ -149,6 +152,7 @@ export function readDecision(raw: string): Decision {
         : /social|name|reputation|standing/.test(harm) ? "social" : "none";
     } else if (key === "SEEN" || key === "NOTICE" || key === "NOTICED") d.seen = parts[1] ?? "";
     else if (key === "FACT" || key === "CONSEQUENCE") d.fact = parts[1] ?? "";
+    else if (key === "CLUE" || key === "TRACE") d.clue = parts[1] ?? "";
     else if (key === "GOAL" && parts[1]) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
   }
   if (d.kind === "act" && !d.act) d.kind = "nothing";
@@ -167,6 +171,8 @@ export type Ruling = {
   threat: boolean;
   seen: string;
   fact: string;
+  /** What a failed attempt leaves behind that points to them. Used only on failure — the one deliberate clue. */
+  clue: string;
   goal: { goal: string; why: string } | null;
   /** Which goal was given up, when one was. */
   abandons: string;
@@ -180,10 +186,28 @@ function namesOf(who: string): string[] {
   return all.length ? all : words(who);
 }
 
-/** Does this text give away who did it? */
-export function names(text: string, who: string): boolean {
+/** Does this text give away who did it — by name, or by any of the other words that mark them out? */
+export function names(text: string, who: string, identity: string[] = []): boolean {
   const said = new Set(words(text));
-  return namesOf(who).some((n) => said.has(n) || said.has(`${n}s`));
+  return [...namesOf(who), ...identity].some((n) => said.has(n) || said.has(`${n}s`));
+}
+
+/**
+ * Titles and roles that point to one person as surely as a name: "the queen's
+ * handmaiden" is Cersei, in a story with one queen. Taken from what their card
+ * calls them; the house from their name; and the factions they are counted in.
+ */
+const TITLES = ["king", "queen", "prince", "princess", "hand", "regent", "lord commander", "commander", "kingsguard", "septa",
+  "septon", "maester", "grand maester", "spymaster", "master of whisperers", "master of coin", "master of laws", "steward",
+  "duke", "duchess", "earl", "countess", "baron", "baroness", "emperor", "empress", "chancellor", "captain", "general",
+  "high priest", "high priestess", "archbishop", "bishop", "abbot", "abbess", "khal", "khaleesi", "sultan", "shah", "tsar",
+  "mayor", "sheriff", "magistrate", "headmaster", "headmistress", "ceo", "president", "director", "boss", "don"];
+
+export function identityOf(who: string, card: string, factions: string[] = []): string[] {
+  const text = ` ${words(`${who} ${String(card ?? "").slice(0, 600)}`).join(" ")} `;
+  const titles = TITLES.filter((t) => text.includes(` ${t} `)).flatMap((t) => words(t)).filter((w) => w.length > 2);
+  const houses = factions.flatMap((f) => words(f)).filter((w) => w.length > 3 && !["house", "order", "guild", "company", "the"].includes(w));
+  return [...new Set([...titles, ...houses])];
 }
 
 /**
@@ -191,11 +215,13 @@ export function names(text: string, who: string): boolean {
  * scene instead, and what may reach the narrator — never anything that says
  * who did it. Nothing the model said about the world is believed past this.
  */
-export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[] }): Ruling {
+export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[] }): Ruling {
   const notes: string[] = [];
   const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
-    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), goal: d.goal, abandons: "", notes };
-  if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.harm = "none"; r.difficulty = "easy"; }
+    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, abandons: "", notes };
+  if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.clue = ""; r.harm = "none"; r.difficulty = "easy"; }
+  // Something that cannot fail leaves no careless trace.
+  if (r.difficulty === "easy") r.clue = "";
   if (d.kind === "abandon") {
     const target = o.goals.find((g) => words(d.why + " " + d.choice).some((w) => w.length > 3 && words(g.goal).includes(w))) ?? (o.goals.length === 1 ? o.goals[0] : undefined);
     if (target) r.abandons = target.id;
@@ -205,19 +231,20 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
   const playerWords = words(o.player).filter((w) => w.length > 2);
   if (playerWords.length && d.act && playerWords.includes(words(d.act)[0] ?? "")) {
     notes.push("acted for the player's character");
-    return { ...r, kind: "dropped", act: "", seen: "", fact: "", threat: false };
+    return { ...r, kind: "dropped", act: "", seen: "", fact: "", clue: "", threat: false };
   }
   const atPlayer = !!o.player && names(d.act, o.player);
   if (atPlayer && (d.harm === "physical" || d.harm === "grave")) {
     if (o.protection === "sheltered") {
       notes.push("would have harmed the player's character, which this story does not allow");
-      return { ...r, kind: "dropped", act: "", seen: "", fact: "", threat: false };
+      return { ...r, kind: "dropped", act: "", seen: "", fact: "", clue: "", threat: false };
     }
     // Fair: anything to their body or freedom is played out. Grim: only the grave is.
-    if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; }
+    if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; r.clue = ""; }
   }
-  if (r.seen && names(r.seen, o.who)) { notes.push("what could be seen named who did it"); r.seen = ""; }
-  if (r.fact && names(r.fact, o.who)) { notes.push("what changed named who did it"); r.fact = ""; }
+  const id = o.identity ?? [];
+  if (r.seen && names(r.seen, o.who, id)) { notes.push("what could be seen pointed to who did it"); r.seen = ""; }
+  if (r.fact && names(r.fact, o.who, id)) { notes.push("what changed pointed to who did it"); r.fact = ""; }
   if (r.goal && r.kind !== "dropped") r.goal = { goal: r.goal.goal.slice(0, 200), why: r.goal.why.slice(0, 300) };
   return r;
 }

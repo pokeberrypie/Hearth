@@ -8,7 +8,7 @@
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { names, pressureOf, readDecision, resolve, rule } from "./offstage";
+import { identityOf, names, pressureOf, readDecision, resolve, rule } from "./offstage";
 import { db, setSettings, wipe } from "./test-support";
 
 const { app, offstageTurn } = await import("./index");
@@ -79,6 +79,22 @@ describe("the rules, in code", () => {
     expect(r.fact).toBe("a letter left the Red Keep");
     expect(names("the Queen's maid", "Cersei Lannister")).toBe(false);
     expect(names("Lannister guards", "Cersei Lannister")).toBe(true);
+  });
+
+  test("pointing at them without a name is caught too: title, house, the factions they are in", () => {
+    const id = identityOf("Cersei Lannister", "Queen. Proud, jealous, careful of her own neck.", ["The Lannister Crown", "The Kingsguard"]);
+    const leak = (line: string) => rule(readDecision(`CHOOSE | it | x\nACT | has the contract taken | uncertain | none\nFACT | ${line}`), { ...base, identity: id }).fact;
+    expect(leak("The queen's personal handmaiden was seen leaving with the contract")).toBe("");
+    expect(leak("A Lannister cloak-pin was found by the chest")).toBe("");
+    expect(leak("A man in a Kingsguard cloak was seen near the study")).toBe("");
+    expect(leak("The marriage contract is missing")).toBe("The marriage contract is missing");
+  });
+
+  test("the one deliberate clue: only from something that could fail, and kept only if it did", () => {
+    const d = readDecision("CHOOSE | it | x\nACT | bribes the steward for the contract | uncertain | none\nFACT | the contract is missing\nCLUE | a Lannister cloak-pin by the chest");
+    expect(rule(d, base).clue).toBe("a Lannister cloak-pin by the chest");
+    const easy = readDecision("CHOOSE | it | x\nACT | writes to her uncle | easy | none\nCLUE | a letter with her seal");
+    expect(rule(easy, base).clue).toBe("");
   });
 
   test("harm to the player's body: fair makes it a scene, sheltered forbids it, grim allows all but the grave", () => {
@@ -192,6 +208,99 @@ describe("a day offstage", () => {
     expect((await (await send("/api/chats/ch/offstage/run", "POST")).json()).note).toBe("Nobody has a goal yet.");
   });
 
+  test("a failed attempt leaves its clue; a successful one changes the world and leaves none", async () => {
+    seed();
+    await goal("Cersei Lannister", "get the marriage contract");
+    const plan = "CHOOSE | it | x\nACT | bribes the maester's boy for the marriage contract | uncertain | none\nSEEN | the maester's boy has new boots\nFACT | the marriage contract is missing\nCLUE | a Lannister cloak-pin under the maester's table";
+    const roll = Math.random;
+    try {
+      Math.random = () => 0; // a 1: it fails
+      answers = [plan];
+      await send("/api/chats/ch/offstage/run", "POST");
+      let told = await narrator();
+      expect(told).toContain("a Lannister cloak-pin under the maester's table");
+      expect(told).not.toContain("the marriage contract is missing");
+      expect(told).toContain("the maester's boy has new boots");
+      seed();
+      await goal("Cersei Lannister", "get the marriage contract");
+      Math.random = () => 0.99; // a 20: it works
+      answers = [plan];
+      await send("/api/chats/ch/offstage/run", "POST");
+      told = await narrator();
+      expect(told).toContain("the marriage contract is missing");
+      expect(told).not.toContain("cloak-pin");
+    } finally { Math.random = roll; }
+  });
+
+  describe("the reply that started a day, taken back: everything that day made goes with it", () => {
+    // Two people act on one turned day: a secret action, a new goal of her own, what could be noticed,
+    // what became true — and, from the other, a threat waiting to be let in.
+    const DAY = [
+      CERSEI_PLOTS + "\nGOAL | turn the High Septon against the match | the Faith outranks a father's word",
+      "CHOOSE | it | she must not reach the wedding\nACT | hires a sellsword to waylay Yvenna Hightower on the kingsroad | uncertain | physical",
+    ];
+    async function dayTurnsOnAReply() {
+      seed();
+      setSettings({ offstage_level: "dynamic" });
+      db.query("INSERT INTO characters (id, name, created_at) VALUES ('t', 'Tywin Lannister', 1)").run();
+      await goal("Cersei Lannister", "stop Jaime's marriage to Yvenna");
+      await goal("Tywin Lannister", "a better match for Jaime");
+      await offstageTurn("ch"); // the first look only notes the day
+      await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "1 day" });
+      answers = [...DAY];
+      story = "Morning came grey over the city.";
+      await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We wait." })).text();
+      await settle(() => ledger().then((l) => l.actions.length === 2));
+      const reply = db.query("SELECT id FROM messages WHERE chat_id = 'ch' AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any;
+      // All of it is there, tied to that reply.
+      const l = await ledger();
+      expect(l.goals.map((g: any) => g.goal)).toContain("turn the High Septon against the match");
+      expect((await (await ask("/api/chats/ch/chronicle")).json()).proposals.some((p: any) => p.kind === "threat")).toBe(true);
+      expect(await narrator()).toContain("High Septon has heard a rumour");
+      return reply.id as string;
+    }
+    async function settle(done: () => Promise<boolean>) {
+      for (let i = 0; i < 50 && !(await done()); i++) await new Promise((r) => setTimeout(r, 20));
+    }
+    async function allGone() {
+      const l = await ledger();
+      expect(l.actions.filter((a: any) => a.outcome !== "routine")).toEqual([]);
+      expect(l.goals.map((g: any) => g.goal).sort()).toEqual(["a better match for Jaime", "stop Jaime's marriage to Yvenna"]);
+      expect(l.told).toEqual({ facts: [], hooks: [] });
+      expect((await (await ask("/api/chats/ch/chronicle")).json()).proposals).toEqual([]);
+      const told = await narrator();
+      for (const gone of ["High Septon", "septa seems nervous", "sellsword"]) expect(told).not.toContain(gone);
+      // Cersei's own memory of it is gone too: what she did is not among what she knows next time.
+      answers = ["CHOOSE | NOTHING | x\nACT | rests | easy | none", "CHOOSE | NOTHING | x\nACT | rests | easy | none"];
+      await send("/api/chats/ch/offstage/run", "POST");
+      expect(JSON.stringify(sent)).not.toContain("How their own recent attempts went:\\n- Cersei pays");
+    }
+
+    test("swiped: gone, and the day gets its turn again from the new reply", async () => {
+      await dayTurnsOnAReply();
+      answers = []; // the new take's day: quiet
+      story = "A different morning.";
+      await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
+      await settle(() => ledger().then((l) => l.actions.length >= 2 && l.actions.every((a: any) => a.outcome === "routine")));
+      const l = await ledger();
+      expect(l.actions.length).toBe(2);
+      expect(l.actions.every((a: any) => a.outcome === "routine")).toBe(true);
+      await allGone();
+    });
+
+    test("edited: gone", async () => {
+      const id = await dayTurnsOnAReply();
+      await send(`/api/messages/${id}`, "PUT", { content: "Morning came, and nothing else." });
+      await allGone();
+    });
+
+    test("deleted: gone", async () => {
+      const id = await dayTurnsOnAReply();
+      await send(`/api/messages/${id}`, "DELETE");
+      await allGone();
+    });
+  });
+
   test("swiping the reply that started a run takes the run back with it", async () => {
     seed();
     await goal("Cersei Lannister", "stop the wedding");
@@ -202,5 +311,28 @@ describe("a day offstage", () => {
     await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
     expect((await ledger()).actions).toEqual([]);
     expect(await narrator()).not.toContain("High Septon");
+  });
+});
+
+describe("Story World switched off: plain story, nothing kept, nothing told", () => {
+  test("no world block reaches the narrator, the Offstage never runs, the Steward never reads", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop Jaime's marriage to Yvenna");
+    answers = [CERSEI_PLOTS];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(await narrator()).toContain("High Septon");
+    setSettings({ story_world: "0", steward_on: "1" });
+    expect(await narrator()).not.toContain("High Septon");
+    await offstageTurn("ch");
+    sent = [];
+    story = "Night fell.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We sleep." })).text();
+    await new Promise((r) => setTimeout(r, 100));
+    // Only the story itself was asked for: no Steward reading, no Offstage day.
+    expect(sent.length).toBe(1);
+    expect(sent[0].stream).toBe(true);
+    // Switched back on, everything kept from before is still there.
+    setSettings({ story_world: "1" });
+    expect(await narrator()).toContain("High Septon");
   });
 });

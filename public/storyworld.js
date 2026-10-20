@@ -39,7 +39,13 @@ async function paintWorldLine() {
   const line = $("#worldLine");
   if (!line) return;
   if (GUEST.on) return paintGuestWorldLine();
-  if (!S.chatId) { line.hidden = true; return; }
+  if (!S.chatId || !worldOn()) {
+    line.hidden = true;
+    const q = $("#scenePrompt");
+    if (q) q.hidden = true;
+    if (!worldOn() && $("#worldDialog")?.open) $("#worldDialog").close();
+    return;
+  }
   const id = S.chatId;
   const s = await api(`/chats/${id}/chronicle`).catch(() => null);
   if (!s || s.error || S.chatId !== id) return;
@@ -763,105 +769,112 @@ function paintSetDate() {
   });
 }
 
-// ---- settings: the Steward, and Story World's behaviour ------------------------
+// ---- settings: everything Story World, in its own panel -------------------------
 
 /**
- * Two new sections in panels that already exist, built here rather than in
- * index.html so the whole feature lives in one file. They save the way the
- * rest of Hearth's settings do: straight to /settings, shortly after a change.
+ * One panel for all of it — Story World, the Steward, the Living World, the
+ * Apocrypha, arms — with one switch at the top that turns the lot off, for
+ * plain story chats with nothing kept and nothing extra in the prompt. Saved
+ * the way the rest of Hearth's settings are: to /settings, shortly after a change.
  */
+const WORLD_KEYS = ["story_world", "steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source",
+  "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day",
+  "offstage_provider", "offstage_model"];
+const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind"]);
+
+/** Whether Story World is on at all; until the settings are read, it is. */
+const worldOn = () => W.enabled !== false;
+
 async function paintWorldSettings() {
   if (GUEST.on) return;
   const s = await api("/settings").catch(() => null);
   if (!s) return;
-  const conn = document.querySelector('[data-panel="connection"]');
-  const anchor = [...(conn?.querySelectorAll("h3") ?? [])].find((h) => /Use this library/.test(h.textContent));
-  if (conn && anchor && !$("#stewardBox")) {
-    const box = document.createElement("div");
-    box.id = "stewardBox";
-    box.innerHTML = `<h3>The Steward</h3>
-      <p class="hint">The quiet second model that keeps Story World's records — what has happened, when, how
-        everyone is, who feels what. It can be something cheaper than the one telling the story. Nothing it
-        says is kept until it has been checked against the story's own words.</p>
-      <label>Provider <select id="steward_provider"><option value="">The same as the story</option>
-        ${Object.entries(s.providers ?? {}).map(([id, m]) => `<option value="${id}">${txt(m.label)}</option>`).join("")}</select></label>
-      <label>Model <input id="steward_model" type="text" autocomplete="off" spellcheck="false"
-        placeholder="The same as the story"></label>
-      <p class="hint">Uses the key saved for that provider above.</p>
-      <h3>The Offstage</h3>
-      <p class="hint">The model that decides what people do when the player is not watching, for the Living World.
-        A little more thought pays off here than for the Steward. Empty means the Steward's.</p>
-      <label>Provider <select id="offstage_provider"><option value="">The same as the Steward</option>
-        ${Object.entries(s.providers ?? {}).map(([id, m]) => `<option value="${id}">${txt(m.label)}</option>`).join("")}</select></label>
-      <label>Model <input id="offstage_model" type="text" autocomplete="off" spellcheck="false"
-        placeholder="The same as the Steward"></label>`;
-    conn.insertBefore(box, anchor);
-  }
-  const beh = document.querySelector('[data-panel="behavior"]');
-  if (beh && !$("#worldBehaviour")) {
-    const box = document.createElement("div");
-    box.id = "worldBehaviour";
-    box.innerHTML = `<h3>Story World</h3>
-      <label class="check"><input type="checkbox" id="steward_on"> Keep Story World's records as the story goes</label>
-      <label>Read again after <span class="v" id="v_steward_every"></span>
-        <input type="range" id="steward_every" min="2" max="40" step="1"></label>
-      <label>When a lot of time passes at once
-        <select id="steward_ask_days">
-          <option value="0">Always ask me first</option><option value="1">Ask above a day</option>
-          <option value="3">Ask above three days</option><option value="7">Ask above a week</option>
-          <option value="30">Ask above a month</option><option value="-1">Never ask</option></select></label>
-      <label>Who keeps track of how everyone is
-        <select id="tracker_source"><option value="hearth">Hearth</option><option value="preset">My preset's trackers</option></select></label>
-      <p class="hint">Only one ever does. With your preset's, Hearth's own tracker is neither kept nor sent to the model.</p>
-      <h3>Living World</h3>
-      <p class="hint">People with goals act on their own, offstage, once a story day: from what they want, what they fear
-        losing and only what they know. The story learns what becomes true and what could be noticed — never who did it
-        or why. Give someone a goal in Story World → Offstage.</p>
-      <label>How alive
-        <select id="offstage_level"><option value="off">Off — nobody acts on their own</option>
-          <option value="balanced">Balanced — one person a day, now and then</option>
-          <option value="dynamic">Dynamic — up to three a day</option></select></label>
-      <label>Protecting your character
-        <select id="offstage_protection"><option value="sheltered">Sheltered — only their name and standing can be harmed</option>
-          <option value="fair">Fair — anything, but harm to body or freedom is always played out as a scene</option>
-          <option value="grim">Grim — injury can happen offstage; death and maiming are always scenes</option></select></label>
-      <label>Most things done offstage in a day <span class="v" id="v_offstage_per_day"></span>
-        <input type="range" id="offstage_per_day" min="1" max="6" step="1"></label>
-      <h3>Apocrypha</h3>
-      <label class="check"><input type="checkbox" id="apocrypha_blind"> Play blind</label>
-      <p class="hint">A chat following one of your stories shows only the scenes already reached; the rest stay
-        shut until you get there. The shelf still opens the whole book, for when you are writing it.</p>
-      <h3>Arms</h3>
-      <label class="check"><input type="checkbox" id="heraldry_contrast"> Keep shields readable (the rule of tincture)</label>
-      <label>Draw arms as
-        <select id="heraldry_style"><option value="auto">Shields, or badges in a modern story</option>
-          <option value="shield">Always shields</option><option value="badge">Always badges</option></select></label>`;
-    beh.appendChild(box);
+  W.enabled = s.story_world !== "0";
+  const box = $("#worldSettings");
+  if (box && !$("#story_world")) {
+    const providers = (none) => `<option value="">${none}</option>` +
+      Object.entries(s.providers ?? {}).map(([id, m]) => `<option value="${id}">${txt(m.label)}</option>`).join("");
+    box.innerHTML = `
+      <label class="check wdmaster"><input type="checkbox" id="story_world"> Story World</label>
+      <p class="hint">The story's date, what has happened, how everyone is, who feels what, the threads left hanging, its
+        factions — and, if you want it, a world that moves on its own. Off, and chats are plain stories again: nothing
+        is kept, and nothing extra goes to the model. Your Apocrypha stories still work either way.</p>
+      <div id="worldParts">
+      <details class="fold" open><summary><span>Keeping the records</span></summary><div class="foldbody">
+        <label class="check"><input type="checkbox" id="steward_on"> Let the Steward keep them as the story goes</label>
+        <p class="hint">The quiet second model that reads the story and writes down what it establishes. Nothing it
+          says is kept until it has been checked against the story's own words.</p>
+        <label>Read again after <span class="v" id="v_steward_every"></span>
+          <input type="range" id="steward_every" min="2" max="40" step="1"></label>
+        <label>When a lot of time passes at once
+          <select id="steward_ask_days">
+            <option value="0">Always ask me first</option><option value="1">Ask above a day</option>
+            <option value="3">Ask above three days</option><option value="7">Ask above a week</option>
+            <option value="30">Ask above a month</option><option value="-1">Never ask</option></select></label>
+        <label>Who keeps track of how everyone is
+          <select id="tracker_source"><option value="hearth">Hearth</option><option value="preset">My preset's trackers</option></select></label>
+        <p class="hint">Only one ever does. With your preset's, Hearth's own tracker is neither kept nor sent to the model.</p>
+        <label>The Steward's provider <select id="steward_provider">${providers("The same as the story")}</select></label>
+        <label>The Steward's model <input id="steward_model" type="text" autocomplete="off" spellcheck="false" placeholder="The same as the story"></label>
+        <p class="hint">It can be something cheaper than the one telling the story. Uses the key saved for that provider in Connection.</p>
+      </div></details>
+      <details class="fold"><summary><span>Living World</span></summary><div class="foldbody">
+        <p class="hint">People with goals act on their own, offstage, once a story day: from what they want, what they
+          fear losing and only what they know. The story learns what becomes true and what could be noticed — never who
+          did it or why. Give someone a goal in Story World → Offstage.</p>
+        <label>How alive
+          <select id="offstage_level"><option value="off">Off — nobody acts on their own</option>
+            <option value="balanced">Balanced — one person a day, now and then</option>
+            <option value="dynamic">Dynamic — up to three a day</option></select></label>
+        <label>Protecting your character
+          <select id="offstage_protection"><option value="sheltered">Sheltered — only their name and standing can be harmed</option>
+            <option value="fair">Fair — anything, but harm to body or freedom is always played out as a scene</option>
+            <option value="grim">Grim — injury can happen offstage; death and maiming are always scenes</option></select></label>
+        <label>Most things done offstage in a day <span class="v" id="v_offstage_per_day"></span>
+          <input type="range" id="offstage_per_day" min="1" max="6" step="1"></label>
+        <label>The Offstage's provider <select id="offstage_provider">${providers("The same as the Steward")}</select></label>
+        <label>The Offstage's model <input id="offstage_model" type="text" autocomplete="off" spellcheck="false" placeholder="The same as the Steward"></label>
+        <p class="hint">It makes decisions rather than notes, so a little more thought pays off here than for the Steward.</p>
+      </div></details>
+      <details class="fold"><summary><span>Apocrypha</span></summary><div class="foldbody">
+        <label class="check"><input type="checkbox" id="apocrypha_blind"> Play blind</label>
+        <p class="hint">A chat following one of your stories shows only the scenes already reached; the rest stay
+          shut until you get there. The shelf still opens the whole book, for when you are writing it.</p>
+      </div></details>
+      <details class="fold"><summary><span>Arms</span></summary><div class="foldbody">
+        <label class="check"><input type="checkbox" id="heraldry_contrast"> Keep shields readable (the rule of tincture)</label>
+        <label>Draw arms as
+          <select id="heraldry_style"><option value="auto">Shields, or badges in a modern story</option>
+            <option value="shield">Always shields</option><option value="badge">Always badges</option></select></label>
+      </div></details>
+      </div>`;
   }
   const set = (id, v) => { const el = $("#" + id); if (!el) return; if (el.type === "checkbox") el.checked = v === "1"; else el.value = v ?? ""; };
-  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day", "offstage_provider", "offstage_model"]) set(k, s[k]);
+  for (const k of WORLD_KEYS) set(k, s[k]);
   const every = () => {
     const n = Number($("#steward_every").value); $("#v_steward_every").textContent = `${n} new messages`;
-    const d = Number($("#offstage_per_day")?.value || 2); if ($("#v_offstage_per_day")) $("#v_offstage_per_day").textContent = `${d}`;
+    $("#v_offstage_per_day").textContent = String(Number($("#offstage_per_day").value || 2));
   };
+  const parts = () => { const p = $("#worldParts"); p.classList.toggle("notinuse", !$("#story_world").checked); p.inert = !$("#story_world").checked; };
   every();
+  parts();
   let timer;
   const save = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       const patch = {};
-      for (const k of ["steward_provider", "steward_model", "steward_every", "steward_ask_days", "tracker_source", "heraldry_style",
-        "offstage_level", "offstage_protection", "offstage_per_day", "offstage_provider", "offstage_model"]) patch[k] = $("#" + k).value.trim();
-      for (const k of ["steward_on", "heraldry_contrast", "apocrypha_blind"]) patch[k] = $("#" + k).checked ? "1" : "0";
+      for (const k of WORLD_KEYS) patch[k] = WORLD_CHECKS.has(k) ? ($("#" + k).checked ? "1" : "0") : $("#" + k).value.trim();
       api("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
     }, 400);
   };
-  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day", "offstage_provider", "offstage_model"]) {
+  for (const k of WORLD_KEYS) {
     const el = $("#" + k);
-    if (!el) continue;
+    if (!el || el.dataset.wired) continue;
+    el.dataset.wired = "1";
     el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => {
       if (k === "steward_every" || k === "offstage_per_day") every();
       if (k === "apocrypha_blind" && typeof drawTaleScenes === "function") drawTaleScenes();
+      if (k === "story_world") { W.enabled = el.checked; parts(); paintWorldLine(); }
       save();
     });
   }
@@ -897,6 +910,13 @@ function presetStatus(msg) {
 async function openStatus(msg, button) {
   const open = msg.querySelector(".inlaystatus");
   if (open) { open.remove(); return; }
+  // With Story World off there is no status to show: the portrait is just the picture again.
+  if (!worldOn()) {
+    const face = button.querySelector(".medallion");
+    const url = face && !face.classList.contains("blank") ? (face.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/) ?? [])[1] : "";
+    if (url) { $("#faceImage").src = url; $("#faceName").textContent = msg.querySelector(".platename")?.textContent ?? ""; $("#faceDialog").showModal(); }
+    return;
+  }
   const name = msg.querySelector(".platename")?.textContent ?? "";
   const face = button.querySelector(".medallion");
   const url = face && !face.classList.contains("blank")
