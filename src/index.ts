@@ -46,8 +46,9 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, startBookmark, type Apocryphon, type Bookmark } from "./apocrypha";
-import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, normaliseCalendar, readSpan, type Calendar } from "./calendar";
-import { clockOf, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
+import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, readSpan, type Calendar } from "./calendar";
+import { clockOf, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
+import { checkAnswer, stewardRequest, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -737,6 +738,7 @@ api.post("/messages/delete", async (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
   const { ids } = await c.req.json();
   if (!Array.isArray(ids) || !ids.length) return c.json({ error: "Nothing selected." }, 400);
+  forgetSteward(ids.map(String), false);
   const stmt = db.query("DELETE FROM messages WHERE id = ?");
   db.transaction((list: string[]) => { for (const id of list) stmt.run(id); })(ids);
   return c.json({ deleted: ids.length });
@@ -744,6 +746,7 @@ api.post("/messages/delete", async (c) => {
 
 api.delete("/messages/:id", (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
+  forgetSteward([c.req.param("id")], false);
   db.query("DELETE FROM messages WHERE id = ?").run(c.req.param("id"));
   return c.json({ ok: true });
 });
@@ -1254,6 +1257,8 @@ api.post("/chats/:id/generate", async (c) => {
           db.query(
             "UPDATE messages SET content = ?, swipes = ?, swipe_index = ?, reasoning = ?, tokens = ?, ms = ? WHERE id = ?",
           ).run(full, JSON.stringify(list), list.length - 1, think, tokens, ms, swipeTarget.id);
+          // What the Steward made of the reply this one replaced no longer happened.
+          forgetSteward([swipeTarget.id]);
           send({ done: true, id: swipeTarget.id, text: full, swipes: list.length, index: list.length - 1, thrown, ...stats });
         } else {
           const id = uid();
@@ -1275,6 +1280,9 @@ api.post("/chats/:id/generate", async (c) => {
         // awaited and never allowed to throw: a failed note is a missing note,
         // not a broken reply.
         if (!failed && !ac.signal.aborted) takeNote(chatId).catch(() => {});
+        // And the Steward, on the same terms: a failed reading is a gap in the
+        // records, never a broken reply.
+        if (!failed && !ac.signal.aborted) stewardTurn(chatId).catch(() => {});
       }
     },
     // Same reasoning as the dropped connection above: the reader going away
@@ -1297,6 +1305,7 @@ api.post("/messages/:id/swipe", async (c) => {
   if (!m) return c.json({ error: "Message not found." }, 404);
   const list = JSON.parse(m.swipes || "[]");
   if (!list[index]) return c.json({ error: "No such alternate." }, 400);
+  if (index !== m.swipe_index) forgetSteward([m.id]);
   db.query("UPDATE messages SET content = ?, swipe_index = ? WHERE id = ?")
     .run(list[index], index, m.id);
   return c.json({ ok: true, content: list[index] });
@@ -1401,6 +1410,7 @@ api.post("/import/settings", async (c) => {
 api.put("/messages/:id", async (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
   const { content } = await c.req.json();
+  forgetSteward([c.req.param("id")]);
   db.query("UPDATE messages SET content = ? WHERE id = ?").run(content, c.req.param("id"));
   return c.json({ ok: true });
 });
@@ -3296,13 +3306,14 @@ function chronicleOf(chatId: string): ChronicleEntry[] {
 function copyChronicle(entries: ChronicleEntry[], chatId: string) {
   const ins = db.query(
     `INSERT INTO chronicle (id, chat_id, message_id, kind, day, minute, span, title, body, visibility,
-                            source, evidence, scene_id, created_at, undone_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                            source, evidence, scene_id, created_at, undone_at, proposed)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   db.transaction(() => {
     for (const e of entries) {
-      ins.run(uid(), chatId, e.message_id, e.kind, e.day, e.minute, e.span, e.title, e.body, e.visibility,
-              e.source, e.evidence, e.scene_id, e.created_at, e.undone_at);
+      ins.run(e.id && !db.query("SELECT 1 FROM chronicle WHERE id = ?").get(e.id) ? e.id : uid(),
+              chatId, e.message_id, e.kind, e.day, e.minute, e.span, e.title, e.body, e.visibility,
+              e.source, e.evidence, e.scene_id, e.created_at, e.undone_at, e.proposed ? 1 : 0);
     }
   })();
 }
@@ -3332,6 +3343,9 @@ function chronicleState(chatId: string) {
     calendar: cal,
     now: { ...at, text: formatDate(cal, at) },
     entries: chronicleView(entries, { shared: isShared(chatId), host: true }),
+    // Waiting on the host. A hidden one is still hidden here: accepting it is
+    // not the same as reading it.
+    proposals: chronicleView(pending(entries).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
   };
 }
 
@@ -3398,6 +3412,14 @@ function markUndone(c: any, undone: number | null) {
 api.post("/chronicle/:id/undo", (c) => markUndone(c, now()));
 api.post("/chronicle/:id/restore", (c) => markUndone(c, null));
 
+/** Saying yes to something the Steward proposed: it counts from now on. Saying no is undo. */
+api.post("/chronicle/:id/accept", (c) => {
+  const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
+  if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
+  db.query("UPDATE chronicle SET proposed = 0 WHERE id = ?").run(c.req.param("id"));
+  return c.json(chronicleState(row.chat_id));
+});
+
 /** A secret, told: everybody at the table may read it from now on. */
 api.post("/chronicle/:id/reveal", (c) => {
   const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
@@ -3419,6 +3441,196 @@ api.put("/chats/:id/calendar", async (c) => {
   if (!cal) return c.json({ error: "That is not a calendar Hearth can read." }, 400);
   db.query("UPDATE chats SET calendar = ? WHERE id = ?").run(cal.kind === "undated" ? "" : JSON.stringify(cal), chatId);
   return c.json(chronicleState(chatId));
+});
+
+// ---- the Steward -----------------------------------------------------------
+//
+// The background model that keeps the chronicle. See src/steward.ts for why
+// nothing it says is believed until it has been checked against the story.
+
+/** The Steward's own connection, falling back to the story's for anything left empty. */
+function stewardConnection(s: Record<string, string>) {
+  const provider = s.steward_provider || s.provider;
+  return { ...connectionFrom(s, provider), model: s.steward_model || s.model };
+}
+
+/** Who the Steward may refer to, by number: the room, the people met on the way, and the player. */
+function peopleOf(chat: any): Person[] {
+  const out: Person[] = membersOf(chat).map((m: any) => ({ name: m.name }));
+  if (!out.length) {
+    const founder = db.query("SELECT name FROM characters WHERE id = ?").get(chat.character_id) as any;
+    if (founder?.name) out.push({ name: founder.name });
+  }
+  for (const n of db.query("SELECT name FROM npcs WHERE chat_id = ? AND deleted_at IS NULL ORDER BY created_at").all(chat.id) as any[]) {
+    out.push({ name: n.name, note: "met in the story" });
+  }
+  const me = whoAmI(chat.persona_id);
+  if (me?.name) out.push({ name: me.name, note: "the player" });
+  const seen = new Set<string>();
+  return out.filter((p) => p.name && !seen.has(p.name.toLowerCase()) && seen.add(p.name.toLowerCase()));
+}
+
+/**
+ * The Steward has read something that has since changed. What it recorded
+ * from those words is taken back, and its place is wound back to before
+ * them, so the new words are read in their turn. Taken back, not deleted:
+ * the record of what it once thought stays, counting for nothing.
+ */
+function forgetSteward(messageIds: string[], reread = true) {
+  const t = now();
+  const undo = db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source = 'steward' AND undone_at IS NULL");
+  const rewind = db.query("UPDATE chats SET steward_at = MIN(steward_at, ?) WHERE id = ?");
+  db.transaction(() => {
+    for (const id of messageIds) {
+      const m = db.query("SELECT chat_id, created_at FROM messages WHERE id = ?").get(id) as any;
+      if (!m) continue;
+      undo.run(t, id);
+      if (reread) rewind.run(m.created_at - 1, m.chat_id);
+    }
+  })();
+}
+
+/**
+ * One reading: the Steward is shown these messages, and whatever survives
+ * the checks goes into the chronicle.
+ *
+ * Its place moves on before it is asked, as the note-taker's does, so that a
+ * Steward that keeps failing is not asked again on every turn forever. What
+ * it recorded earlier from these same messages is taken back only once a new
+ * answer has actually arrived — a failed call never costs a good record.
+ */
+async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
+  if (!rows.length) return { kept: 0, proposed: 0, dropped: 0, problem: "" };
+  db.query("UPDATE chats SET steward_at = MAX(steward_at, ?) WHERE id = ?").run(rows[rows.length - 1].created_at, chat.id);
+
+  const me = whoAmI(chat.persona_id);
+  const passages: Passage[] = rows.map((m) => ({
+    id: m.id,
+    who: m.role === "user" ? me?.name || "The player" : m.name || "The narrator",
+    text: m.content ?? "",
+  }));
+  const cal = calendarOf(chat.id);
+  const people = peopleOf(chat);
+  const conn = stewardConnection(s);
+  const start = clockOf(cal, chronicleOf(chat.id));
+  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages);
+
+  let said = "";
+  let problem = "";
+  try {
+    for await (const chunk of generate({
+      ...conn,
+      ...req,
+      // Low and short: it reports, it does not write. No reasoning asked for;
+      // what a model thinks anyway arrives as reasoning, or is cut out of the
+      // text by steward.ts.
+      sampling: { temperature: 0.1, maxTokens: 700, topP: 1, minP: 0,
+                  repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0,
+                  stream: false, reasoningEffort: "off" },
+    })) {
+      if (chunk.kind === "text") said += chunk.text;
+      if (said.length > 8000) break;
+    }
+  } catch (e: any) {
+    problem = e?.message || "The Steward could not be reached.";
+  }
+
+  const askDays = Number(s.steward_ask_days);
+  const limits = {
+    askAboveMinutes: s.steward_ask_days !== "" && Number.isFinite(askDays) && askDays >= 0 ? askDays * minutesPerDay(cal) : -1,
+    maxEvents: 5,
+  };
+  const checked = problem
+    ? { claims: [] as Claim[], dropped: [], none: false, noise: 0 }
+    : checkAnswer(said, passages, people, cal, start, limits);
+  if (!problem && !checked.claims.length && !checked.none) problem = "Nothing in the answer could be used.";
+
+  if (!problem) {
+    // Read again, so whatever it made of these messages before is replaced.
+    forgetSteward(rows.map((m) => m.id), false);
+    const order = new Map(passages.map((p, i) => [p.id, i]));
+    const story = [...checked.claims].sort((a, b) =>
+      order.get(a.message_id)! - order.get(b.message_id)! || (a.kind === "time" ? 0 : 1) - (b.kind === "time" ? 0 : 1));
+    let at = clockOf(cal, chronicleOf(chat.id));
+    let t = now();
+    const entries: ChronicleEntry[] = [];
+    for (const claim of story) {
+      if (claim.kind === "time") {
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "time", message_id: claim.message_id, span: claim.span, title: claim.said,
+          evidence: claim.evidence, source: "steward", created_at: t++, proposed: claim.proposed,
+        }));
+        if (!claim.proposed) at = later(cal, at, claim.span);
+      } else {
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "event", message_id: claim.message_id, day: at.day, minute: at.minute, title: claim.title,
+          body: claim.people.length ? `With ${claim.people.join(", ")}.` : "",
+          evidence: claim.evidence, source: "steward", created_at: t++,
+        }));
+      }
+    }
+    copyChronicle(entries, chat.id);
+  }
+
+  const proposed = checked.claims.filter((c) => c.kind === "time" && c.proposed).length;
+  db.query(
+    `INSERT INTO steward_runs (id, chat_id, model, kept, proposed, dropped, problem, answer, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+  ).run(uid(), chat.id, conn.model, checked.claims.length - proposed, proposed,
+        JSON.stringify(checked.dropped.slice(0, 40)), problem.slice(0, 500), said.slice(0, 4000), now());
+  if (problem) console.error(`[steward] ${chat.id}: ${problem} (${said.length} chars)`);
+  return { kept: checked.claims.length - proposed, proposed, dropped: checked.dropped.length, problem };
+}
+
+/** After a reply: read the new messages if enough of them have arrived. */
+export async function stewardTurn(chatId: string) {
+  const s = getSettings();
+  if (s.steward_on !== "1") return;
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return;
+  const fresh = db.query(
+    "SELECT id, role, name, content, created_at FROM messages WHERE chat_id = ? AND created_at > ? ORDER BY created_at, rowid",
+  ).all(chatId, chat.steward_at ?? 0) as any[];
+  if (!isDue(fresh.length, Number(s.steward_every) || 0)) return;
+  // A long silence is read in its latest stretch, not handed over whole.
+  await stewardRun(chat, fresh.slice(-40), s);
+}
+
+/** What the Steward has done in a chat lately, for whoever wants to know why Story World says what it says. */
+api.get("/chats/:id/steward", (c) => {
+  const rows = db.query("SELECT * FROM steward_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 20")
+    .all(c.req.param("id")) as any[];
+  return c.json(rows.map((r) => ({ ...r, dropped: JSON.parse(r.dropped || "[]") })));
+});
+
+/**
+ * Building Story World from a chat's whole history, when asked — never on its
+ * own, since on a long chat it is many calls. Read from the start in stretches,
+ * in order, so the clock builds as the story did. Replaces what the Steward
+ * recorded before, stretch by stretch; leaves alone everything a person wrote.
+ */
+api.post("/chats/:id/steward/history", async (c) => {
+  const chatId = c.req.param("id");
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return c.json({ error: "No such chat." }, 404);
+  const s = getSettings();
+  const all = db.query("SELECT id, role, name, content, created_at FROM messages WHERE chat_id = ? ORDER BY created_at, rowid")
+    .all(chatId) as any[];
+  const STRETCH = 20;
+  const MAX_STRETCHES = 100;
+  // Nothing is cleared first: each stretch replaces what the Steward made of
+  // those same messages only once it has a new answer for them, so a rebuild
+  // that fails halfway leaves the old record standing where it failed.
+  db.query("UPDATE chats SET steward_at = 0 WHERE id = ?").run(chatId);
+  const total = { runs: 0, kept: 0, proposed: 0, failed: 0 };
+  for (let i = 0; i < all.length && total.runs < MAX_STRETCHES; i += STRETCH) {
+    const r = await stewardRun(chat, all.slice(i, i + STRETCH), s);
+    total.runs++;
+    total.kept += r.kept;
+    total.proposed += r.proposed;
+    if (r.problem) total.failed++;
+  }
+  return c.json({ ...total, unread: Math.max(0, all.length - total.runs * STRETCH), ...chronicleState(chatId) });
 });
 
 /** Splitting a branch that already shares its parent's notes book, when asked. */

@@ -36,7 +36,7 @@ export function wipe() {
   for (const t of [
     // Before chats, which they hang off: relying on the cascade would make
     // this depend on a pragma rather than on what it says.
-    "chronicle", "npcs", "sheets",
+    "chronicle", "steward_runs", "npcs", "sheets",
     "chat_members", "messages", "chats", "characters", "personas",
     "presets", "lorebooks", "lorebook_links", "settings",
     // Extensions run code during generation, so one left behind by an earlier

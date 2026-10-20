@@ -64,6 +64,8 @@ export type Entry = {
   created_at: number;
   /** Set when taken back. An undone entry is kept, for the record, and counts for nothing. */
   undone_at: number | null;
+  /** Waiting for a person to accept it, and counting for nothing until they do. */
+  proposed: boolean;
 };
 
 const str = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
@@ -96,12 +98,18 @@ export function normaliseEntry(raw: any): Entry {
     scene_id: str(raw?.scene_id, 80) || null,
     created_at: Math.round(Number(raw?.created_at)) || 0,
     undone_at: intOrNull(raw?.undone_at),
+    proposed: !!Number(raw?.proposed ?? 0) || raw?.proposed === true,
   };
 }
 
-/** The ones that count: not taken back, in the order they were written. */
+/** The ones that count: not taken back, not waiting on anyone, in the order they were written. */
 export function live(entries: Entry[]): Entry[] {
-  return entries.filter((e) => !e.undone_at).sort((a, b) => a.created_at - b.created_at);
+  return entries.filter((e) => !e.undone_at && !e.proposed).sort((a, b) => a.created_at - b.created_at);
+}
+
+/** What is waiting for a person to say yes or no. */
+export function pending(entries: Entry[]): Entry[] {
+  return entries.filter((e) => e.proposed && !e.undone_at).sort((a, b) => a.created_at - b.created_at);
 }
 
 /** Where every story starts until told otherwise: its first day, at the start of it. */

@@ -301,8 +301,11 @@ function callOpenAI(a: GenerateArgs, base: string) {
     temperature: s.temperature,
     max_tokens: s.maxTokens,
     top_p: s.topP,
+    // No system message at all when there is nothing to say in one: some
+    // models (Gemma, on Google's own API) refuse the role outright, empty or
+    // not, and their callers fold the instructions into the request instead.
     messages: [
-      { role: "system", content: a.system },
+      ...(a.system ? [{ role: "system", content: a.system }] : []),
       ...a.messages,
       ...(a.prefill ? [{ role: "assistant", content: a.prefill }] : []),
     ],
@@ -355,7 +358,7 @@ function callResponses(a: GenerateArgs, base: string) {
   const body: Record<string, unknown> = {
     model: a.model,
     stream: s.stream,
-    instructions: a.system,
+    ...(a.system ? { instructions: a.system } : {}),
     input: [
       ...a.messages,
       ...(a.prefill ? [{ role: "assistant", content: a.prefill }] : []),
@@ -390,7 +393,7 @@ function callAnthropic(a: GenerateArgs, base: string) {
   const body: Record<string, unknown> = {
     model: a.model,
     stream: s.stream,
-    system: a.system,
+    ...(a.system ? { system: a.system } : {}),
     temperature: Math.min(s.temperature, 1),
     top_p: s.topP,
     max_tokens: s.maxTokens,

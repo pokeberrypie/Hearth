@@ -182,10 +182,30 @@ CREATE TABLE IF NOT EXISTS chronicle (
   evidence   TEXT NOT NULL DEFAULT '',
   scene_id   TEXT,
   created_at INTEGER NOT NULL,
-  undone_at  INTEGER
+  undone_at  INTEGER,
+  -- Waiting for a person to accept it: counts for nothing until then.
+  proposed   INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_chronicle_chat ON chronicle(chat_id, created_at);
+
+-- Every time the Steward was asked, and what came of it: how many findings
+-- were kept, how many were thrown out and why. Quiet on screen, but never
+-- silent - a chat whose Steward keeps failing should be findable. See
+-- src/steward.ts.
+CREATE TABLE IF NOT EXISTS steward_runs (
+  id         TEXT PRIMARY KEY,
+  chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  model      TEXT NOT NULL DEFAULT '',
+  kept       INTEGER NOT NULL DEFAULT 0,
+  proposed   INTEGER NOT NULL DEFAULT 0,
+  dropped    TEXT NOT NULL DEFAULT '[]',
+  problem    TEXT NOT NULL DEFAULT '',
+  answer     TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_steward_chat ON steward_runs(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_npcs_chat ON npcs(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_rolls_chat ON rolls(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_links_book ON lorebook_links(book_id);
@@ -328,6 +348,10 @@ export const ALTER_TABLES: string[] = [
   // never quietly move the dates of a story already four hundred messages in.
   // Empty is Undated. See src/calendar.ts.
   "ALTER TABLE chats ADD COLUMN calendar TEXT NOT NULL DEFAULT ''",
+  // created_at of the last message the Steward has read, exactly as
+  // auto_lore_at is for the note-taker. Wound back when a message it read is
+  // edited, swiped or deleted, so the new words are read in their turn.
+  "ALTER TABLE chats ADD COLUMN steward_at INTEGER NOT NULL DEFAULT 0",
 ];
 
 /** Group chats. A chat keeps its `character_id` as the one it was started
@@ -519,6 +543,18 @@ export const DEFAULTS: Record<string, string> = {
   lore_scan_depth: "4",
   /** How many messages between the notes a chat takes on itself. 0 is off. */
   auto_lore_every: "20",
+  /*
+   * The Steward: the background model that keeps Story World's records. Its
+   * own provider and model, under Connections, so it can be something cheap;
+   * empty means "the same as the story". The rest live under Behaviours: on
+   * or off, how many new messages before it reads again, and how big a jump
+   * in time it may make before asking (in days; -1 never asks, 0 always does).
+   */
+  steward_provider: "",
+  steward_model: "",
+  steward_on: "1",
+  steward_every: "10",
+  steward_ask_days: "7",
   /** "since" the last note, or a "window" of the last `auto_lore_every`. */
   auto_lore_scope: "since",
   lore_budget: "8000",
