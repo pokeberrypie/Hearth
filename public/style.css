@@ -8267,3 +8267,30 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
   min-height: 0;
   padding-left: 1rem;
 }
+
+/* The plan's question, just above the writing line. */
+.sceneprompt {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  box-sizing: border-box;
+  width: calc(100% - 1.5rem);
+  max-width: var(--measure);
+  margin: 0 auto 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--lumiverse-bg-elevated) 92%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 0.92rem;
+  line-height: 1.35;
+  animation: sceneprompt-in 0.2s ease-out;
+}
+.sceneprompt[hidden] { display: none; }
+.sceneprompt .spstar { color: var(--lumiverse-primary); flex: none; }
+.sceneprompt .sptext { flex: 1 1 auto; min-width: 0; }
+.sceneprompt .spwhy { margin-top: 0.2rem; font-size: 0.8rem; font-style: italic; color: var(--lumiverse-text-hint); }
+.sceneprompt .spbtns { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; flex: none; }
+.sceneprompt .spbtns .solid { padding: 0.3rem 0.9rem; }
+@keyframes sceneprompt-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .sceneprompt { animation: none; } }

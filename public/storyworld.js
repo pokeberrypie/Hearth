@@ -44,8 +44,10 @@ async function paintWorldLine() {
   const s = await api(`/chats/${id}/chronicle`).catch(() => null);
   if (!s || s.error || S.chatId !== id) return;
   W.state = s;
+  paintScenePrompt(s);
   const dated = s.calendar?.kind !== "undated" || s.entries.some((e) => e.kind === "time" || e.kind === "set");
-  const waiting = s.proposals?.length ?? 0;
+  // Questions about the plan are asked by the writing line, not counted here.
+  const waiting = (s.proposals ?? []).filter((p) => p.kind !== "scene").length;
   // Always there in a chat: it is the way into Story World, and a chat with
   // nothing recorded yet is exactly the one somebody needs to find it from.
   line.hidden = false;
@@ -75,6 +77,43 @@ function fitWorldLine() {
   }
 }
 addEventListener("resize", fitWorldLine);
+
+/**
+ * The plan's question, by the writing line: "this scene seems over — move
+ * on?" or "the story seems to be at that scene — jump there?". A small card
+ * just above the composer, where the eye already is between replies; it goes
+ * the moment it is answered, and asks again only when the Steward next has
+ * reason to.
+ */
+function paintScenePrompt(s) {
+  const q = GUEST.on ? null : (s?.proposals ?? []).find((p) => p.kind === "scene" && !p.sealed);
+  let box = $("#scenePrompt");
+  if (!q) { if (box) box.hidden = true; return; }
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "scenePrompt";
+    box.className = "sceneprompt";
+    box.setAttribute("role", "status");
+    $("#composer").before(box);
+  }
+  let d = {};
+  try { d = q.data ? JSON.parse(q.data) : {}; } catch {}
+  const text = d.to
+    ? `The story seems to be at <b>${txt(d.toTitle || "a later scene")}</b>. Jump there?`
+    : `<b>${txt(q.title)}</b> seems to be over.${d.next ? ` Move on to <b>${txt(d.next)}</b>?` : " Close it?"}`;
+  box.innerHTML = `<span class="spstar" aria-hidden="true">✦</span>
+    <div class="sptext">${text}${q.evidence ? `<div class="spwhy">“${txt(q.evidence)}”</div>` : ""}</div>
+    <div class="spbtns"><button type="button" class="solid" data-yes>Yes</button>
+      <button type="button" class="linkish" data-no>Not yet</button></div>`;
+  box.hidden = false;
+  box.querySelector("[data-yes]").onclick = async () => {
+    box.hidden = true;
+    await act(`/chronicle/${q.id}/accept`);
+    if (typeof refreshTaleNav === "function") refreshTaleNav();
+    toast(d.to ? `Now in: ${d.toTitle || "the later scene"}` : d.next ? `Now: ${d.next}` : "That was the last scene.");
+  };
+  box.querySelector("[data-no]").onclick = async () => { box.hidden = true; await act(`/chronicle/${q.id}/undo`); };
+}
 
 /** A guest's line comes from the table's own state, and moves with the live feed. */
 function paintGuestWorldLine(summary) {
@@ -188,7 +227,7 @@ function paintWorld() {
     b.setAttribute("aria-selected", on ? "true" : "false");
   }
 
-  paintWaiting(who === "host" && W.tab === "time" ? s.proposals ?? [] : []);
+  paintWaiting(who === "host" && W.tab === "time" ? (s.proposals ?? []).filter((p) => p.kind !== "scene") : []);
   const view = who === "players" ? W.players : s;
   const body = $("#wdBody");
   if (W.tab === "time") body.innerHTML = timelineHtml(view, who);

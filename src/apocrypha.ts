@@ -148,6 +148,24 @@ export function jumpTo(book: Apocryphon, mark: Bookmark, sceneId: string): Bookm
   };
 }
 
+/**
+ * The story is already further on than the plan thought: it is in this scene.
+ * Unlike a jump by hand, every open scene before it is counted as having
+ * happened — offscreen, or before the chat started following the book — so
+ * finishing this one carries on forward instead of going back for them.
+ */
+export function catchUpTo(book: Apocryphon, mark: Bookmark, sceneId: string): Bookmark {
+  const all = scenesOf(book).map(({ scene }) => scene.id);
+  const at = all.indexOf(sceneId);
+  if (at < 0) return mark;
+  const skipped = new Set(mark.skipped);
+  const done = new Set(mark.done);
+  for (const id of all.slice(0, at)) if (!skipped.has(id)) done.add(id);
+  done.delete(sceneId);
+  skipped.delete(sceneId);
+  return { ...mark, scene: sceneId, done: [...done], skipped: [...skipped] };
+}
+
 export function statusOf(mark: Bookmark | null, sceneId: string): (typeof STATUSES)[number] {
   if (!mark) return "planned";
   if (mark.scene === sceneId) return "active";

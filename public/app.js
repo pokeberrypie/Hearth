@@ -1097,6 +1097,8 @@ async function showSplash() {
   // No chat, no Story World line.
   const worldLine = $("#worldLine");
   if (worldLine) worldLine.hidden = true;
+  const scenePrompt = $("#scenePrompt");
+  if (scenePrompt) scenePrompt.hidden = true;
   // The face strip belongs to whichever chat was open — leaving without
   // clearing it left the last group's cast hanging over the splash page.
   S.cast = [];
@@ -11692,6 +11694,29 @@ const advanceTale = async (how) => {
   }));
 };
 $("#sceneTaleDone").onclick = () => advanceTale("done");
+
+/**
+ * Reading the latest messages for where the story is in its plan. Any answer
+ * is a question by the writing line, never a move — so this says where to look.
+ */
+$("#sceneTaleFind").onclick = async () => {
+  const b = $("#sceneTaleFind");
+  b.disabled = true;
+  const label = b.textContent;
+  b.textContent = "Reading the story…";
+  try {
+    const r = await api(`/chats/${S.chatId}/apocrypha/locate`, { method: "POST" });
+    if (r?.error) return toast(r.error);
+    if (r.asked) {
+      $("#sceneDialog")?.close();
+      if (typeof paintWorldLine === "function") await paintWorldLine();
+      toast("Found it — the question is above the writing line.");
+    } else toast(r.here ? "The story is already at the scene you are in." : "Could not tell which scene the story is at.");
+  } finally {
+    b.disabled = false;
+    b.textContent = label;
+  }
+};
 $("#sceneTaleSkip").onclick = () => advanceTale("skipped");
 
 showWing(shelfWing);

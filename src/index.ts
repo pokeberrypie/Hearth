@@ -45,11 +45,11 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
          startFight, stateOf, type Fight } from "./fight";
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
-import { WRITE_APOC_SYSTEM, steeringOf, advance, apocFieldPrompt, apocWritePrompt, cleanField, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
+import { WRITE_APOC_SYSTEM, catchUpTo, steeringOf, advance, apocFieldPrompt, apocWritePrompt, cleanField, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
-import { checkAnswer, fieldOf, groupKey, needsFoldedSystem, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
+import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -3689,8 +3689,15 @@ api.post("/chronicle/:id/accept", (c) => {
   if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
   if (row.kind === "scene") {
     // "Move on": the scene is done, exactly as the tray's button does it — if
-    // the chat is still in that scene. The question itself is then closed.
-    if (taleOf(row.chat_id).mark?.scene === row.scene_id) advanceTale(row.chat_id, "done");
+    // the chat is still in that scene. "Jump there": the story is already in a
+    // later one, so it catches up to it. The question itself is then closed.
+    const { book, mark } = taleOf(row.chat_id);
+    let to = "";
+    try { to = JSON.parse(String((db.query("SELECT data FROM chronicle WHERE id = ?").get(c.req.param("id")) as any)?.data || "{}")).to ?? ""; } catch {}
+    if (to && book && mark) {
+      setTale(row.chat_id, catchUpTo(book, mark, to));
+      db.query("UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'scene' AND proposed = 1 AND undone_at IS NULL").run(now(), row.chat_id);
+    } else if (mark?.scene === row.scene_id) advanceTale(row.chat_id, "done");
     db.query("UPDATE chronicle SET proposed = 0, undone_at = ? WHERE id = ?").run(now(), c.req.param("id"));
     worldChanged(row.chat_id);
     return c.json(chronicleState(row.chat_id));
@@ -3943,7 +3950,8 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   const planned = taleBook && taleMark?.scene ? scenesOf(taleBook).find(({ scene }) => scene.id === taleMark.scene)?.scene : undefined;
   const askedAlready = planned && pending(before).some((e) => e.kind === "scene" && e.scene_id === planned.id);
   const scene = planned && !askedAlready
-    ? { title: planned.title, ending: planned.ending.trim() || planned.purpose.trim() || "its purpose is fulfilled" }
+    ? { title: planned.title, ending: planned.ending.trim() || planned.purpose.trim() || "its purpose is fulfilled",
+        ahead: scenesAhead(taleBook!, taleMark!).slice(0, 8) }
     : undefined;
   const conn = stewardConnection(s);
   const start = clockOf(cal, before);
@@ -4031,11 +4039,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
         }));
       } else if (claim.kind === "scene") {
         // Proposed, never done here: moving on is the person's, with one tap.
-        entries.push(normaliseChronicleEntry({
-          id: uid(), kind: "scene", message_id: claim.message_id, day: at.day, minute: at.minute,
-          scene_id: planned!.id, title: planned!.title || "This scene",
-          evidence: claim.evidence, source: "steward", created_at: t++, proposed: true,
-        }));
+        entries.push(sceneProposal(taleBook!, taleMark!, claim.to, claim.message_id, claim.evidence, at, t++));
       } else if (claim.kind === "thread") {
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "thread", message_id: claim.message_id, day: at.day, minute: at.minute,
@@ -4154,9 +4158,15 @@ api.put("/chats/:id/apocrypha", async (c) => {
   const book = apocryphon(wanted);
   if (!book) return c.json({ error: "That book is not on the shelf any more." }, 404);
   const current = taleOf(chatId).mark;
-  let mark = current?.book === book.id ? current : startBookmark(book);
+  const fresh = current?.book !== book.id;
+  let mark = fresh ? startBookmark(book) : current!;
   if (b.scene) mark = jumpTo(book, mark, String(b.scene));
   setTale(chatId, mark);
+  // A chat already under way that starts following a book is probably not at
+  // its first scene: find out where it is, and ask. Not awaited; a failure is
+  // simply no question.
+  const said = (db.query("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?").get(chatId) as any)?.n ?? 0;
+  if (fresh && !b.scene && said >= 4) locateTale(chatId).catch(() => {});
   return c.json({ book, mark });
 });
 
@@ -4166,6 +4176,88 @@ api.post("/chats/:id/apocrypha/advance", async (c) => {
   if (!taleOf(chatId).book) return c.json({ error: "This chat is not following a story." }, 400);
   const b = await c.req.json().catch(() => ({}));
   return c.json(advanceTale(chatId, b.how === "skipped" ? "skipped" : "done"));
+});
+
+/** The scenes still to come after the current one, in order: neither played nor passed over. */
+function scenesAhead(book: Apocryphon, mark: Bookmark) {
+  const all = scenesOf(book);
+  const at = all.findIndex(({ scene }) => scene.id === mark.scene);
+  const closed = new Set([...mark.done, ...mark.skipped]);
+  return all.slice(at + 1).filter(({ scene }) => !closed.has(scene.id))
+    .map(({ scene }) => ({ id: scene.id, title: scene.title, setting: scene.setting.slice(0, 80) }));
+}
+
+/**
+ * A question for the person about the plan, never an answer: "this scene is
+ * over, move on?" or, with `to`, "the story is already at that scene, jump
+ * there?". What the popup by the writing line shows is kept on it.
+ */
+function sceneProposal(book: Apocryphon, mark: Bookmark, to: string | undefined, messageId: string | null,
+                       evidence: string, at: { day: number; minute: number }, createdAt: number): ChronicleEntry {
+  const all = scenesOf(book);
+  const here = all.find(({ scene }) => scene.id === mark.scene)?.scene;
+  const target = to ? all.find(({ scene }) => scene.id === to)?.scene : undefined;
+  const next = scenesAhead(book, mark)[0];
+  return normaliseChronicleEntry({
+    id: uid(), kind: "scene", message_id: messageId, day: at.day, minute: at.minute,
+    scene_id: mark.scene, title: here?.title || "This scene",
+    data: { to: target?.id ?? "", toTitle: target?.title ?? "", next: next?.title ?? "" },
+    evidence, source: "steward", created_at: createdAt, proposed: true,
+  });
+}
+
+/**
+ * Where the story is in its plan, read from the latest messages: for a chat
+ * that started following a book partway through, or that has run ahead of
+ * it. Every scene of the book is offered, numbered; the answer is checked
+ * like any of the Steward's, and is a question for the person, not a move.
+ */
+async function locateTale(chatId: string): Promise<{ asked: boolean; here?: boolean; problem?: string }> {
+  const { book, mark } = taleOf(chatId);
+  if (!book || !mark) return { asked: false, problem: "This chat is not following a story." };
+  const rows = (db.query("SELECT id, role, name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 12")
+    .all(chatId) as any[]).reverse();
+  if (!rows.length) return { asked: false };
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  const me = whoAmI(chat.persona_id);
+  const passages: Passage[] = rows.map((m) => ({ id: m.id, who: m.role === "user" ? me?.name || "The player" : m.name || "The narrator", text: m.content }));
+  const scenes = scenesOf(book).map(({ scene }) => ({ id: scene.id, title: scene.title, setting: scene.setting.slice(0, 80) }));
+  const s = getSettings();
+  const conn = stewardConnection(s);
+  const system = "You find where a story is in its plan. You read the latest part of the story and a numbered list of planned scenes, and say which scene is happening now. You never continue the story and never explain yourself.";
+  const prompt = `Planned scenes:\n${scenes.map((x, i) => `${i + 1}. ${x.title || "untitled"}${x.setting ? ` (${x.setting})` : ""}`).join("\n")}` +
+    `\n\nThe story, latest part:\n\n${passages.map((p) => `${p.who}: ${storyOnly(p.text)}`).join("\n\n")}` +
+    `\n\nWrite one line, exactly like this:\nSCENE | the number of the scene happening now | "four to twenty-five words copied exactly from the story that show it"\nIf none of them fits, write only: NONE`;
+  const fold = needsFoldedSystem(conn.model);
+  let said = "";
+  try {
+    for await (const chunk of generate({
+      ...conn, system: fold ? "" : system,
+      messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
+      sampling: { temperature: 0.1, maxTokens: 300, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+    })) {
+      if (chunk.kind === "text") said += chunk.text;
+      if (said.length > 4000) break;
+    }
+  } catch (e: any) {
+    return { asked: false, problem: e?.message || "The model could not be reached." };
+  }
+  const cal = calendarOf(chatId);
+  const entries = chronicleOf(chatId);
+  const at = clockOf(cal, entries);
+  const checked = checkAnswer(said, passages, [], cal, at, { ...DEFAULT_LIMITS }, { tracking: false, scene: { title: "", ending: "", ahead: scenes } });
+  const found = checked.claims.find((c) => c.kind === "scene" && c.to) as { to: string; evidence: string; message_id: string } | undefined;
+  if (!found) return { asked: false };
+  if (found.to === mark.scene) return { asked: false, here: true };
+  db.query("UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'scene' AND proposed = 1 AND undone_at IS NULL").run(now(), chatId);
+  copyChronicle([sceneProposal(book, mark, found.to, found.message_id, found.evidence, at, now())], chatId);
+  return { asked: true };
+}
+
+api.post("/chats/:id/apocrypha/locate", async (c) => {
+  const r = await locateTale(c.req.param("id"));
+  if (r.problem) return c.json({ error: r.problem }, 400);
+  return c.json({ ...r, ...chronicleState(c.req.param("id")) });
 });
 
 /** The scene is over, one way or the other: on to the next, and a scene played goes in the chronicle. */

@@ -519,3 +519,56 @@ describe("a planned scene, over", () => {
     expect(await sceneTitle()).toBe("The Feast");
   });
 });
+
+describe("finding where the story is", () => {
+  const BOOK = "# The Hand\n## Act One\n### The Arrival\nSetting: the gates\n### The Feast\nSetting: the gardens\n## Act Two\n### Tyrion Taken\nSetting: the Great Hall\nEnding: Jaime learns of it\n### The Ride South\nSetting: the kingsroad";
+  async function follow() {
+    db.query("DELETE FROM apocrypha").run();
+    const imp = await (await send("/api/apocrypha/import", "POST", { text: BOOK })).json();
+    await send("/api/chats/ch/apocrypha", "PUT", { book: imp.books[0].id, scene: undefined });
+    await new Promise((r) => setTimeout(r, 30)); // the automatic look, if any, has had its turn
+  }
+  const tale = async () => (await (await ask("/api/chats/ch/apocrypha")).json());
+  const current = async () => { const t = await tale(); return t.book.chapters.flatMap((c: any) => c.scenes).find((s: any) => s.id === t.mark.scene)?.title; };
+  const sceneQ = async () => (await chronicle()).proposals.find((p: any) => p.kind === "scene");
+
+  test("asked, it finds a later scene; yes jumps there and counts the ones before it as happened", async () => {
+    seed(3);
+    answers = ["NONE"];
+    await follow();
+    expect(await current()).toBe("The Arrival");
+    answers = ['SCENE | 3 | "the court gathered in the Great Hall"'];
+    const r = await (await send("/api/chats/ch/apocrypha/locate", "POST")).json();
+    expect(r.asked).toBe(true);
+    expect(JSON.stringify(sent.at(-1))).toContain("3. Tyrion Taken (the Great Hall)");
+    const q = await sceneQ();
+    expect(JSON.parse(q.data)).toMatchObject({ toTitle: "Tyrion Taken" });
+    await send(`/api/chronicle/${q.id}/accept`, "POST");
+    expect(await current()).toBe("Tyrion Taken");
+    // Finishing it carries on forward, not back to the Arrival.
+    await send("/api/chats/ch/apocrypha/advance", "POST", { how: "done" });
+    expect(await current()).toBe("The Ride South");
+  });
+
+  test("a number that is not on the list, or a quote that is not in the story, asks nothing", async () => {
+    seed(3);
+    answers = ["NONE"];
+    await follow();
+    answers = ['SCENE | 9 | "the court gathered in the Great Hall"'];
+    expect((await (await send("/api/chats/ch/apocrypha/locate", "POST")).json()).asked).toBe(false);
+    answers = ['SCENE | 3 | "Tyrion was dragged in chains"'];
+    expect((await (await send("/api/chats/ch/apocrypha/locate", "POST")).json()).asked).toBe(false);
+    expect(await sceneQ()).toBeUndefined();
+  });
+
+  test("the Steward, reading as usual, can say the story has moved on to a scene ahead", async () => {
+    seed(3);
+    answers = ["NONE"];
+    await follow();
+    db.query("UPDATE chats SET steward_at = 0 WHERE id = 'ch'").run();
+    answers = ['SCENE | 2 | "the court gathered in the Great Hall"'];
+    await stewardTurn("ch");
+    expect(JSON.stringify(sent.at(-1))).toContain("Scenes planned after it:\\n1. The Feast (the gardens)\\n2. Tyrion Taken (the Great Hall)");
+    expect(JSON.parse((await sceneQ()).data).toTitle).toBe("Tyrion Taken");
+  });
+});

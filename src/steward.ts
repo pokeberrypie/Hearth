@@ -54,7 +54,7 @@ export type Claim =
   | { kind: "bond"; from: string; to: string; amount: number; label: string; evidence: string; message_id: string }
   | { kind: "faction"; name: string; description: string; symbol: string; evidence: string; message_id: string }
   | { kind: "thread"; name: string; open: boolean; evidence: string; message_id: string }
-  | { kind: "scene"; evidence: string; message_id: string };
+  | { kind: "scene"; evidence: string; message_id: string; to?: string };
 
 export type Dropped = { line: string; why: string };
 
@@ -71,8 +71,12 @@ export type Options = {
   tracking: boolean;
   factions?: string[];
   threads?: string[];
-  /** The planned scene a followed apocryphon is in, so the Steward can say when it has ended. */
-  scene?: { title: string; ending: string };
+  /**
+   * The planned scene a followed apocryphon is in, so the Steward can say when
+   * it has ended — and the scenes planned after it, numbered, so it can say the
+   * story has already moved on into one of them.
+   */
+  scene?: { title: string; ending: string; ahead?: { id: string; title: string; setting?: string }[] };
 };
 
 /**
@@ -106,6 +110,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     'FACTION | its name | what it is, in a few words | one word for its emblem, if the story gives one | "the exact words from the story that show it"',
     'THREAD | open or settled | a short name for it | "the exact words from the story that show it"',
     ...(o.scene ? ['SCENE | done | "the exact words from the story that show the planned scene has reached its end"'] : []),
+    ...(o.scene?.ahead?.length ? ['SCENE | number of a scene planned later | "the exact words from the story that show the story is now in that scene"'] : []),
     "",
     "Rules:",
     "- The quote must be copied exactly from the story: four to twenty-five words, in the story's own language.",
@@ -119,6 +124,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     "- FACTION only for a group the story names — a house, guild, order, company — that is not already listed. Leave the emblem empty if the story gives none.",
     "- THREAD open for something the story leaves hanging that should come back: a promise, a secret, a debt, a question, a letter not yet answered. THREAD settled when one of the open threads listed is resolved here — use its name exactly as listed.",
     ...(o.scene ? ["- SCENE done only when this part of the story actually reaches the end of the planned scene given below. Not when it is merely heading there."] : []),
+    ...(o.scene?.ahead?.length ? ["- SCENE with a number only when the story has clearly already moved into one of the scenes planned later — its people, its place and what it is about are happening now."] : []),
     "- At most one TIME line and five EVENT lines.",
     "- If nothing worth recording happened, write only: NONE",
   ].join("\n");
@@ -147,7 +153,10 @@ export function stewardPrompt(people: Person[], nowText: string, passages: Passa
   const already = known.length ? `\n\nAlready known about them (report only what changes):\n${known.join("\n")}` : "";
   const groups = o.factions?.length ? `\n\nFactions already known: ${o.factions.join(", ")}` : "";
   const threads = o.threads?.length ? `\n\nOpen threads: ${o.threads.join("; ")}` : "";
-  const scene = o.scene ? `\n\nThe planned scene now: ${o.scene.title || "untitled"} — it ends when: ${o.scene.ending}` : "";
+  const ahead = o.scene?.ahead?.length
+    ? `\nScenes planned after it:\n${o.scene.ahead.map((a, i) => `${i + 1}. ${a.title || "untitled"}${a.setting ? ` (${a.setting})` : ""}`).join("\n")}`
+    : "";
+  const scene = o.scene ? `\n\nThe planned scene now: ${o.scene.title || "untitled"} — it ends when: ${o.scene.ending}${ahead}` : "";
   return `People in this story:\n${roster}${already}${groups}${threads}${scene}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
 }
 
@@ -487,11 +496,14 @@ export function checkAnswer(
   for (const sc of p.scene) {
     const line = `SCENE | ${sc.state} | "${sc.evidence}"`;
     if (!o.scene) { dropped.push({ line, why: "no planned scene to end" }); continue; }
-    if (!/^(done|over|ended?|ends|finished|complete[sd]?|reached)\b/i.test(sc.state)) { dropped.push({ line, why: "not done" }); continue; }
+    const n = Number(String(sc.state).replace(/[^\d]/g, ""));
+    const done = /^(done|over|ended?|ends|finished|complete[sd]?|reached)\b/i.test(sc.state);
+    const to = !done && Number.isInteger(n) && n >= 1 ? o.scene.ahead?.[n - 1] : undefined;
+    if (!done && !to) { dropped.push({ line, why: "not done, and not one of the scenes listed" }); continue; }
     if (claims.some((c) => c.kind === "scene")) { dropped.push({ line, why: "the scene ended twice" }); continue; }
     const at = findEvidence(sc.evidence, passages);
     if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
-    claims.push({ kind: "scene", evidence: sc.evidence, message_id: at });
+    claims.push(to ? { kind: "scene", evidence: sc.evidence, message_id: at, to: to.id } : { kind: "scene", evidence: sc.evidence, message_id: at });
   }
 
   return { claims, dropped, none: p.none && !claims.length, noise: p.noise };
