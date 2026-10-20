@@ -8220,3 +8220,36 @@ body[data-msgstyle="portrait"] .msg + .msg::before {
   background: color-mix(in srgb, var(--lumiverse-bg-deep) 80%, transparent);
 }
 .randwrap > input ~ .randundo { bottom: auto; top: 50%; right: 2.3rem; margin-top: -0.65rem; }
+
+/* ---- Banner: your own portrait on the right ---------------------------------
+   The character's face stands at the left of their message; yours mirrors it
+   at the right of yours, fading the other way, so a conversation reads as two
+   sides of a table. The buttons step left of the portrait to stay clear. */
+body[data-msgstyle="banner"] .msg.mine .plate,
+body.bleed[data-msgstyle="banner"] .msg.mine .plate {
+  grid-template-columns: minmax(0, 1fr) var(--banner-w);
+  padding: 0.85rem 0 0.9rem 1rem;
+}
+body[data-msgstyle="banner"] .msg.mine .plate > * { grid-column: 1; }
+body[data-msgstyle="banner"] .msg.mine .plate > .inlay { grid-column: 2; }
+body[data-msgstyle="banner"] .msg.mine .plate > .tools { grid-column: auto; right: calc(var(--banner-w) + 0.55rem); }
+body[data-msgstyle="banner"]:not(.bleed) .msg.mine .inlay .medallion:not(.blank) {
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--lumiverse-primary) 40%, transparent);
+}
+body.bleed[data-msgstyle="banner"] .msg.mine .inlay .medallion:not(.blank) {
+  -webkit-mask-image:
+    linear-gradient(to left, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to bottom, #000 80%, transparent 100%);
+          mask-image:
+    linear-gradient(to left, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to bottom, #000 80%, transparent 100%);
+}
+/* No picture: the monogram sits at the right, the text wrapping round it. */
+body[data-msgstyle="banner"] .msg.mine .plate:has(> .inlay .blank),
+body.bleed[data-msgstyle="banner"] .msg.mine .plate:has(> .inlay .blank) { padding-left: 1rem; padding-right: 1rem; }
+body[data-msgstyle="banner"] .msg.mine .plate:has(> .inlay .blank) > .inlay { float: right; margin: 0 0 0.3rem 0.8rem; }
+body[data-msgstyle="banner"] .msg.mine .plate:has(> .inlay .blank) > .tools { right: 3.8rem; }
+@media (max-width: 700px) {
+  body[data-msgstyle="banner"] .msg.mine .plate,
+  body.bleed[data-msgstyle="banner"] .msg.mine .plate { padding-right: 0; padding-left: 0.8rem; }
+}
