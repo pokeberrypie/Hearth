@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 
 import { db, wipe, setSettings } from "./test-support";
 import { MOONS, UNDATED } from "./calendar";
-import { clockOf, forBranch, forCarryOn, live, normaliseEntry, view, type Entry } from "./chronicle";
+import { clockOf, forBranch, forCarryOn, live, normaliseEntry, statusOf, view, type Entry } from "./chronicle";
 
 const { app } = await import("./index");
 
@@ -48,6 +48,20 @@ describe("reading the clock", () => {
     const a = entry({ kind: "time", span: DAY });
     const b = entry({ kind: "time", span: DAY });
     expect(clockOf(UNDATED, [a, b], a.id)).toEqual({ day: 1, minute: 0 });
+  });
+});
+
+describe("how everyone is", () => {
+  test("the latest word on each field counts; taking it back shows the one before", () => {
+    const a = entry({ kind: "status", subject: "Loras", field: "location", title: "the stables" });
+    const b = entry({ kind: "status", subject: "Loras", field: "location", title: "the solar" });
+    const c = entry({ kind: "status", subject: "Loras", field: "mental", title: "shaken" });
+    expect(statusOf([a, b, c]).Loras).toMatchObject({ location: { title: "the solar" }, mental: { title: "shaken" } });
+    expect(statusOf([a, { ...b, undone_at: 9 }, c]).Loras?.location?.title).toBe("the stables");
+  });
+
+  test("a status with no field the tracker keeps counts for nothing", () => {
+    expect(statusOf([entry({ kind: "status", subject: "Loras", field: "ambition" as any, title: "the crown" })])).toEqual({});
   });
 });
 

@@ -32,23 +32,35 @@
  */
 
 import { readSpan, type Calendar, type Moment } from "./calendar";
+import { STATUS_FIELDS, type StatusField } from "./chronicle";
 
 /** Someone the Steward may refer to, by number. */
-export type Person = { name: string; note?: string };
+export type Person = {
+  name: string;
+  note?: string;
+  /** In the scene now. Only they have their status tracked. */
+  present?: boolean;
+  /** What the tracker already says about them, so only changes are reported. */
+  known?: Partial<Record<StatusField, string>>;
+};
 
 /** One message as the Steward is shown it. */
 export type Passage = { id: string; who: string; text: string };
 
 export type Claim =
   | { kind: "time"; span: number; said: string; evidence: string; message_id: string; proposed: boolean }
-  | { kind: "event"; title: string; people: string[]; evidence: string; message_id: string };
+  | { kind: "event"; title: string; people: string[]; evidence: string; message_id: string }
+  | { kind: "status"; subject: string; field: StatusField; value: string; evidence: string; message_id: string };
 
 export type Dropped = { line: string; why: string };
 
 /** How far time may move on its own before a person is asked; -1 for never ask. */
-export type Limits = { askAboveMinutes: number; maxEvents: number };
+export type Limits = { askAboveMinutes: number; maxEvents: number; maxStatus: number };
 
-export const DEFAULT_LIMITS: Limits = { askAboveMinutes: 7 * 1440, maxEvents: 5 };
+export const DEFAULT_LIMITS: Limits = { askAboveMinutes: 7 * 1440, maxEvents: 5, maxStatus: 12 };
+
+/** Whether the Steward keeps the tracker, or a preset does and it should stay out of it. */
+export type Options = { tracking: boolean };
 
 /**
  * Blocks a preset has the story model write its working-out into. They are
@@ -68,31 +80,51 @@ export function storyOnly(text: string): string {
     .trim();
 }
 
-export const STEWARD_SYSTEM = [
-  "You keep the records for a story. You read the latest part of it and report what it establishes, as short lines in a fixed format. You never continue the story, never explain yourself, and never answer in JSON.",
-  "",
-  "Write each finding on its own line, exactly like this:",
-  'TIME | how much time passed | "the exact words from the story that show it"',
-  'EVENT | a short title for something that happened | "the exact words from the story that show it"',
-  "",
-  "Rules:",
-  "- The quote must be copied exactly from the story: four to twenty-five words, in the story's own language.",
-  "- TIME only when the story says time passed: \"three days later\", \"they rode until dawn\". Say how long in plain words (\"3 days\", \"until dawn\").",
-  "- EVENT only for something that actually happened in this part. Not plans, threats, guesses, dreams, or memories of the past.",
-  "- At most one TIME line and five EVENT lines.",
-  "- If nothing worth recording happened, write only: NONE",
-].join("\n");
+/** The instructions, with the tracker's part only when the Steward is the one keeping it. */
+export function stewardSystem(o: Options = { tracking: true }): string {
+  return [
+    "You keep the records for a story. You read the latest part of it and report what it establishes, as short lines in a fixed format. You never continue the story, never explain yourself, and never answer in JSON.",
+    "",
+    "Write each finding on its own line, exactly like this:",
+    'TIME | how much time passed | "the exact words from the story that show it"',
+    'EVENT | a short title for something that happened | "the exact words from the story that show it"',
+    ...(o.tracking ? ['STATUS | person number | what | how they are now | "the exact words from the story that show it"'] : []),
+    "",
+    "Rules:",
+    "- The quote must be copied exactly from the story: four to twenty-five words, in the story's own language.",
+    "- TIME only when the story says time passed: \"three days later\", \"they rode until dawn\". Say how long in plain words (\"3 days\", \"until dawn\").",
+    "- EVENT only for something that actually happened in this part. Not plans, threats, guesses, dreams, or memories of the past.",
+    ...(o.tracking ? [
+      "- STATUS only for people marked (here), using their number from the list, and only when the story changes something about them or shows it for the first time.",
+      "- For STATUS, \"what\" is one of: physical (injuries, health, tiredness), mental (mood, state of mind), clothes (what they wear), location (where they are), inventory (what they carry). Say how they are now in a few words.",
+    ] : []),
+    "- At most one TIME line and five EVENT lines.",
+    "- If nothing worth recording happened, write only: NONE",
+  ].join("\n");
+}
+
+export const STEWARD_SYSTEM = stewardSystem();
 
 /** The part of the request that changes: who is here, when it is, and what was said. */
-export function stewardPrompt(people: Person[], nowText: string, passages: Passage[]): string {
+export function stewardPrompt(people: Person[], nowText: string, passages: Passage[], o: Options = { tracking: true }): string {
   const roster = people.length
-    ? people.map((p, i) => `${i + 1}. ${p.name}${p.note ? ` (${p.note})` : ""}`).join("\n")
+    ? people.map((p, i) => {
+        const notes = [p.note, o.tracking && p.present ? "here" : ""].filter(Boolean).join(", ");
+        return `${i + 1}. ${p.name}${notes ? ` (${notes})` : ""}`;
+      }).join("\n")
     : "(nobody named yet)";
+  const known = o.tracking
+    ? people.map((p, i) => {
+        const facts = STATUS_FIELDS.filter((f) => p.present && p.known?.[f]).map((f) => `${f}: ${p.known![f]}`);
+        return facts.length ? `${i + 1}. ${p.name} — ${facts.join("; ")}` : "";
+      }).filter(Boolean)
+    : [];
   const story = passages
     .map((p) => `${p.who}: ${storyOnly(p.text)}`)
     .filter((l) => l.trim())
     .join("\n\n");
-  return `People in this story:\n${roster}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
+  const already = known.length ? `\n\nAlready known about them (report only what changes):\n${known.join("\n")}` : "";
+  return `People in this story:\n${roster}${already}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
 }
 
 /**
@@ -105,18 +137,20 @@ export function needsFoldedSystem(model: string): boolean {
   return /gemma/i.test(String(model ?? ""));
 }
 
-export function stewardRequest(model: string, people: Person[], nowText: string, passages: Passage[]) {
-  const user = stewardPrompt(people, nowText, passages);
+export function stewardRequest(model: string, people: Person[], nowText: string, passages: Passage[], o: Options = { tracking: true }) {
+  const user = stewardPrompt(people, nowText, passages, o);
+  const system = stewardSystem(o);
   return needsFoldedSystem(model)
-    ? { system: "", messages: [{ role: "user" as const, content: `${STEWARD_SYSTEM}\n\n---\n\n${user}` }] }
-    : { system: STEWARD_SYSTEM, messages: [{ role: "user" as const, content: user }] };
+    ? { system: "", messages: [{ role: "user" as const, content: `${system}\n\n---\n\n${user}` }] }
+    : { system, messages: [{ role: "user" as const, content: user }] };
 }
 
 // ---- reading the answer ---------------------------------------------------
 
-const KIND_WORDS: Record<string, "time" | "event" | "none"> = {
+const KIND_WORDS: Record<string, "time" | "event" | "status" | "none"> = {
   TIME: "time", TIMEPASSED: "time", TIMESKIP: "time", ELAPSED: "time", DURATION: "time",
   EVENT: "event", EVENTS: "event", HAPPENED: "event",
+  STATUS: "status", STATE: "status", CONDITION: "status", TRACKER: "status",
   NONE: "none", NOTHING: "none", NULL: "none",
 };
 
@@ -153,6 +187,7 @@ const unquote = (s: string) => s.replace(QUOTES, "").trim();
 export type Parsed = {
   time: { said: string; evidence: string }[];
   events: { title: string; people: string; evidence: string }[];
+  status: { who: string; field: string; value: string; evidence: string }[];
   none: boolean;
   dropped: Dropped[];
   /** Lines that were not findings at all — chatter, headings — counted, not judged. */
@@ -161,7 +196,7 @@ export type Parsed = {
 
 /** The answer as lines, before anything is checked against the story. */
 export function parseAnswer(raw: string): Parsed {
-  const out: Parsed = { time: [], events: [], none: false, dropped: [], noise: 0 };
+  const out: Parsed = { time: [], events: [], status: [], none: false, dropped: [], noise: 0 };
   const text = withoutThinking(raw).replace(/```[a-z]*\n?/gi, "");
   for (const original of text.split(/\r?\n/)) {
     const line = tidyLine(original);
@@ -179,7 +214,10 @@ export function parseAnswer(raw: string): Parsed {
     const first = unquote(parts[1]);
     if (!evidence) { out.dropped.push({ line: original.trim(), why: "no quote from the story" }); continue; }
     if (!first) { out.dropped.push({ line: original.trim(), why: "nothing between the bars" }); continue; }
-    if (kind === "time") out.time.push({ said: first, evidence });
+    if (kind === "status") {
+      if (parts.length < 5) { out.dropped.push({ line: original.trim(), why: "a STATUS line needs who, what, how and a quote" }); continue; }
+      out.status.push({ who: first, field: unquote(parts[2]), value: unquote(parts.slice(3, -1).join(" | ")), evidence });
+    } else if (kind === "time") out.time.push({ said: first, evidence });
     else out.events.push({ title: first, people: parts.length > 3 ? parts.slice(2, -1).join(",") : "", evidence });
   }
   return out;
@@ -275,6 +313,7 @@ export function checkAnswer(
   cal: Calendar,
   now: Moment,
   limits: Limits = DEFAULT_LIMITS,
+  o: Options = { tracking: true },
 ): { claims: Claim[]; dropped: Dropped[]; none: boolean; noise: number } {
   const p = parseAnswer(raw);
   const claims: Claim[] = [];
@@ -306,5 +345,40 @@ export function checkAnswer(
     claims.push({ kind: "event", title, people: [...new Set(named)], evidence: e.evidence, message_id: at });
   }
 
+  const tracked = new Set<string>();
+  for (const s of p.status) {
+    const line = `STATUS | ${s.who} | ${s.field} | ${s.value} | "${s.evidence}"`;
+    if (!o.tracking) { dropped.push({ line, why: "a preset keeps the tracker in this chat" }); continue; }
+    const person = whoIs(s.who, people);
+    if (!person) { dropped.push({ line, why: "not someone on the list" }); continue; }
+    if (!person.present) { dropped.push({ line, why: `${person.name} is not in the scene` }); continue; }
+    const field = fieldOf(s.field);
+    if (!field) { dropped.push({ line, why: "not one of the things the tracker keeps" }); continue; }
+    const value = s.value.replace(/\s+/g, " ").slice(0, 160);
+    if (!words(value).length) { dropped.push({ line, why: "no description of how they are" }); continue; }
+    const key = `${person.name}\u0000${field}`;
+    if (tracked.has(key)) { dropped.push({ line, why: "the same thing about the same person twice" }); continue; }
+    if (tracked.size >= limits.maxStatus) { dropped.push({ line, why: "more changes than allowed in one go" }); continue; }
+    // Already so: not a change, and not a mistake either. Nothing to record.
+    if (words(person.known?.[field] ?? "").join(" ") === words(value).join(" ")) { tracked.add(key); continue; }
+    const at = findEvidence(s.evidence, passages);
+    if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
+    tracked.add(key);
+    claims.push({ kind: "status", subject: person.name, field, value, evidence: s.evidence, message_id: at });
+  }
+
   return { claims, dropped, none: p.none && !claims.length, noise: p.noise };
+}
+
+const FIELD_WORDS: Record<string, StatusField> = {
+  physical: "physical", body: "physical", health: "physical", injury: "physical", injuries: "physical", wounds: "physical", condition: "physical",
+  mental: "mental", mood: "mental", mind: "mental", emotion: "mental", emotions: "mental", feeling: "mental", feelings: "mental",
+  clothes: "clothes", clothing: "clothes", outfit: "clothes", wearing: "clothes", dress: "clothes", attire: "clothes",
+  location: "location", place: "location", where: "location", position: "location",
+  inventory: "inventory", items: "inventory", carrying: "inventory", holding: "inventory", belongings: "inventory", gear: "inventory",
+};
+
+/** Which of the tracker's fields a word means, if any. */
+export function fieldOf(word: string): StatusField | null {
+  return FIELD_WORDS[String(word ?? "").toLowerCase().replace(/[^a-z]/g, "")] ?? null;
 }

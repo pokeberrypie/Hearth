@@ -46,9 +46,9 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, startBookmark, type Apocryphon, type Bookmark } from "./apocrypha";
-import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, readSpan, type Calendar } from "./calendar";
-import { clockOf, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
-import { checkAnswer, stewardRequest, type Claim, type Passage, type Person } from "./steward";
+import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
+import { STATUS_FIELDS, clockOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
+import { checkAnswer, fieldOf, stewardRequest, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -2775,6 +2775,8 @@ ${DICE_BRIEF}` : DICE_BRIEF;
    */
   // The plan this chat follows, if any: only ever the scene being played.
   const tale = taleBrief(chat.id);
+  // And the record of what is so: the date, and how everyone is.
+  const storyWorld = worldBrief(chat, s);
 
   if (s.mode === "tabletop") {
     const table: string[] = [];
@@ -2807,6 +2809,7 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     // A plan of the player's own sits beside the campaign: what the game is,
     // then the scene of it being played.
     if (tale) table.push(tale);
+    if (storyWorld) table.push(storyWorld);
 
     table.push(DICE_BRIEF);
 
@@ -2865,7 +2868,7 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     if (last?.role === "user") last.content += `\n\n[${block}]`;
     else messages.push({ role: "user", content: `[${block}]` });
     note("The table", block);
-  } else if (roster || tale) {
+  } else if (roster || tale || storyWorld) {
     /*
      * A shared story chat gets the roster on its own, in the same place the
      * table's block goes: after the transcript, where an instruction is read
@@ -2876,10 +2879,12 @@ ${DICE_BRIEF}` : DICE_BRIEF;
      * the instruction about this part of the story, and last is where an
      * instruction holds.
      */
-    const block = [roster, tale].filter(Boolean).join("\n\n");
+    // What is so, then who is here, then where it is going.
+    const block = [storyWorld, roster, tale].filter(Boolean).join("\n\n");
     const last = messages[messages.length - 1];
     if (last?.role === "user") last.content += `\n\n[${block}]`;
     else messages.push({ role: "user", content: `[${block}]` });
+    if (storyWorld) note("Story World", storyWorld);
     if (roster) note("Who is playing", roster);
     if (tale) note("Where the story is headed", tale);
   }
@@ -3306,14 +3311,14 @@ function chronicleOf(chatId: string): ChronicleEntry[] {
 function copyChronicle(entries: ChronicleEntry[], chatId: string) {
   const ins = db.query(
     `INSERT INTO chronicle (id, chat_id, message_id, kind, day, minute, span, title, body, visibility,
-                            source, evidence, scene_id, created_at, undone_at, proposed)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                            source, evidence, scene_id, subject, field, created_at, undone_at, proposed)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   db.transaction(() => {
     for (const e of entries) {
       ins.run(e.id && !db.query("SELECT 1 FROM chronicle WHERE id = ?").get(e.id) ? e.id : uid(),
               chatId, e.message_id, e.kind, e.day, e.minute, e.span, e.title, e.body, e.visibility,
-              e.source, e.evidence, e.scene_id, e.created_at, e.undone_at, e.proposed ? 1 : 0);
+              e.source, e.evidence, e.scene_id, e.subject, e.field, e.created_at, e.undone_at, e.proposed ? 1 : 0);
     }
   })();
 }
@@ -3331,6 +3336,37 @@ function recordEvent(chatId: string, fields: Partial<ChronicleEntry>) {
   })], chatId);
 }
 
+/**
+ * What the story model is told about the world, after the transcript where it
+ * is read: what day it is, once the story has a calendar or has let time pass
+ * — a chat that never has is not told "Day 1" for nothing — and, when Hearth
+ * keeps the tracker, how everyone in the scene is right now. When a preset
+ * keeps it, Hearth's own is left out entirely, so the model is never handed
+ * two versions of one person.
+ */
+function worldBrief(chat: any, s: Record<string, string>): string | null {
+  const cal = calendarOf(chat.id);
+  const entries = chronicleOf(chat.id);
+  const lines: string[] = [];
+  const dated = cal.kind !== "undated" || liveEntries(entries).some((e) => e.kind === "time" || e.kind === "set");
+  if (dated) {
+    const at = clockOf(cal, entries);
+    lines.push(`Today in the story: ${formatDate(cal, at)}${at.minute ? `, ${partOf(cal, at.minute)}` : ""}.`);
+  }
+  if (s.tracker_source !== "preset") {
+    const status = statusOf(entries);
+    const here = peopleOf(chat).filter((p) => p.present && status[p.name]);
+    if (here.length) {
+      lines.push("How everyone here is right now — keep to this unless the story changes it:");
+      for (const p of here) {
+        const facts = STATUS_FIELDS.filter((f) => status[p.name]![f]).map((f) => `${f}: ${status[p.name]![f]!.title}`);
+        lines.push(`- ${p.name} — ${facts.join("; ")}`);
+      }
+    }
+  }
+  return lines.length ? lines.join("\n") : null;
+}
+
 /** Whether anybody else is sitting at this chat, which is when secrets start to matter. */
 const isShared = (chatId: string) =>
   !!db.query("SELECT 1 FROM shares WHERE chat_id = ? AND open = 1 LIMIT 1").get(chatId);
@@ -3343,6 +3379,9 @@ function chronicleState(chatId: string) {
     calendar: cal,
     now: { ...at, text: formatDate(cal, at) },
     entries: chronicleView(entries, { shared: isShared(chatId), host: true }),
+    // How everyone is now, by the tracker — whichever field has a word on it.
+    status: Object.fromEntries(Object.entries(statusOf(entries)).map(([who, fields]) => [who,
+      Object.fromEntries(Object.entries(fields).map(([f, e]) => [f, { value: e!.title, evidence: e!.evidence, source: e!.source, id: e!.id }]))])),
     // Waiting on the host. A hidden one is still hidden here: accepting it is
     // not the same as reading it.
     proposals: chronicleView(pending(entries).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
@@ -3371,7 +3410,19 @@ api.post("/chats/:id/chronicle", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const cal = calendarOf(chatId);
   const at = clockOf(cal, chronicleOf(chatId));
-  const kind = ["event", "time", "set"].includes(b.kind) ? b.kind : "event";
+  const kind = ["event", "time", "set", "status"].includes(b.kind) ? b.kind : "event";
+  if (kind === "status") {
+    const field = fieldOf(b.field);
+    const subject = String(b.subject ?? "").trim().slice(0, 120);
+    const value = String(b.value ?? "").trim().slice(0, 160);
+    if (!field || !subject || !value) return c.json({ error: "A status needs who, which part of them, and how they are." }, 400);
+    const last = db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any;
+    copyChronicle([normaliseChronicleEntry({
+      id: uid(), kind, subject, field, title: value, message_id: last?.id ?? null, day: at.day, minute: at.minute,
+      source: "user", created_at: now(),
+    })], chatId);
+    return c.json(chronicleState(chatId));
+  }
 
   let span = 0;
   let day: number | null = at.day;
@@ -3456,16 +3507,18 @@ function stewardConnection(s: Record<string, string>) {
 
 /** Who the Steward may refer to, by number: the room, the people met on the way, and the player. */
 function peopleOf(chat: any): Person[] {
-  const out: Person[] = membersOf(chat).map((m: any) => ({ name: m.name }));
+  // A muted member is away from the scene: named, so events can mention them,
+  // but not tracked, since nothing about them is being shown.
+  const out: Person[] = membersOf(chat).map((m: any) => ({ name: m.name, present: !m.muted }));
   if (!out.length) {
     const founder = db.query("SELECT name FROM characters WHERE id = ?").get(chat.character_id) as any;
-    if (founder?.name) out.push({ name: founder.name });
+    if (founder?.name) out.push({ name: founder.name, present: true });
   }
   for (const n of db.query("SELECT name FROM npcs WHERE chat_id = ? AND deleted_at IS NULL ORDER BY created_at").all(chat.id) as any[]) {
-    out.push({ name: n.name, note: "met in the story" });
+    out.push({ name: n.name, note: "met in the story", present: true });
   }
   const me = whoAmI(chat.persona_id);
-  if (me?.name) out.push({ name: me.name, note: "the player" });
+  if (me?.name) out.push({ name: me.name, note: "the player", present: true });
   const seen = new Set<string>();
   return out.filter((p) => p.name && !seen.has(p.name.toLowerCase()) && seen.add(p.name.toLowerCase()));
 }
@@ -3510,10 +3563,23 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     text: m.content ?? "",
   }));
   const cal = calendarOf(chat.id);
-  const people = peopleOf(chat);
+  const tracking = s.tracker_source !== "preset";
+  /*
+   * The world as it stood before these messages: without whatever the Steward
+   * made of them last time it read them. Otherwise a second reading would find
+   * its own earlier answer already "known", skip it as no change, and then
+   * take the original back — and the date would count the same days twice.
+   */
+  const reading = new Set(rows.map((m) => m.id));
+  const before = chronicleOf(chat.id).filter((e) => !(e.source === "steward" && e.message_id && reading.has(e.message_id)));
+  const known = statusOf(before);
+  const people = peopleOf(chat).map((p) => ({
+    ...p,
+    known: Object.fromEntries(Object.entries(known[p.name] ?? {}).map(([f, e]) => [f, e!.title])),
+  }));
   const conn = stewardConnection(s);
-  const start = clockOf(cal, chronicleOf(chat.id));
-  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages);
+  const start = clockOf(cal, before);
+  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking });
 
   let said = "";
   let problem = "";
@@ -3539,19 +3605,22 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   const limits = {
     askAboveMinutes: s.steward_ask_days !== "" && Number.isFinite(askDays) && askDays >= 0 ? askDays * minutesPerDay(cal) : -1,
     maxEvents: 5,
+    maxStatus: 12,
   };
   const checked = problem
     ? { claims: [] as Claim[], dropped: [], none: false, noise: 0 }
-    : checkAnswer(said, passages, people, cal, start, limits);
+    : checkAnswer(said, passages, people, cal, start, limits, { tracking });
   if (!problem && !checked.claims.length && !checked.none) problem = "Nothing in the answer could be used.";
 
   if (!problem) {
     // Read again, so whatever it made of these messages before is replaced.
     forgetSteward(rows.map((m) => m.id), false);
     const order = new Map(passages.map((p, i) => [p.id, i]));
+    // In story order, and within one message: time first, then what happened, then how everyone is after it.
+    const rank = { time: 0, event: 1, status: 2 } as const;
     const story = [...checked.claims].sort((a, b) =>
-      order.get(a.message_id)! - order.get(b.message_id)! || (a.kind === "time" ? 0 : 1) - (b.kind === "time" ? 0 : 1));
-    let at = clockOf(cal, chronicleOf(chat.id));
+      order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
+    let at = start;
     let t = now();
     const entries: ChronicleEntry[] = [];
     for (const claim of story) {
@@ -3561,10 +3630,16 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           evidence: claim.evidence, source: "steward", created_at: t++, proposed: claim.proposed,
         }));
         if (!claim.proposed) at = later(cal, at, claim.span);
-      } else {
+      } else if (claim.kind === "event") {
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "event", message_id: claim.message_id, day: at.day, minute: at.minute, title: claim.title,
           body: claim.people.length ? `With ${claim.people.join(", ")}.` : "",
+          evidence: claim.evidence, source: "steward", created_at: t++,
+        }));
+      } else {
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
+          subject: claim.subject, field: claim.field, title: claim.value,
           evidence: claim.evidence, source: "steward", created_at: t++,
         }));
       }

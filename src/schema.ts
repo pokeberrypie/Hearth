@@ -181,6 +181,9 @@ CREATE TABLE IF NOT EXISTS chronicle (
   source     TEXT NOT NULL DEFAULT 'user',
   evidence   TEXT NOT NULL DEFAULT '',
   scene_id   TEXT,
+  -- For a status: whose, and which part of them (see STATUS_FIELDS).
+  subject    TEXT,
+  field      TEXT,
   created_at INTEGER NOT NULL,
   undone_at  INTEGER,
   -- Waiting for a person to accept it: counts for nothing until then.
@@ -555,6 +558,14 @@ export const DEFAULTS: Record<string, string> = {
   steward_on: "1",
   steward_every: "10",
   steward_ask_days: "7",
+  /*
+   * Who keeps track of how everyone is: "hearth" (the Steward, natively) or
+   * "preset" (the <status> and <tracker> blocks a preset makes the story
+   * model write). Never both — two versions of one character's condition,
+   * each handed to the model, is worse than either. Hearth by default, since
+   * most presets keep no tracker at all.
+   */
+  tracker_source: "hearth",
   /** "since" the last note, or a "window" of the last `auto_lore_every`. */
   auto_lore_scope: "since",
   lore_budget: "8000",

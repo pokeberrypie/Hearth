@@ -14,7 +14,7 @@ import { describe, expect, test } from "bun:test";
 
 import { MOONS, UNDATED } from "./calendar";
 import {
-  STEWARD_SYSTEM, checkAnswer, findEvidence, needsFoldedSystem, parseAnswer, storyOnly, stewardRequest, whoIs,
+  DEFAULT_LIMITS, STEWARD_SYSTEM, checkAnswer, fieldOf, findEvidence, needsFoldedSystem, parseAnswer, storyOnly, stewardRequest, whoIs,
   type Passage, type Person,
 } from "./steward";
 
@@ -157,7 +157,7 @@ describe("time", () => {
     const story: Passage[] = [{ id: "w", who: "Narrator", text: "Two weeks passed before the wedding party set out for the Vale." }];
     const r = check('TIME | two weeks | "Two weeks passed before the wedding party set out"', story);
     expect(r.claims[0]).toMatchObject({ kind: "time", span: 14 * DAY, proposed: true });
-    const never = checkAnswer('TIME | two weeks | "Two weeks passed before the wedding party set out"', story, PEOPLE, MOONS, NOW, { askAboveMinutes: -1, maxEvents: 5 });
+    const never = checkAnswer('TIME | two weeks | "Two weeks passed before the wedding party set out"', story, PEOPLE, MOONS, NOW, { askAboveMinutes: -1, maxEvents: 5, maxStatus: 12 });
     expect(never.claims[0]).toMatchObject({ proposed: false });
   });
 });
@@ -226,4 +226,73 @@ test("parseAnswer on its own: findings, drops and noise", () => {
   const p = parseAnswer("Sure!\nTIME | 2 days\nEVENT | x | \"\"\nNONE");
   expect(p).toMatchObject({ none: true, noise: 1 });
   expect(p.dropped.map((d) => d.why)).toEqual(["no quote from the story", "no quote from the story"]);
+});
+
+describe("the tracker", () => {
+  const HERE: Person[] = [
+    { name: "Loras Tyrell", present: true, known: { location: "the stables" } },
+    { name: "Jaime Lannister", present: true },
+    { name: "Margaery Tyrell", present: false },
+  ];
+  const run = (raw: string, tracking = true) =>
+    checkAnswer(raw, STORY, HERE, MOONS, NOW, DEFAULT_LIMITS, { tracking });
+
+  test("a change for someone here, by number, in one of the tracker's own fields", () => {
+    const r = run('STATUS | 1 | mood | stunned, on his guard | "Loras came through the door at speed and stopped dead"');
+    expect(r.claims).toEqual([{ kind: "status", subject: "Loras Tyrell", field: "mental", value: "stunned, on his guard",
+      evidence: "Loras came through the door at speed and stopped dead", message_id: "m1" }]);
+  });
+
+  test("nobody absent, nobody unlisted, and nothing the tracker does not keep", () => {
+    const r = run([
+      'STATUS | 3 | mental | worried | "Loras came through the door at speed"',
+      'STATUS | 9 | mental | worried | "Loras came through the door at speed"',
+      'STATUS | 2 | ambition | the crown | "Jaime publicly affirmed his betrothal to Yvenna"',
+      'STATUS | 2 | mental | "Jaime publicly affirmed his betrothal to Yvenna"',
+    ].join("\n"));
+    expect(r.claims).toEqual([]);
+    expect(r.dropped.map((d) => d.why)).toEqual([
+      "a STATUS line needs who, what, how and a quote",
+      "Margaery Tyrell is not in the scene",
+      "not someone on the list",
+      "not one of the things the tracker keeps",
+    ]);
+  });
+
+  test("what is already so is not a change, and not a mistake either", () => {
+    const r = run('STATUS | 1 | location | The stables. | "Loras came through the door at speed"');
+    expect(r).toMatchObject({ claims: [], dropped: [] });
+  });
+
+  test("one word per person per field in one go", () => {
+    const r = run([
+      'STATUS | 2 | location | the Great Hall | "the court gathered in the Great Hall"',
+      'STATUS | 2 | place | the throne room | "the court gathered in the Great Hall"',
+    ].join("\n"));
+    expect(r.claims).toHaveLength(1);
+    expect(r.dropped[0].why).toBe("the same thing about the same person twice");
+  });
+
+  test("when a preset keeps the tracker, the Steward stays out of it, and is not asked", () => {
+    expect(run('STATUS | 1 | mood | stunned | "Loras came through the door at speed"', false).dropped[0].why)
+      .toBe("a preset keeps the tracker in this chat");
+    const req = stewardRequest("x", HERE, "Day 1", STORY, { tracking: false });
+    expect(req.system).not.toContain("STATUS");
+    expect(req.messages[0].content).not.toContain("(here)");
+    expect(req.messages[0].content).not.toContain("Already known");
+  });
+
+  test("it is told who is here and what is already known about them, and nothing about who is away", () => {
+    const req = stewardRequest("x", [...HERE, { name: "Cersei", present: false, known: { mental: "plotting" } }], "Day 1", STORY);
+    expect(req.messages[0].content).toContain("1. Loras Tyrell (here)");
+    expect(req.messages[0].content).toContain("3. Margaery Tyrell\n");
+    expect(req.messages[0].content).toContain("1. Loras Tyrell — location: the stables");
+    expect(req.messages[0].content).not.toContain("plotting");
+  });
+
+  test("field names, as models write them", () => {
+    expect(["Health", "injuries", "MOOD", "clothing", "outfit", "where", "items", "gear"].map(fieldOf))
+      .toEqual(["physical", "physical", "mental", "clothes", "clothes", "location", "inventory", "inventory"]);
+    expect(fieldOf("ambition")).toBeNull();
+  });
 });

@@ -111,9 +111,9 @@ describe("whom it asks, and how", () => {
     answers = [GOOD];
     await stewardTurn("ch");
     const prompt = JSON.stringify(sent[0].messages);
-    expect(prompt).toContain("1. Loras Tyrell");
-    expect(prompt).toContain("2. Jaime Lannister");
-    expect(prompt).toContain("3. Yvenna Hightower (the player)");
+    expect(prompt).toContain("1. Loras Tyrell (here)");
+    expect(prompt).toContain("2. Jaime Lannister (here)");
+    expect(prompt).toContain("3. Yvenna Hightower (the player, here)");
     expect(prompt).not.toContain("stables");
   });
 });
@@ -221,4 +221,80 @@ test("building from history reads the whole chat in order, and replaces only the
   answers = [GOOD];
   const again = await (await send("/api/chats/ch/steward/history", "POST")).json();
   expect(again.entries.map((e: any) => e.title)).toEqual(["My own note", "3 days", "Jaime affirms the betrothal"]);
+});
+
+describe("the tracker, in a chat", () => {
+  const TRACKED = [
+    'TIME | 3 days | "Three days later, the court gathered in the Great Hall"',
+    'STATUS | 2 | location | the Great Hall | "the court gathered in the Great Hall"',
+    'STATUS | 1 | mental | stunned | "Loras came through the door at speed and stopped dead"',
+  ].join("\n");
+  const inspect = async () =>
+    (await (await send("/api/chats/ch/inspect", "POST", {})).json()).sections as { label: string; content: string }[];
+  const storyWorld = async () => (await inspect()).find((s) => s.label === "Story World")?.content;
+
+  test("how everyone is goes into Story World, and into the story model's prompt", async () => {
+    seed(3);
+    answers = [TRACKED];
+    await stewardTurn("ch");
+    const s = await chronicle();
+    expect(s.status["Jaime Lannister"].location).toMatchObject({ value: "the Great Hall", source: "steward" });
+    expect(s.status["Loras Tyrell"].mental.value).toBe("stunned");
+    const brief = await storyWorld();
+    expect(brief).toContain("Today in the story: Day 4.");
+    expect(brief).toContain("- Loras Tyrell — mental: stunned");
+    expect(brief).toContain("- Jaime Lannister — location: the Great Hall");
+  });
+
+  test("a chat with no calendar and no time passed is not told the date", async () => {
+    seed(3);
+    expect(await storyWorld()).toBeUndefined();
+  });
+
+  test("when a preset keeps the tracker, Hearth's own is neither asked for nor sent", async () => {
+    seed(3);
+    setSettings({ tracker_source: "preset" });
+    answers = [TRACKED];
+    await stewardTurn("ch");
+    expect(JSON.stringify(sent[0].messages)).not.toContain("STATUS |");
+    expect((await chronicle()).status).toEqual({});
+    const brief = await storyWorld();
+    expect(brief).toContain("Today in the story");
+    expect(brief).not.toContain("right now");
+  });
+
+  test("reading the same messages again keeps what was already true", async () => {
+    seed(3);
+    answers = [TRACKED, TRACKED];
+    await send("/api/chats/ch/steward/history", "POST");
+    const r = await (await send("/api/chats/ch/steward/history", "POST")).json();
+    expect(r.status["Jaime Lannister"].location.value).toBe("the Great Hall");
+    expect(r.now.day).toBe(3);
+    // And the Steward was told the world as it stood before those messages, not after.
+    expect(JSON.stringify(sent[1].messages)).not.toContain("location: the Great Hall");
+  });
+
+  test("an edit takes a status back, and the one before it shows through", async () => {
+    seed(3);
+    await send("/api/chats/ch/chronicle", "POST", { kind: "status", subject: "Jaime Lannister", field: "where", value: "the window seat" });
+    answers = [TRACKED];
+    await stewardTurn("ch");
+    expect((await chronicle()).status["Jaime Lannister"].location.value).toBe("the Great Hall");
+    await send("/api/messages/m3", "PUT", { content: "Nobody moved." });
+    expect((await chronicle()).status["Jaime Lannister"].location).toMatchObject({ value: "the window seat", source: "user" });
+  });
+
+  test("someone muted is away: named, but not tracked", async () => {
+    seed(3);
+    db.query("UPDATE chat_members SET muted = 1 WHERE character_id = 'jaime'").run();
+    answers = [TRACKED];
+    await stewardTurn("ch");
+    expect(JSON.stringify(sent[0].messages)).toContain("2. Jaime Lannister\\n");
+    expect((await chronicle()).status["Jaime Lannister"]).toBeUndefined();
+  });
+
+  test("a status by hand needs who, what and how", async () => {
+    seed(3);
+    expect((await send("/api/chats/ch/chronicle", "POST", { kind: "status", subject: "Loras Tyrell", field: "ambition", value: "x" })).status).toBe(400);
+  });
 });

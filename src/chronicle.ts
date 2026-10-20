@@ -25,7 +25,14 @@
 
 import { later, type Calendar, type Moment } from "./calendar";
 
-export const KINDS = ["event", "time", "set"] as const;
+export const KINDS = ["event", "time", "set", "status"] as const;
+
+/**
+ * What the tracker keeps for each person. Fixed, so a model cannot invent a
+ * sixth thing to track, and named for what a reader would call them.
+ */
+export const STATUS_FIELDS = ["physical", "mental", "clothes", "location", "inventory"] as const;
+export type StatusField = (typeof STATUS_FIELDS)[number];
 export type Kind = (typeof KINDS)[number];
 
 /**
@@ -61,6 +68,9 @@ export type Entry = {
   evidence: string;
   /** The Apocrypha or campaign scene this records, if it records one. */
   scene_id: string | null;
+  /** For a status: whose it is, and which of STATUS_FIELDS. The value is the title. */
+  subject: string | null;
+  field: StatusField | null;
   created_at: number;
   /** Set when taken back. An undone entry is kept, for the record, and counts for nothing. */
   undone_at: number | null;
@@ -96,6 +106,8 @@ export function normaliseEntry(raw: any): Entry {
     source: pick(raw?.source, SOURCES, "user"),
     evidence: str(raw?.evidence, 600),
     scene_id: str(raw?.scene_id, 80) || null,
+    subject: str(raw?.subject, 120) || null,
+    field: STATUS_FIELDS.includes(raw?.field) ? raw.field : null,
     created_at: Math.round(Number(raw?.created_at)) || 0,
     undone_at: intOrNull(raw?.undone_at),
     proposed: !!Number(raw?.proposed ?? 0) || raw?.proposed === true,
@@ -105,6 +117,20 @@ export function normaliseEntry(raw: any): Entry {
 /** The ones that count: not taken back, not waiting on anyone, in the order they were written. */
 export function live(entries: Entry[]): Entry[] {
   return entries.filter((e) => !e.undone_at && !e.proposed).sort((a, b) => a.created_at - b.created_at);
+}
+
+/**
+ * How everyone is now: for each person and each field, the latest word on it
+ * that counts. A status is never edited in place — a change is a new entry,
+ * and taking one back lets the one before it show through again.
+ */
+export function statusOf(entries: Entry[]): Record<string, Partial<Record<StatusField, Entry>>> {
+  const out: Record<string, Partial<Record<StatusField, Entry>>> = {};
+  for (const e of live(entries)) {
+    if (e.kind !== "status" || !e.subject || !e.field || !e.title) continue;
+    (out[e.subject] ??= {})[e.field] = e;
+  }
+  return out;
 }
 
 /** What is waiting for a person to say yes or no. */
