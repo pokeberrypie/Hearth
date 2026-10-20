@@ -25,7 +25,7 @@
 
 import { later, type Calendar, type Moment } from "./calendar";
 
-export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing"] as const;
+export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing", "thread"] as const;
 
 /**
  * Bonds run from 0 to 100 and start in the middle: a stranger is neither
@@ -221,6 +221,32 @@ export function factionsOf(entries: Entry[]): Faction[] {
   }
   for (const f of out.values()) f.standing = standing.get(f.key) ?? 0;
   return [...out.values()];
+}
+
+/**
+ * The story's threads: things left open — a promise, a secret, a letter not
+ * yet answered — and whether each is open or settled now. A thread is its
+ * entries in order, the latest saying how it stands (`amount` 1 for open,
+ * -1 for settled), keyed by `subject` so it is the same thread however its
+ * name is cased. Open ones first, most recent first; then the settled.
+ */
+export type Thread = { key: string; title: string; open: boolean; since: number; evidence: string; id: string };
+
+export function threadsOf(entries: Entry[]): Thread[] {
+  const out = new Map<string, Thread>();
+  for (const e of live(entries)) {
+    if (e.kind !== "thread" || !e.subject) continue;
+    const was = out.get(e.subject);
+    out.set(e.subject, {
+      key: e.subject,
+      title: e.title || was?.title || e.subject,
+      open: e.amount >= 0,
+      since: e.created_at,
+      evidence: e.evidence,
+      id: e.id,
+    });
+  }
+  return [...out.values()].sort((a, b) => Number(b.open) - Number(a.open) || b.since - a.since);
 }
 
 /** What is waiting for a person to say yes or no. */

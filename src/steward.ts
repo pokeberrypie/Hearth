@@ -52,20 +52,21 @@ export type Claim =
   | { kind: "event"; title: string; people: string[]; evidence: string; message_id: string }
   | { kind: "status"; subject: string; field: StatusField; value: string; evidence: string; message_id: string }
   | { kind: "bond"; from: string; to: string; amount: number; label: string; evidence: string; message_id: string }
-  | { kind: "faction"; name: string; description: string; symbol: string; evidence: string; message_id: string };
+  | { kind: "faction"; name: string; description: string; symbol: string; evidence: string; message_id: string }
+  | { kind: "thread"; name: string; open: boolean; evidence: string; message_id: string };
 
 export type Dropped = { line: string; why: string };
 
 /** How far time may move on its own before a person is asked; -1 for never ask. */
-export type Limits = { askAboveMinutes: number; maxEvents: number; maxStatus: number; maxBonds: number; maxFactions: number };
+export type Limits = { askAboveMinutes: number; maxEvents: number; maxStatus: number; maxBonds: number; maxFactions: number; maxThreads?: number };
 
-export const DEFAULT_LIMITS: Limits = { askAboveMinutes: 7 * 1440, maxEvents: 5, maxStatus: 12, maxBonds: 6, maxFactions: 3 };
+export const DEFAULT_LIMITS: Limits = { askAboveMinutes: 7 * 1440, maxEvents: 5, maxStatus: 12, maxBonds: 6, maxFactions: 3, maxThreads: 3 };
 
 /**
  * Whether the Steward keeps the tracker, or a preset does and it should stay
  * out of it; and the factions already known, so it does not propose them again.
  */
-export type Options = { tracking: boolean; factions?: string[] };
+export type Options = { tracking: boolean; factions?: string[]; threads?: string[] };
 
 /**
  * Blocks a preset has the story model write its working-out into. They are
@@ -96,6 +97,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     ...(o.tracking ? ['STATUS | person number | what | how they are now | "the exact words from the story that show it"'] : []),
     'BOND | person number | person number | + or - | what they are to each other now | "the exact words from the story that show it"',
     'FACTION | its name | what it is, in a few words | one word for its emblem, if the story gives one | "the exact words from the story that show it"',
+    'THREAD | open or settled | a short name for it | "the exact words from the story that show it"',
     "",
     "Rules:",
     "- The quote must be copied exactly from the story: four to twenty-five words, in the story's own language.",
@@ -107,6 +109,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     ] : []),
     "- BOND when how the first person feels about the second changes: + warmer, - colder. It goes one way: write it twice if both change.",
     "- FACTION only for a group the story names — a house, guild, order, company — that is not already listed. Leave the emblem empty if the story gives none.",
+    "- THREAD open for something the story leaves hanging that should come back: a promise, a secret, a debt, a question, a letter not yet answered. THREAD settled when one of the open threads listed is resolved here — use its name exactly as listed.",
     "- At most one TIME line and five EVENT lines.",
     "- If nothing worth recording happened, write only: NONE",
   ].join("\n");
@@ -134,7 +137,8 @@ export function stewardPrompt(people: Person[], nowText: string, passages: Passa
     .join("\n\n");
   const already = known.length ? `\n\nAlready known about them (report only what changes):\n${known.join("\n")}` : "";
   const groups = o.factions?.length ? `\n\nFactions already known: ${o.factions.join(", ")}` : "";
-  return `People in this story:\n${roster}${already}${groups}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
+  const threads = o.threads?.length ? `\n\nOpen threads: ${o.threads.join("; ")}` : "";
+  return `People in this story:\n${roster}${already}${groups}${threads}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
 }
 
 /**
@@ -157,7 +161,8 @@ export function stewardRequest(model: string, people: Person[], nowText: string,
 
 // ---- reading the answer ---------------------------------------------------
 
-const KIND_WORDS: Record<string, "time" | "event" | "status" | "bond" | "faction" | "none"> = {
+const KIND_WORDS: Record<string, "time" | "event" | "status" | "bond" | "faction" | "thread" | "none"> = {
+  THREAD: "thread", THREADS: "thread", PLOTTHREAD: "thread", HOOK: "thread", LOOSEEND: "thread",
   BOND: "bond", RELATIONSHIP: "bond", RELATION: "bond", FEELING: "bond",
   FACTION: "faction", GROUP: "faction", HOUSE: "faction", ORGANISATION: "faction", ORGANIZATION: "faction",
   TIME: "time", TIMEPASSED: "time", TIMESKIP: "time", ELAPSED: "time", DURATION: "time",
@@ -202,6 +207,7 @@ export type Parsed = {
   status: { who: string; field: string; value: string; evidence: string }[];
   bonds: { from: string; to: string; way: string; label: string; evidence: string }[];
   factions: { name: string; description: string; symbol: string; evidence: string }[];
+  threads: { state: string; name: string; evidence: string }[];
   none: boolean;
   dropped: Dropped[];
   /** Lines that were not findings at all — chatter, headings — counted, not judged. */
@@ -210,7 +216,7 @@ export type Parsed = {
 
 /** The answer as lines, before anything is checked against the story. */
 export function parseAnswer(raw: string): Parsed {
-  const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], none: false, dropped: [], noise: 0 };
+  const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], threads: [], none: false, dropped: [], noise: 0 };
   const text = withoutThinking(raw).replace(/```[a-z]*\n?/gi, "");
   for (const original of text.split(/\r?\n/)) {
     const line = tidyLine(original);
@@ -231,6 +237,9 @@ export function parseAnswer(raw: string): Parsed {
     if (kind === "bond") {
       if (parts.length < 5) { out.dropped.push({ line: original.trim(), why: "a BOND line needs two people, which way, and a quote" }); continue; }
       out.bonds.push({ from: first, to: unquote(parts[2]), way: unquote(parts[3]), label: parts.length > 5 ? unquote(parts.slice(4, -1).join(" ")) : "", evidence });
+    } else if (kind === "thread") {
+      if (parts.length < 4) { out.dropped.push({ line: original.trim(), why: "a THREAD line needs open or settled, a name, and a quote" }); continue; }
+      out.threads.push({ state: first, name: unquote(parts.slice(2, -1).join(" ")), evidence });
     } else if (kind === "faction") {
       if (parts.length < 4) { out.dropped.push({ line: original.trim(), why: "a FACTION line needs a name, what it is, and a quote" }); continue; }
       out.factions.push({ name: first, description: unquote(parts[2]), symbol: parts.length > 4 ? unquote(parts[3]) : "", evidence });
@@ -437,6 +446,27 @@ export function checkAnswer(
     named.add(key);
     claims.push({ kind: "faction", name, description: f.description.replace(/\s+/g, " ").slice(0, 200),
       symbol: f.symbol.slice(0, 40), evidence: f.evidence, message_id: at });
+  }
+
+  // Threads: a new one opened, or one already open settled — by its listed name.
+  const open = new Map((o.threads ?? []).map((t) => [groupKey(t), t]));
+  const touched = new Set<string>();
+  for (const t of p.threads) {
+    const line = `THREAD | ${t.state} | ${t.name} | "${t.evidence}"`;
+    const state = /^(open|opens|opened|new|start|starts|started|begin|begins|raised|added)\b/i.test(t.state) ? "open"
+      : /^(settled?|settles|resolved?|resolves|closed?|closes|done|ended?|ends|answered|finished|paid)\b/i.test(t.state) ? "settled" : null;
+    if (!state) { dropped.push({ line, why: "not open or settled" }); continue; }
+    const name = t.name.replace(/\s+/g, " ").trim().slice(0, 120);
+    const key = groupKey(name);
+    if (!key) { dropped.push({ line, why: "no name" }); continue; }
+    if (touched.has(key)) { dropped.push({ line, why: "the same thread twice" }); continue; }
+    if (state === "open" && open.has(key)) { dropped.push({ line, why: "already open" }); continue; }
+    if (state === "settled" && !open.has(key)) { dropped.push({ line, why: "not one of the open threads" }); continue; }
+    if (touched.size >= (limits.maxThreads ?? 3)) { dropped.push({ line, why: "more threads than allowed in one go" }); continue; }
+    const at = findEvidence(t.evidence, passages);
+    if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
+    touched.add(key);
+    claims.push({ kind: "thread", name: state === "settled" ? open.get(key)! : name, open: state === "open", evidence: t.evidence, message_id: at });
   }
 
   return { claims, dropped, none: p.none && !claims.length, noise: p.noise };

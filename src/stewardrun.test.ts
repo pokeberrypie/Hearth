@@ -416,3 +416,51 @@ test("the server finds the charges wherever a build keeps them", async () => {
     readAssetsWith(async (p) => { try { return readFileSync(join("public", p), "utf8"); } catch { return null; } });
   }
 });
+
+describe("threads", () => {
+  const inspect = async () =>
+    (await (await send("/api/chats/ch/inspect", "POST", {})).json()).sections as { label: string; content: string }[];
+  const storyWorld = async () => (await inspect()).find((s) => s.label === "Story World")?.content ?? "";
+
+  test("the Steward opens one the story leaves hanging, and settles it by its name later", async () => {
+    seed(3);
+    answers = ['THREAD | open | The unspoken thing | "Have you nothing to say?"'];
+    await stewardTurn("ch");
+    let s = await chronicle();
+    expect(s.threads).toMatchObject([{ title: "The unspoken thing", open: true }]);
+    expect(await storyWorld()).toContain("Threads still open, to pick up when it fits: The unspoken thing.");
+    // The next reading is told it is open, and may only settle it — not open it twice.
+    for (let i = 4; i <= 6; i++) {
+      db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', 'assistant', 'Loras Tyrell', ?, ?)")
+        .run(`m${i}`, i === 6 ? "At last Loras said it, plainly, before them all: he would stand as her champion." : "They waited.", Date.now() + i * 1000);
+    }
+    answers = ['THREAD | open | the unspoken thing | "At last Loras said it, plainly"\nTHREAD | settled | THE UNSPOKEN THING | "At last Loras said it, plainly, before them all"'];
+    await stewardTurn("ch");
+    expect(JSON.stringify(sent.at(-1))).toContain("Open threads: The unspoken thing");
+    s = await chronicle();
+    expect(s.threads).toMatchObject([{ title: "The unspoken thing", open: false }]);
+    expect(await storyWorld()).not.toContain("Threads still open");
+  });
+
+  test("one that is not open cannot be settled, and a quote not in the story keeps nothing", async () => {
+    seed(3);
+    answers = ['THREAD | settled | A debt to the Iron Bank | "Have you nothing to say?"\nTHREAD | open | A secret | "words that are nowhere in it"'];
+    await stewardTurn("ch");
+    expect((await chronicle()).threads).toEqual([]);
+  });
+
+  test("a person adds one, settles it, and reopens it", async () => {
+    seed(3);
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "Cersei's letter to the Faith" });
+    let s = await chronicle();
+    const key = s.threads[0].key;
+    expect(s.threads[0]).toMatchObject({ title: "Cersei's letter to the Faith", open: true });
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", key, open: false });
+    expect((await chronicle()).threads[0].open).toBe(false);
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", key, open: true });
+    s = await chronicle();
+    expect(s.threads).toHaveLength(1);
+    expect(s.threads[0].open).toBe(true);
+    expect((await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "" })).status).toBe(400);
+  });
+});

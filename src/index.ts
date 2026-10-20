@@ -48,7 +48,7 @@ import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { WRITE_APOC_SYSTEM, advance, apocFieldPrompt, apocWritePrompt, cleanField, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
-import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
+import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { checkAnswer, fieldOf, groupKey, needsFoldedSystem, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
@@ -3474,6 +3474,7 @@ function tableWorld(chatId: string, seenFrom: string) {
       Object.fromEntries(Object.entries(fields).map(([f, e]) => [f, e!.title]))])),
     bonds: bonds.sort((a, b) => mine(a) - mine(b)),
     factions: factionsOf(entries).map((f) => ({ key: f.key, name: f.name, description: f.description, members: f.members, standing: f.standing })),
+    threads: threadsOf(entries).map((t) => ({ key: t.key, title: t.title, open: t.open })),
   };
 }
 
@@ -3518,6 +3519,10 @@ function worldBrief(chat: any, s: Record<string, string>): string | null {
       }
     }
   }
+  // Loose ends the story has left open, so they are not forgotten — a handful,
+  // newest first; each a possibility to return to, not something to force.
+  const open = threadsOf(entries).filter((t) => t.open).slice(0, 8);
+  if (open.length) lines.push(`Threads still open, to pick up when it fits: ${open.map((t) => t.title).join("; ")}.`);
   return lines.length ? lines.join("\n") : null;
 }
 
@@ -3544,6 +3549,8 @@ function chronicleState(chatId: string) {
       changes: b.history.length })),
     // The groups in the story, with their arms and the party's standing with them.
     factions: factionsOf(entries).map(({ entry, ...f }) => f),
+    // Loose ends: open first, then the settled.
+    threads: threadsOf(entries),
     // Waiting on the host. A hidden one is still hidden here: accepting it is
     // not the same as reading it.
     proposals: chronicleView(pending(entries).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
@@ -3576,7 +3583,7 @@ api.post("/chats/:id/chronicle", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const cal = calendarOf(chatId);
   const at = clockOf(cal, chronicleOf(chatId));
-  const kind = ["event", "time", "set", "status", "bond", "faction", "standing"].includes(b.kind) ? b.kind : "event";
+  const kind = ["event", "time", "set", "status", "bond", "faction", "standing", "thread"].includes(b.kind) ? b.kind : "event";
   const lastMessage = () =>
     (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
   const add = (fields: Record<string, unknown>) => {
@@ -3608,6 +3615,16 @@ api.post("/chats/:id/chronicle", async (c) => {
     const members = Array.isArray(b.members) ? b.members.map((m: unknown) => String(m).slice(0, 120)).slice(0, 100) : existing?.members ?? [];
     return add({ subject: existing?.key ?? uid(), title: name || existing!.name,
       body: b.description === undefined ? existing?.description ?? "" : b.description, data: { arms, members } });
+  }
+  if (kind === "thread") {
+    // Opened by name, or an existing one settled or reopened by its key.
+    const name = String(b.name ?? b.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    const known = b.key ? threadsOf(chronicleOf(chatId)).find((t) => t.key === b.key) : null;
+    if (b.key && !known) return c.json({ error: "No such thread in this chat." }, 404);
+    if (!known && !name) return c.json({ error: "A thread needs a name." }, 400);
+    const subject = known?.key ?? groupKey(name);
+    if (!subject) return c.json({ error: "A thread needs a name." }, 400);
+    return add({ subject, title: name || known!.title, amount: b.open === false || b.settled ? -1 : 1 });
   }
   if (kind === "standing") {
     if (!factionsOf(chronicleOf(chatId)).some((f) => f.key === b.key)) return c.json({ error: "No such faction in this chat." }, 404);
@@ -3911,9 +3928,11 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   // Factions it should not propose again: those that exist, and those already waiting on a person.
   const groups = [...factionsOf(before).map((f) => f.name),
     ...pending(before).filter((e) => e.kind === "faction").map((e) => e.title)];
+  // Threads already open, by name, so it settles them rather than opening them again.
+  const threads = threadsOf(before).filter((t) => t.open).map((t) => t.title);
   const conn = stewardConnection(s);
   const start = clockOf(cal, before);
-  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups });
+  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups, threads });
 
   let said = "";
   let problem = "";
@@ -3942,10 +3961,11 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     maxStatus: 12,
     maxBonds: 6,
     maxFactions: 3,
+    maxThreads: 3,
   };
   const checked = problem
     ? { claims: [] as Claim[], dropped: [], none: false, noise: 0 }
-    : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups });
+    : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups, threads });
   if (!problem && !checked.claims.length && !checked.none) problem = "Nothing in the answer could be used.";
 
   if (!problem) {
@@ -3957,7 +3977,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     const timed = new Set(liveEntries(chronicleOf(chat.id))
       .filter((e) => e.kind === "time" && e.source !== "steward" && e.message_id).map((e) => e.message_id));
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
-    const rank = { time: 0, event: 1, status: 2, bond: 3, faction: 4 } as const;
+    const rank = { time: 0, event: 1, status: 2, bond: 3, faction: 4, thread: 5 } as const;
     const set = await charges();
     const story = [...checked.claims].filter((c) => !(c.kind === "time" && timed.has(c.message_id))).sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
@@ -3993,6 +4013,12 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           id: uid(), kind: "faction", message_id: claim.message_id, day: at.day, minute: at.minute,
           subject: uid(), title: claim.name, body: claim.description, data: { arms: withContrast(arms), members: [] },
           evidence: claim.evidence, source: "steward", created_at: t++, proposed: true,
+        }));
+      } else if (claim.kind === "thread") {
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "thread", message_id: claim.message_id, day: at.day, minute: at.minute,
+          subject: groupKey(claim.name), title: claim.name, amount: claim.open ? 1 : -1,
+          evidence: claim.evidence, source: "steward", created_at: t++,
         }));
       } else {
         entries.push(normaliseChronicleEntry({

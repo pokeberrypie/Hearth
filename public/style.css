@@ -8253,3 +8253,7 @@ body[data-msgstyle="banner"] .msg.mine .plate:has(> .inlay .blank) > .tools { ri
   body[data-msgstyle="banner"] .msg.mine .plate,
   body.bleed[data-msgstyle="banner"] .msg.mine .plate { padding-right: 0; padding-left: 0.8rem; }
 }
+.wdthreads li > div { flex: 1 1 auto; min-width: 0; }
+.wdthreads li > .linkish { flex: none; align-self: center; font-size: 0.82rem; }
+.wdaddthread { display: flex; gap: 0.5rem; align-items: center; margin: 0.6rem 0 1rem; }
+.wdaddthread input { flex: 1 1 auto; min-width: 0; }

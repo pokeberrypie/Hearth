@@ -193,7 +193,7 @@ function paintWorld() {
   const body = $("#wdBody");
   if (W.tab === "time") body.innerHTML = timelineHtml(view, who);
   else if (W.tab === "bonds") body.innerHTML = bondsHtml(view);
-  else if (W.tab === "threads") body.innerHTML = threadsHtml();
+  else if (W.tab === "threads") body.innerHTML = threadsHtml(view, who);
   else body.innerHTML = factionsHtml(view, who);
   wireBody(who);
 }
@@ -344,25 +344,46 @@ function constellation(me, bonds) {
  * The story threads a preset keeps, from the latest reply that has them. Read
  * from the transcript on screen, the same blocks app.js folds into a message.
  */
-function threadsHtml() {
-  const msgs = [...$("#thread").querySelectorAll(".msg")].reverse();
-  for (const m of msgs) {
-    const raw = m.dataset.raw ?? "";
-    const block = raw.match(/<threads\b[^>]*>([\s\S]*?)<\/threads\s*>/i);
+const THREAD_ICON = (open) => `<svg viewBox="0 0 30 40" aria-hidden="true"><path d="M15 0c0 8-9 9-9 17s9 9 9 15"/>${open
+  ? '<path d="M15 32l-4 6M15 32l0 7M15 32l4 6"/>' : '<circle cx="15" cy="34" r="3.6"/>'}</svg>`;
+
+/** The latest <threads> block a preset wrote into the chat, as rows, or none. */
+function presetThreads() {
+  for (const m of [...$("#thread").querySelectorAll(".msg")].reverse()) {
+    const block = (m.dataset.raw ?? "").match(/<threads\b[^>]*>([\s\S]*?)<\/threads\s*>/i);
     if (!block) continue;
-    const rows = block[1].replace(/<summary>[\s\S]*?<\/summary>/i, "").split("\n")
+    return block[1].replace(/<summary>[\s\S]*?<\/summary>/i, "").split("\n")
       .map((l) => l.trim().replace(/^[-*]\s*/, "")).filter((l) => l && !/^<\/?\w/.test(l))
       .map((l) => {
         const m2 = l.match(/^\[([^\]]+)\]\s*(.*)$/);
-        const state = m2 ? m2[1] : "";
-        const open = !/resolv|closed|done|settled|tied/i.test(state);
-        return `<li class="${open ? "open" : "tied"}"><svg viewBox="0 0 30 40" aria-hidden="true"><path d="M15 0c0 8-9 9-9 17s9 9 9 15"/>${open
-          ? '<path d="M15 32l-4 6M15 32l0 7M15 32l4 6"/>' : '<circle cx="15" cy="34" r="3.6"/>'}</svg>
-          <div><div class="wdthread">${txt(m2 ? m2[2] : l)}</div>${state ? `<div class="wdwhen">${txt(state)}</div>` : ""}</div></li>`;
-      }).join("");
-    return `<ul class="wdthreads">${rows}</ul>`;
+        return { title: m2 ? m2[2] : l, state: m2 ? m2[1] : "", open: !/resolv|closed|done|settled|tied/i.test(m2?.[1] ?? "") };
+      });
   }
-  return `<p class="hint">Threads come from presets that keep them in their replies. None of the replies in this chat has any yet.</p>`;
+  return [];
+}
+
+/**
+ * Loose ends: Hearth's own, which the Steward opens and settles as the story
+ * goes and a person can add, settle or reopen; and, under them, whatever a
+ * preset keeps in its replies, read as it wrote it.
+ */
+function threadsHtml(s, who) {
+  const host = who === "host";
+  const mine = s?.threads ?? [];
+  const rows = mine.map((t) => `<li class="${t.open ? "open" : "tied"}">${THREAD_ICON(t.open)}
+      <div><div class="wdthread">${txt(t.title)}</div><div class="wdwhen">${t.open ? "open" : "settled"}</div></div>
+      ${host ? `<button type="button" class="linkish" data-thread="${txt(t.key)}" data-open="${t.open ? "0" : "1"}">${t.open ? "Settle" : "Reopen"}</button>` : ""}
+    </li>`).join("");
+  const add = host ? `<div class="wdrow wdaddthread">
+      <input type="text" id="wdThreadText" placeholder="Something left hanging" aria-label="A new thread">
+      <button type="button" class="ghost" id="wdThreadGo">Add</button></div>` : "";
+  const preset = GUEST.on ? [] : presetThreads();
+  const fromPreset = preset.length ? `<div class="wdkicker">From your preset</div><ul class="wdthreads">${preset.map((t) =>
+    `<li class="${t.open ? "open" : "tied"}">${THREAD_ICON(t.open)}<div><div class="wdthread">${txt(t.title)}</div>${t.state ? `<div class="wdwhen">${txt(t.state)}</div>` : ""}</div></li>`).join("")}</ul>` : "";
+  const empty = !mine.length
+    ? `<p class="hint">No threads yet. The Steward opens one when the story leaves something hanging — a promise, a secret, a letter not answered — and settles it when the story does${host ? ", or you can add one" : ""}.</p>`
+    : "";
+  return `${empty}${mine.length ? `<ul class="wdthreads">${rows}</ul>` : ""}${add}${fromPreset}`;
 }
 
 // ---- factions ----------------------------------------------------------------
@@ -509,6 +530,15 @@ function wireBody(who) {
   for (const b of body.querySelectorAll("[data-pass]")) b.onclick = () => post(`/chats/${S.chatId}/chronicle`, { kind: "time", text: b.dataset.pass });
   for (const b of body.querySelectorAll("[data-faction]")) b.onclick = () => factionDetail(b.dataset.faction, who);
   $("#wdNewFaction")?.addEventListener("click", () => factionEditor(null));
+  for (const b of body.querySelectorAll("[data-thread]")) {
+    b.onclick = () => post(`/chats/${S.chatId}/chronicle`, { kind: "thread", key: b.dataset.thread, open: b.dataset.open === "1" });
+  }
+  const addThread = () => {
+    const t = $("#wdThreadText")?.value.trim();
+    if (t) post(`/chats/${S.chatId}/chronicle`, { kind: "thread", name: t });
+  };
+  $("#wdThreadGo")?.addEventListener("click", addThread);
+  $("#wdThreadText")?.addEventListener("keydown", (e) => { if (e.key === "Enter") addThread(); });
 
   $("#wdPassGo")?.addEventListener("click", () => {
     const t = $("#wdPassText").value.trim();
