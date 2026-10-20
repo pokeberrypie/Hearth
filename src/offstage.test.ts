@@ -8,7 +8,7 @@
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { identityOf, names, pressureOf, readDecision, resolve, rule } from "./offstage";
+import { identityOf, names, pressureOf, readDecision, resolve, rule, traceOf } from "./offstage";
 import { db, setSettings, wipe } from "./test-support";
 
 const { app, offstageTurn } = await import("./index");
@@ -90,7 +90,18 @@ describe("the rules, in code", () => {
     expect(leak("The marriage contract is missing")).toBe("The marriage contract is missing");
   });
 
-  test("the one deliberate clue: only from something that could fail, and kept only if it did", () => {
+  test("whether it left a trace is its own roll: success can be seen, failure can go unnoticed, easy leaves nothing", () => {
+    const at = (n: number) => () => (n - 1) / 20;
+    expect(traceOf("uncertain", true, at(5))).toEqual({ left: true, roll: 5, dc: 6 });
+    expect(traceOf("uncertain", true, at(6)).left).toBe(false);
+    expect(traceOf("uncertain", false, at(12)).left).toBe(true);
+    expect(traceOf("uncertain", false, at(13)).left).toBe(false);
+    expect(traceOf("hard", true, at(8)).left).toBe(true);
+    expect(traceOf("hard", false, at(15)).left).toBe(true);
+    expect(traceOf("easy", false, at(1))).toEqual({ left: false, roll: null, dc: 0 });
+  });
+
+  test("the one deliberate clue: only from something that could go wrong", () => {
     const d = readDecision("CHOOSE | it | x\nACT | bribes the steward for the contract | uncertain | none\nFACT | the contract is missing\nCLUE | a Lannister cloak-pin by the chest");
     expect(rule(d, base).clue).toBe("a Lannister cloak-pin by the chest");
     const easy = readDecision("CHOOSE | it | x\nACT | writes to her uncle | easy | none\nCLUE | a letter with her seal");
@@ -208,26 +219,37 @@ describe("a day offstage", () => {
     expect((await (await send("/api/chats/ch/offstage/run", "POST")).json()).note).toBe("Nobody has a goal yet.");
   });
 
-  test("a failed attempt leaves its clue; a successful one changes the world and leaves none", async () => {
-    seed();
-    await goal("Cersei Lannister", "get the marriage contract");
+  test("whether it worked and whether it was seen are rolled apart", async () => {
     const plan = "CHOOSE | it | x\nACT | bribes the maester's boy for the marriage contract | uncertain | none\nSEEN | the maester's boy has new boots\nFACT | the marriage contract is missing\nCLUE | a Lannister cloak-pin under the maester's table";
     const roll = Math.random;
     try {
-      Math.random = () => 0; // a 1: it fails
-      answers = [plan];
-      await send("/api/chats/ch/offstage/run", "POST");
-      let told = await narrator();
-      expect(told).toContain("a Lannister cloak-pin under the maester's table");
+      const rolls = (...r: number[]) => { const q = [...r]; Math.random = () => q.shift() ?? 0.5; };
+      const day = async (...r: number[]) => {
+        seed();
+        await goal("Cersei Lannister", "get the marriage contract");
+        rolls(...r);
+        answers = [plan];
+        await send("/api/chats/ch/offstage/run", "POST");
+        return narrator();
+      };
+      // Botched and caught: the boy took the gold to the steward, and her pin is under the table.
+      let told = await day(0, 0);
+      expect(told).toContain("cloak-pin");
       expect(told).not.toContain("the marriage contract is missing");
       expect(told).toContain("the maester's boy has new boots");
-      seed();
-      await goal("Cersei Lannister", "get the marriage contract");
-      Math.random = () => 0.99; // a 20: it works
-      answers = [plan];
-      await send("/api/chats/ch/offstage/run", "POST");
-      told = await narrator();
+      // Clean: the contract is gone and nothing points anywhere.
+      told = await day(0.99, 0.99);
       expect(told).toContain("the marriage contract is missing");
+      expect(told).not.toContain("cloak-pin");
+      // It worked — and someone saw. The theft stands; the secret may not.
+      told = await day(0.99, 0);
+      expect(told).toContain("the marriage contract is missing");
+      expect(told).toContain("cloak-pin");
+      const act = (await ledger()).actions[0];
+      expect(act).toMatchObject({ outcome: "succeeded", traced: true, trace_roll: 1, trace_dc: 6 });
+      // Botched, but nobody noticed: nothing done, nothing found.
+      told = await day(0, 0.99);
+      expect(told).not.toContain("the marriage contract is missing");
       expect(told).not.toContain("cloak-pin");
     } finally { Math.random = roll; }
   });

@@ -74,7 +74,7 @@ export const OFFSTAGE_SYSTEM = [
   "ACT | what they do, in one plain sentence | easy or uncertain or hard | none or social or physical or grave",
   "SEEN | something another person might notice, without saying who did it or why",
   "FACT | what is now true in the world because of it, without saying who did it",
-  "CLUE | if it went wrong: something someone could find that points toward who was behind it",
+  "CLUE | a trace it could leave, whether or not it works: something someone could find or notice that points toward who was behind it",
   "GOAL | a new goal, only if they take one up | why",
   "",
   "Rules:",
@@ -82,7 +82,7 @@ export const OFFSTAGE_SYSTEM = [
   "- easy: it simply happens (writing a letter, a walk, a word with a friend). uncertain or hard: it could fail (bribing a loyal servant, a theft, a lie to someone sharp).",
   "- The last field of ACT is the harm it would do to the player's character: none, social (their name, standing, friendships), physical (their body or freedom), grave (death, maiming, imprisonment for good).",
   "- SEEN and FACT never name the person acting, never point to them — not by title, house, household, servants or friends — and never say why. \"The marriage contract is missing\", not \"the queen's handmaiden took it\". Leave them out when nothing would show or nothing changed.",
-  "- CLUE is the only line that may point to them: the trace a careless or unlucky attempt leaves. It is used only if the attempt fails.",
+  "- CLUE is the only line that may point to them: the trace a careless or unlucky moment leaves — a witness, a dropped pin, a smell of their perfume. A theft can succeed and still be seen. Whether it is left at all is decided separately, by chance.",
   "- NOTHING when they simply live their day: then ACT is the ordinary thing they do, easy, none, and there is no SEEN or FACT.",
   "- ABANDON when they give up a goal because it is costing them more than it is worth: then name the goal in the why.",
 ].join("\n");
@@ -171,7 +171,7 @@ export type Ruling = {
   threat: boolean;
   seen: string;
   fact: string;
-  /** What a failed attempt leaves behind that points to them. Used only on failure — the one deliberate clue. */
+  /** What the attempt could leave behind that points to them — the one deliberate clue. Whether it is left is rolled apart from whether it works: see traceOf. */
   clue: string;
   goal: { goal: string; why: string } | null;
   /** Which goal was given up, when one was. */
@@ -259,6 +259,28 @@ export function resolve(difficulty: Difficulty, rng: () => number = Math.random)
   if (!dc) return { succeeded: true, roll: null, dc: 0 };
   const roll = 1 + Math.floor(rng() * 20);
   return { succeeded: roll >= dc, roll, dc };
+}
+
+/**
+ * Whether it left a trace: a second roll, apart from whether it worked. A
+ * theft can succeed and still be seen; a botched one can still go unnoticed,
+ * though less often. Discretion against these — under it, the clue is left.
+ * Harder things are messier, and failing at them messier still. Something
+ * easy leaves nothing worth finding.
+ */
+export const TRACE_DC: Record<Difficulty, { worked: number; failed: number }> = {
+  easy: { worked: 0, failed: 0 },
+  uncertain: { worked: 6, failed: 13 }, // a quarter of the time when it works, three in five when it doesn't
+  hard: { worked: 9, failed: 16 }, //      two in five, three in four
+};
+
+export type Trace = { left: boolean; roll: number | null; dc: number };
+
+export function traceOf(difficulty: Difficulty, succeeded: boolean, rng: () => number = Math.random): Trace {
+  const dc = TRACE_DC[difficulty][succeeded ? "worked" : "failed"];
+  if (!dc) return { left: false, roll: null, dc: 0 };
+  const roll = 1 + Math.floor(rng() * 20);
+  return { left: roll < dc, roll, dc };
 }
 
 /**

@@ -50,7 +50,7 @@ import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, min
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
-         resolve as resolveAttempt, rule as ruleOn, type Agenda, type View } from "./offstage";
+         resolve as resolveAttempt, rule as ruleOn, traceOf, type Agenda, type View } from "./offstage";
 import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
@@ -3999,19 +3999,21 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     const out = r.kind === "act" && !r.threat ? resolveAttempt(r.difficulty) : { succeeded: r.kind !== "dropped", roll: null, dc: 0 };
     const outcome = r.kind === "dropped" ? "dropped" : r.threat ? "threat" : r.kind !== "act" ? "routine"
       : out.roll === null ? "succeeded" : out.succeeded ? "succeeded" : "failed";
+    // Whether it worked and whether it was seen are two questions, rolled apart.
+    const trace = r.clue && (outcome === "succeeded" || outcome === "failed") ? traceOf(r.difficulty, outcome === "succeeded") : { left: false, roll: null, dc: 0 };
     const add: ChronicleEntry[] = [];
     const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
     add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "offstage", subject: person,
       title: r.act || (r.kind === "abandon" ? "Gave something up" : "An ordinary day"), body: r.why, created_at: t++,
       data: { day: at.day, want: d.want, fear: d.fear, considered: d.considered.slice(0, 4), choice: d.choice, kind: r.kind,
               difficulty: r.difficulty, harm: r.harm, roll: out.roll, dc: out.dc, outcome, notes: r.notes,
-              seen: r.seen, fact: r.fact, clue: outcome === "failed" ? r.clue : "" } }));
+              seen: r.seen, fact: r.fact, clue: r.clue, traced: trace.left, trace_roll: trace.roll, trace_dc: trace.dc } }));
     // What the narrator may have: what could be seen — even of a failure — and what is now true, only on success.
     if (r.seen && outcome !== "dropped" && !r.threat) {
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.seen, created_at: t++, data: { until: at.day + 3 } }));
     }
-    // The one deliberate clue: a failed attempt's trace, which may point to them. Success leaves none.
-    if (r.clue && outcome === "failed") {
+    // The one deliberate clue, which may point to them — left when their discretion failed, whether or not the thing worked.
+    if (r.clue && trace.left) {
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.clue, created_at: t++, data: { until: at.day + 5, clue: true } }));
     }
     if (r.fact && outcome === "succeeded") {

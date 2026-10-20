@@ -494,7 +494,8 @@ async function paintOffstage() {
         ${g.status === "active" ? `<button type="button" class="linkish" data-giveup="${g.id}">Give up</button>` : ""}</li>`).join("");
     const acts = l.actions.map((a) => `<li><div class="wdwhen">${txt(a.when)} · ${txt(a.who)}</div>
         <div>${txt(a.what)}</div>
-        <div class="wdwhen">${OUT[a.outcome] ?? ""}${a.roll ? ` · rolled ${a.roll} against ${a.dc}` : ""}</div>
+        <div class="wdwhen">${OUT[a.outcome] ?? ""}${a.roll ? ` · rolled ${a.roll} against ${a.dc}` : ""}${a.trace_roll ? (a.traced ? ` · left a trace (${a.trace_roll} under ${a.trace_dc})` : " · left no trace") : ""}</div>
+        ${a.traced && a.clue ? `<div class="wdwhen">The trace: ${txt(a.clue)}</div>` : ""}
         ${a.why ? `<div class="wdwhy">“${txt(a.why)}”</div>` : ""}
         ${a.considered?.length ? `<details><summary>What they weighed</summary><ul>${a.considered.map((c) => `<li>${txt(c.option)}${c.stakes ? ` — <i>${txt(c.stakes)}</i>` : ""}</li>`).join("")}</ul>${a.want ? `<p class="hint">Wanted: ${txt(a.want)}${a.fear ? `; afraid of: ${txt(a.fear)}` : ""}</p>` : ""}</details>` : ""}
         ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("");
