@@ -671,12 +671,15 @@ function presetStatus(msg) {
  * own record first; where it has nothing on them yet, the preset's tracker,
  * so a chat that has only ever had the preset's is not met with a blank.
  * The cast row above the chat stays for choosing who speaks next. The
- * portrait does this and only this: no full-size picture from the same tap.
+ * full-size picture is a link inside the panel, never the same tap.
  */
 async function openStatus(msg, button) {
   const open = msg.querySelector(".inlaystatus");
   if (open) { open.remove(); return; }
   const name = msg.querySelector(".platename")?.textContent ?? "";
+  const face = button.querySelector(".medallion");
+  const url = face && !face.classList.contains("blank")
+    ? (face.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/) ?? [])[1] ?? "" : "";
   let rows = "";
   let preset = !GUEST.on && $("#tracker_source")?.value === "preset";
   if (!preset) {
@@ -699,12 +702,19 @@ async function openStatus(msg, button) {
   panel.className = "inlaystatus";
   panel.innerHTML = `<div class="stnow">now:</div>
     ${rows ? `<ul class="stlist${preset ? " preset" : ""}">${rows}</ul>`
-      : `<p class="hint">Nothing noted about ${txt(name)} yet.</p>`}`;
-  // Under the picture: straight after it in Hearthside, where the prose wraps
-  // round the face; across the foot of the message in Banner, where the face
-  // runs its whole length.
-  if (document.body.dataset.msgstyle === "banner") msg.querySelector(".plate").appendChild(panel);
-  else (msg.querySelector(".plate > .think") ?? msg.querySelector(".plate > .body")).before(panel);
+      : `<p class="hint">Nothing noted about ${txt(name)} yet.</p>`}
+    ${url ? `<button type="button" class="linkish stpicture">See the full picture</button>` : ""}`;
+  panel.querySelector(".stpicture")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    $("#faceImage").src = url;
+    $("#faceName").textContent = name;
+    $("#faceDialog").showModal();
+  });
+  // Where the tap was: under the name, ahead of the text — below the face in
+  // Hearthside, beside it in Banner — and scrolled into view, since a panel at
+  // the foot of a long message is one nobody sees open.
+  (msg.querySelector(".plate > .think") ?? msg.querySelector(".plate > .body")).before(panel);
+  panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 $("#worldLine")?.addEventListener("click", openWorld);

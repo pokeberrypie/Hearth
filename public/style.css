@@ -8100,7 +8100,7 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
   background: color-mix(in srgb, var(--lumiverse-bg-deep) 45%, transparent);
   animation: inlaystatus-in 0.18s ease-out;
 }
-body[data-msgstyle="banner"] .plate > .inlaystatus { grid-column: 1 / -1; margin: 0.6rem 0 0 1rem; }
+
 .inlaystatus .linkish { margin-top: 0.4rem; }
 @keyframes inlaystatus-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (prefers-reduced-motion: reduce) { .inlaystatus { animation: none; } }
