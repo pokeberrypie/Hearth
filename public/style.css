@@ -8172,18 +8172,26 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
 .bar:has(#worldLine:not([hidden])) .barside { padding-bottom: 1.15rem; }
 .titlestack .worldline > span { display: inline; }
 /* How many readings wait for you: a small count, not words that need room. */
+/* A true circle for one digit, a pill for more; the title face's lining
+   numerals, centred, so the figure does not sit low as the prose face's do. */
 .titlestack .worldline #worldNote {
-  display: inline-block;
-  min-width: 1.35em;
-  margin-left: 0.35em;
-  padding: 0 0.3em;
-  border-radius: 999px;
-  font-size: 0.85em;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  height: 1.4em;
+  min-width: 1.4em;
+  margin-left: 0.45em;
+  padding: 0 0.38em;
+  border-radius: 0.7em;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.8em;
   font-style: normal;
-  line-height: 1.35;
+  font-weight: 700;
+  font-variant-numeric: lining-nums tabular-nums;
+  line-height: 1;
   color: var(--lumiverse-bg-deep);
   background: var(--lumiverse-primary);
-  vertical-align: 0.05em;
+  vertical-align: 0.12em;
 }
 .titlestack .worldline #worldNote[hidden] { display: none; }
 /* On a phone the bar takes a little more height while the line is there, so
