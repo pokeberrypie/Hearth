@@ -8150,10 +8150,25 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
   font-size: 0.8rem;
   line-height: 1.2;
   text-align: center;
-  /* Never cut short: a long date wraps onto a second line, centred. */
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
+/*
+ * The line spans the whole bar, not the title's width: it sits along the
+ * bar's foot, under the title and the buttons both, centred, on one line.
+ * The title is lifted by the same height so the two never touch.
+ */
+.bar { position: relative; }
+.bar .titlestack .worldline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.3rem;
+  margin: 0 auto;
+  width: max-content;
+  max-width: none;
+}
+.bar:has(#worldLine:not([hidden])) .title,
+.bar:has(#worldLine:not([hidden])) .barside { padding-bottom: 1.15rem; }
 .titlestack .worldline > span { display: inline; }
 /* How many readings wait for you: a small count, not words that need room. */
 .titlestack .worldline #worldNote {
@@ -8173,9 +8188,7 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
 /* On a phone the bar takes a little more height while the line is there, so
    a title on two lines and the line under it are not packed against the top. */
 @media (max-width: 700px) {
-  :root:has(#worldLine:not([hidden])) { --bar-h: 86px; }
-  .title:has(#worldLine:not([hidden])) .flourish { display: none; }
-  .title:has(#worldLine:not([hidden])) .titlestack { flex: 1 1 auto; }
+  :root:has(#worldLine:not([hidden])) { --bar-h: 80px; }
   .titlestack .worldline { font-size: 0.74rem; }
 }
 
