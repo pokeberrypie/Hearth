@@ -47,7 +47,7 @@ import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, startBookmark, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
-import { armsFromName, chargeFor, drawArms, normaliseBlazon, withContrast, type Blazon } from "./heraldry";
+import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { checkAnswer, fieldOf, groupKey, stewardRequest, wayOf, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
@@ -3501,7 +3501,7 @@ api.post("/chats/:id/chronicle", async (c) => {
     if (b.key && !existing) return c.json({ error: "No such faction in this chat." }, 404);
     if (b.gone) return add({ subject: existing!.key, title: existing!.name, data: { gone: true } });
     if (!name && !existing) return c.json({ error: "A faction needs a name." }, 400);
-    let arms: Blazon | null = b.arms === undefined ? (existing?.arms as Blazon) ?? null : normaliseBlazon(b.arms, set.ids);
+    let arms: Blazon | null = b.arms === undefined ? (existing?.arms as Blazon) ?? null : normaliseBlazon(b.arms, choosableCharges(set));
     if (!arms) arms = armsFromName(name || existing!.name, set.ids);
     if (getSettings().heraldry_contrast !== "0") arms = withContrast(arms);
     const members = Array.isArray(b.members) ? b.members.map((m: unknown) => String(m).slice(0, 120)).slice(0, 100) : existing?.members ?? [];
@@ -3644,6 +3644,64 @@ function charges() {
 // Read at start, so a narrator's [[faction:]] in the first reply finds them.
 charges();
 
+/*
+ * Emblems of the person's own, uploaded. Kept apart from the drawn set: they
+ * are pictures rather than paths, and they are never picked for a faction by
+ * itself — a narrator's [[faction:]] or arms from a name only ever draws from
+ * the set above. One folder, and an index of names beside the files.
+ */
+const OWN_CHARGES = join(UPLOADS, "charges");
+type OwnCharge = { id: string; name: string; file: string };
+
+function ownCharges(): OwnCharge[] {
+  try {
+    const list = JSON.parse(readFileSync(join(OWN_CHARGES, "index.json"), "utf8"));
+    return Array.isArray(list) ? list.filter((x) => /^own_[a-z]+$/.test(x?.id) && existsSync(join(OWN_CHARGES, x.file))) : [];
+  } catch { return []; }
+}
+
+/** The pictures, as data, for drawing — only those this blazon uses. */
+function ownChargeImages(b: Blazon | null): Record<string, string> {
+  const want = b?.charge?.type;
+  const own = want ? ownCharges().find((x) => x.id === want) : null;
+  if (!own) return {};
+  try { return { [own.id]: `data:image/png;base64,${readFileSync(join(OWN_CHARGES, own.file)).toString("base64")}` }; }
+  catch { return {}; }
+}
+
+/** Every id a person may choose: the drawn set and their own. */
+const choosableCharges = (set: { ids: string[] }) => [...set.ids, ...ownCharges().map((x) => x.id)];
+
+api.get("/charges/own", (c) => c.json({ guide: UPLOAD_GUIDE, charges: ownCharges().map(({ id, name, file }) => ({ id, name, url: `/uploads/charges/${file}` })) }));
+
+api.post("/charges/own", async (c) => {
+  const form = await c.req.formData().catch(() => null);
+  const file = form?.get("file");
+  if (!(file instanceof File)) return c.json({ error: "No picture received." }, 400);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const problem = uploadProblem(bytes);
+  if (problem) return c.json({ error: problem }, 400);
+  mkdirSync(OWN_CHARGES, { recursive: true });
+  // Letters only: chargeFor reads an id as words, and digits are not words.
+  const id = "own_" + Array.from(crypto.getRandomValues(new Uint8Array(10)), (n) => String.fromCharCode(97 + (n % 26))).join("");
+  const name = String(form?.get("name") ?? file.name.replace(/\.[a-z0-9]+$/i, "")).trim().slice(0, 60) || "My emblem";
+  writeFileSync(join(OWN_CHARGES, `${id}.png`), bytes);
+  const list = [...ownCharges(), { id, name, file: `${id}.png` }];
+  writeFileSync(join(OWN_CHARGES, "index.json"), JSON.stringify(list, null, 2));
+  return c.json({ id, name, url: `/uploads/charges/${id}.png` });
+});
+
+/** A faction already wearing it keeps the choice and draws no emblem, the same as one whose charge was never found. */
+api.delete("/charges/own/:id", (c) => {
+  const id = c.req.param("id");
+  const list = ownCharges();
+  const gone = list.find((x) => x.id === id);
+  if (!gone) return c.json({ error: "No such emblem." }, 404);
+  rmSync(join(OWN_CHARGES, gone.file), { force: true });
+  writeFileSync(join(OWN_CHARGES, "index.json"), JSON.stringify(list.filter((x) => x !== gone), null, 2));
+  return c.json({ ok: true });
+});
+
 /** A faction's arms, drawn. A badge on the modern calendar unless told otherwise. */
 api.get("/chats/:id/factions/:key/arms.svg", async (c) => {
   const chatId = c.req.param("id");
@@ -3655,9 +3713,9 @@ api.get("/chats/:id/factions/:key/arms.svg", async (c) => {
   const s = getSettings();
   const style = s.heraldry_style === "shield" || s.heraldry_style === "badge" ? s.heraldry_style
     : calendarOf(chatId).kind === "gregorian" ? "badge" : "shield";
-  const arms = normaliseBlazon(f.arms, set.ids) ?? armsFromName(f.name, set.ids);
+  const arms = normaliseBlazon(f.arms, choosableCharges(set)) ?? armsFromName(f.name, set.ids);
   const svg = drawArms(s.heraldry_contrast === "0" ? arms : withContrast(arms), set.paths,
-    { style, id: `f${String(f.key).slice(0, 12)}`, label: `Arms of ${f.name}` });
+    { style, id: `f${String(f.key).slice(0, 12)}`, label: `Arms of ${f.name}`, images: ownChargeImages(arms) });
   return new Response(svg, { headers: { "content-type": "image/svg+xml", "cache-control": "no-cache" } });
 });
 
@@ -3900,6 +3958,21 @@ api.post("/chats/:id/steward/history", async (c) => {
     if (r.problem) total.failed++;
   }
   return c.json({ ...total, unread: Math.max(0, all.length - total.runs * STRETCH), ...chronicleState(chatId) });
+});
+
+/**
+ * Whether this chat's notes book is also another chat's — a branch made before
+ * branches got a copy of their own, and still writing into its parent's.
+ */
+api.get("/chats/:id/own-notes", (c) => {
+  const chatId = c.req.param("id");
+  const book = notesBookOf(chatId);
+  if (!book) return c.json({ book: null, shared: false });
+  const other = db.query(
+    `SELECT 1 FROM chats WHERE id != ? AND auto_lore_book_id = ?
+     UNION SELECT 1 FROM lorebook_links WHERE book_id = ? AND scope = 'chat' AND ifnull(target_id,'') != ?`,
+  ).get(chatId, book, book, chatId);
+  return c.json({ book, shared: !!other });
 });
 
 /** Splitting a branch that already shares its parent's notes book, when asked. */

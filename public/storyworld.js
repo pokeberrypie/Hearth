@@ -384,6 +384,9 @@ const BANDS = [["", "No band"], ["chief", "A band across the top"], ["fess", "A 
 
 async function factionEditor(f) {
   W.charges ??= await fetch("/charges/manifest.json").then((r) => r.json()).then((m) => m.assets).catch(() => []);
+  const own = await api("/charges/own").catch(() => null);
+  W.own = own?.charges ?? [];
+  W.guide = own?.guide?.text ?? "";
   const arms = f?.arms ?? {};
   const opts = (list, val) => list.map(([v, l]) => `<option value="${v}"${v === val ? " selected" : ""}>${l}</option>`).join("");
   const box = $("#wdFactionDetail") ?? $("#wdBody");
@@ -403,14 +406,22 @@ async function factionEditor(f) {
       <input type="hidden" name="charge" value="${txt(charge)}">
       <div class="wdcharges" role="listbox" aria-label="Emblem">
         <button type="button" role="option" class="wdcharge none${charge ? "" : " on"}" data-charge="" aria-label="No emblem" aria-selected="${!charge}">—</button>
+        ${W.own.map((c) => `<button type="button" role="option" class="wdcharge own${c.id === charge ? " on" : ""}" data-charge="${c.id}"
+          title="${txt(c.name)} (yours)" aria-label="${txt(c.name)}, your own" aria-selected="${c.id === charge}"
+          style="--charge:url('${encodeURI(c.url)}')"></button>`).join("")}
         ${W.charges.map((c) => `<button type="button" role="option" class="wdcharge${c.id === charge ? " on" : ""}" data-charge="${c.id}"
           title="${txt(c.name)}" aria-label="${txt(c.name)}" aria-selected="${c.id === charge}"
           style="--charge:url('/charges/${c.svg}')"></button>`).join("")}
       </div>
+      <div class="wdownrow">
+        <label class="filebtn">Upload your own emblem<input type="file" id="wdOwnFile" accept="image/png" hidden></label>
+        <button type="button" class="linkish danger" id="wdOwnGone" ${W.own.some((c) => c.id === charge) ? "" : "hidden"}>Remove this one of yours</button>
+      </div>
+      <p class="hint">${txt(W.guide)}</p>
       <p class="hint">Gold and silver go on colours, colours on gold and silver — a shield that breaks that is corrected, unless the rule is switched off in Behavior.</p>
     </fieldset>
     <div class="wdrow"><button type="submit" class="solid">Save</button>
-      ${f ? `<button type="button" class="linkish danger" id="wdFGone">Retire this faction</button>` : ""}
+      ${f?.key ? `<button type="button" class="linkish danger" id="wdFGone">Retire this faction</button>` : ""}
       <button type="button" class="linkish" id="wdFCancel">Cancel</button></div>
   </form>`;
   const form = $("#wdFEdit");
@@ -418,8 +429,37 @@ async function factionEditor(f) {
     b.onclick = () => {
       form.charge.value = b.dataset.charge;
       for (const x of form.querySelectorAll(".wdcharge")) { x.classList.toggle("on", x === b); x.setAttribute("aria-selected", x === b ? "true" : "false"); }
+      $("#wdOwnGone").hidden = !b.classList.contains("own");
     };
   }
+  // What has been typed so far survives the editor being drawn again.
+  const keep = () => {
+    const v = Object.fromEntries(new FormData(form));
+    return { ...f, name: v.name, description: v.description,
+      members: String(v.members).split(",").map((m) => m.trim()).filter(Boolean),
+      arms: { field: { split: v.split, colours: [v.c1, v.c2] }, band: v.band ? { type: v.band, colour: v.bandc } : null,
+        charge: v.charge ? { type: v.charge, colour: v.chargec, count: Number(v.count) } : null } };
+  };
+  $("#wdOwnFile").onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/charges/own", { method: "POST", body: fd }).then((x) => x.json()).catch(() => ({ error: "The upload did not go through." }));
+    if (r.error) return toast(r.error);
+    const next = keep();
+    next.arms.charge = { type: r.id, colour: next.arms.charge?.colour ?? "or", count: next.arms.charge?.count ?? 1 };
+    factionEditor(next);
+  };
+  $("#wdOwnGone").onclick = async () => {
+    const id = form.charge.value;
+    if (!confirm("Remove this emblem of yours? Any faction wearing it is left with a plain shield.")) return;
+    const r = await api(`/charges/own/${id}`, { method: "DELETE" });
+    if (r?.error) return toast(r.error);
+    const next = keep();
+    next.arms.charge = null;
+    factionEditor(next);
+  };
   $("#wdFCancel").onclick = () => paintWorld();
   $("#wdFGone")?.addEventListener("click", () => post(`/chats/${S.chatId}/chronicle`, { kind: "faction", key: f.key, gone: true }));
   form.onsubmit = (e) => {
@@ -570,6 +610,10 @@ async function paintWorldSettings() {
       <label>Who keeps track of how everyone is
         <select id="tracker_source"><option value="hearth">Hearth</option><option value="preset">My preset's trackers</option></select></label>
       <p class="hint">Only one ever does. With your preset's, Hearth's own tracker is neither kept nor sent to the model.</p>
+      <h3>Apocrypha</h3>
+      <label class="check"><input type="checkbox" id="apocrypha_blind"> Play blind</label>
+      <p class="hint">A chat following one of your stories shows only the scenes already reached; the rest stay
+        shut until you get there. The shelf still opens the whole book, for when you are writing it.</p>
       <h3>Arms</h3>
       <label class="check"><input type="checkbox" id="heraldry_contrast"> Keep shields readable (the rule of tincture)</label>
       <label>Draw arms as
@@ -578,7 +622,7 @@ async function paintWorldSettings() {
     beh.appendChild(box);
   }
   const set = (id, v) => { const el = $("#" + id); if (!el) return; if (el.type === "checkbox") el.checked = v === "1"; else el.value = v ?? ""; };
-  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style"]) set(k, s[k]);
+  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind"]) set(k, s[k]);
   const every = () => { const n = Number($("#steward_every").value); $("#v_steward_every").textContent = `${n} new messages`; };
   every();
   let timer;
@@ -587,14 +631,18 @@ async function paintWorldSettings() {
     timer = setTimeout(() => {
       const patch = {};
       for (const k of ["steward_provider", "steward_model", "steward_every", "steward_ask_days", "tracker_source", "heraldry_style"]) patch[k] = $("#" + k).value.trim();
-      for (const k of ["steward_on", "heraldry_contrast"]) patch[k] = $("#" + k).checked ? "1" : "0";
+      for (const k of ["steward_on", "heraldry_contrast", "apocrypha_blind"]) patch[k] = $("#" + k).checked ? "1" : "0";
       api("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
     }, 400);
   };
-  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style"]) {
+  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind"]) {
     const el = $("#" + k);
     if (!el) continue;
-    el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => { if (k === "steward_every") every(); save(); });
+    el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => {
+      if (k === "steward_every") every();
+      if (k === "apocrypha_blind" && typeof drawTaleScenes === "function") drawTaleScenes();
+      save();
+    });
   }
 }
 

@@ -4170,7 +4170,15 @@ $("#thread").addEventListener("click", async (e) => {
 
 let chatMeta = null;
 
-const openSheet = () => { $("#chatSheet").hidden = false; };
+const openSheet = () => {
+  $("#chatSheet").hidden = false;
+  // Offered only to a branch still writing its notes into somebody else's book.
+  $("#ownNotesRow").hidden = true;
+  const id = S.chatId;
+  if (id && !GUEST.on) api(`/chats/${id}/own-notes`).then((r) => {
+    if (S.chatId === id) $("#ownNotesRow").hidden = !r?.shared;
+  }).catch(() => {});
+};
 const closeSheet = () => { $("#chatSheet").hidden = true; };
 
 $("#chatMenuBtn").onclick = openSheet;
@@ -4218,6 +4226,13 @@ document.addEventListener("click", async (e) => {
     case "tree":
       showTree();
       break;
+
+    case "ownnotes": {
+      const r = await api(`/chats/${S.chatId}/own-notes`, { method: "POST" });
+      if (r?.error) toast(r.error);
+      else toast("This branch keeps its own notes now — a copy, marked BRANCH.");
+      break;
+    }
 
     case "cast": openRoom(); break;
     case "files": openFiles(); break;
@@ -11424,15 +11439,25 @@ function drawTaleScenes() {
   const status = (id) => mark.scene === id ? "now" : mark.done.includes(id) ? "done"
     : mark.skipped.includes(id) ? "skipped" : "ahead";
   const WORD = { now: "Now", done: "Done", skipped: "Skipped", ahead: "" };
-  box.innerHTML = book.chapters.map((ch) =>
-    (ch.title ? `<div class="talechapter">${esc(ch.title)}</div>` : "") +
+  // Played blind, what is ahead stays shut: a chapter not yet reached is not
+  // named, and a scene not yet reached is only a place in the list.
+  const blind = !!$("#apocrypha_blind")?.checked;
+  box.innerHTML = book.chapters.map((ch) => {
+    const reached = ch.scenes.some((sc) => status(sc.id) !== "ahead");
+    if (blind && !reached) return "";
+    return (ch.title ? `<div class="talechapter">${esc(ch.title)}</div>` : "") +
     ch.scenes.map((sc) => {
       const st = status(sc.id);
+      if (blind && st === "ahead") {
+        return `<div class="talescene ahead sealed"><span>A scene not yet told</span><em></em></div>`;
+      }
       return `<button type="button" class="talescene ${st}" data-scene="${sc.id}"
           title="${st === "now" ? "The scene being played" : "Play this scene now"}">` +
         `<span>${esc(sc.title || "Untitled scene")}</span><em>${WORD[st]}</em></button>`;
-    }).join(""),
-  ).join("") +
+    }).join("");
+  }).join("") +
+  (blind && book.chapters.some((ch) => !ch.scenes.some((sc) => status(sc.id) !== "ahead"))
+    ? `<p class="hint">Playing blind — the rest of the story is still shut.</p>` : "") +
   (mark.scene ? "" : `<p class="hint">Every scene has been played. The story is yours from here.</p>`);
 }
 

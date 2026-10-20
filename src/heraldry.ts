@@ -294,7 +294,8 @@ function chargeBoxes(count: 1 | 2 | 3, chief: boolean): [number, number, number]
  * keeps one drawing's clipping from catching another's on the same page.
  * A shield for most stories; a round badge for modern ones.
  */
-export function drawArms(b: Blazon, paths: Record<string, string>, o: { style?: "shield" | "badge"; id?: string; label?: string } = {}): string {
+export function drawArms(b: Blazon, paths: Record<string, string>,
+  o: { style?: "shield" | "badge"; id?: string; label?: string; images?: Record<string, string> } = {}): string {
   const id = (o.id ?? "arms").replace(/[^a-zA-Z0-9_-]/g, "");
   const outline = o.style === "badge" ? BADGE : SHIELD;
   const hex = (t: Tincture) => TINCTURES[t].hex;
@@ -311,16 +312,73 @@ export function drawArms(b: Blazon, paths: Record<string, string>, o: { style?: 
       : `<g fill="${hex(b.band.colour)}">${bandShape(b.band.type)}</g>`
     : "";
   const d = b.charge ? paths[b.charge.type] : "";
+  /*
+   * An emblem somebody uploaded is a picture, not a path. Its transparency
+   * becomes a mask and the tincture is poured through it, so it takes the
+   * shield's colours like any other charge — provided it is one shape on a
+   * clear background, which is what the upload asks for.
+   */
+  const image = b.charge && !d ? o.images?.[b.charge.type] ?? "" : "";
+  const boxes = b.charge ? chargeBoxes(b.charge.count, b.band?.type === "chief") : [];
   const charges = b.charge && d
-    ? chargeBoxes(b.charge.count, b.band?.type === "chief")
+    ? boxes
         // A transform, not a nested <svg>: a page's own "svg { width: ... }" would
         // catch a nested one and blow the charge up across the shield.
         .map(([x, y, s]) => `<path transform="translate(${x} ${y}) scale(${s / 100})" fill="${hex(b.charge!.colour)}" fill-rule="evenodd" d="${d}"/>`)
         .join("")
+    : b.charge && image
+      ? boxes.map(([x, y, s]) => `<rect transform="translate(${x} ${y}) scale(${s / 100})" width="100" height="100" fill="${hex(b.charge!.colour)}" mask="url(#${id}-charge)"/>`).join("")
+      : "";
+  const mask = image
+    ? `<mask id="${id}-charge" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type:alpha">` +
+      `<image href="${image.replace(/"/g, "")}" width="100" height="100" preserveAspectRatio="xMidYMid meet"/></mask>`
     : "";
   const label = String(o.label ?? "Arms").replace(/[<>&"]/g, "");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 120" role="img" aria-label="${label}">` +
-    `<defs><clipPath id="${id}-clip"><path d="${outline}"/></clipPath></defs>` +
+    `<defs><clipPath id="${id}-clip"><path d="${outline}"/></clipPath>${mask}</defs>` +
     `<g clip-path="url(#${id}-clip)"><rect width="100" height="120" fill="${hex(a)}"/>${division}${band}${charges}</g>` +
     `<path d="${outline}" fill="none" stroke="#c8994f" stroke-opacity="0.7" stroke-width="2"/></svg>`;
+}
+
+/**
+ * What an uploaded emblem must be, said once so the upload and its error
+ * messages agree: a PNG, square or near it, big enough to stay crisp at the
+ * size a shield is drawn, small enough to embed, with a clear background —
+ * the clear part is what the tincture is poured through.
+ */
+export const UPLOAD_GUIDE = {
+  min: 128,
+  best: 512,
+  max: 2048,
+  bytes: 512 * 1024,
+  text: "A PNG, square — 512 × 512 is best — with one shape in a single colour on a transparent background, and a little room round the edge.",
+} as const;
+
+/** Why this file will not do as an emblem, or null if it will. */
+export function uploadProblem(bytes: Uint8Array): string | null {
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 33 || png.some((b, i) => bytes[i] !== b)) return "That is not a PNG. " + UPLOAD_GUIDE.text;
+  if (bytes.length > UPLOAD_GUIDE.bytes) return `That is ${Math.round(bytes.length / 1024)} KB; an emblem has to be under ${UPLOAD_GUIDE.bytes / 1024} KB.`;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const w = view.getUint32(16);
+  const h = view.getUint32(20);
+  if (Math.min(w, h) < UPLOAD_GUIDE.min) return `That is ${w} × ${h}; it needs to be at least ${UPLOAD_GUIDE.min} × ${UPLOAD_GUIDE.min}, and ${UPLOAD_GUIDE.best} × ${UPLOAD_GUIDE.best} is best.`;
+  if (Math.max(w, h) > UPLOAD_GUIDE.max) return `That is ${w} × ${h}; ${UPLOAD_GUIDE.best} × ${UPLOAD_GUIDE.best} is plenty, and ${UPLOAD_GUIDE.max} is the most.`;
+  if (Math.max(w, h) / Math.min(w, h) > 1.25) return `That is ${w} × ${h}. An emblem should be square, or close to it.`;
+  // Colour type 4 and 6 carry alpha; a palette image has it only with a tRNS chunk.
+  const type = bytes[25];
+  const hasTrns = () => {
+    for (let at = 8; at + 8 <= bytes.length;) {
+      const len = view.getUint32(at);
+      const name = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+      if (name === "tRNS") return true;
+      if (name === "IDAT" || name === "IEND") return false;
+      at += 12 + len;
+    }
+    return false;
+  };
+  if (!(type === 4 || type === 6 || ((type === 3 || type === 0 || type === 2) && hasTrns()))) {
+    return "That picture has no transparent background, so it would come out as a solid square. " + UPLOAD_GUIDE.text;
+  }
+  return null;
 }

@@ -578,6 +578,8 @@ export const DEFAULTS: Record<string, string> = {
    */
   heraldry_contrast: "1",
   heraldry_style: "auto",
+  // The Apocrypha played blind: a chat shows only the scenes already reached.
+  apocrypha_blind: "0",
   /** "since" the last note, or a "window" of the last `auto_lore_every`. */
   auto_lore_scope: "since",
   lore_budget: "8000",

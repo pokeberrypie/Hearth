@@ -266,8 +266,10 @@ describe("in a chat", () => {
     db.query("INSERT INTO lorebooks (id, name, entries, created_at) VALUES ('notes', 'Notes', '[]', ?)").run(t);
     db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at, parent_chat_id, auto_lore_book_id) VALUES ('old', 'loras', 'Old branch', ?, ?, 'ch', 'notes')").run(t, t);
     db.query("UPDATE chats SET auto_lore_book_id = 'notes' WHERE id = 'ch'").run();
+    expect(await (await ask("/api/chats/old/own-notes")).json()).toEqual({ book: "notes", shared: true });
     const r = await (await send("/api/chats/old/own-notes", "POST")).json();
     expect(r.book).toBeTruthy();
+    expect((await (await ask("/api/chats/old/own-notes")).json()).shared).toBe(false);
     expect((db.query("SELECT auto_lore_book_id AS b FROM chats WHERE id = 'old'").get() as any).b).toBe(r.book);
     expect((db.query("SELECT auto_lore_book_id AS b FROM chats WHERE id = 'ch'").get() as any).b).toBe("notes");
   });
