@@ -5839,6 +5839,27 @@ body.nopencil .sheetrow[data-act="select"] { display: none; }
 }
 .turnmark::before { content: "\25B8"; color: var(--lumiverse-primary); }
 
+/* What Story World noticed in the prose: an event kept, a group named, the
+   party's standing moving, supplies running down. Quiet, like the turn mark —
+   a small star or sign and a few words in the display face. */
+.worldmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.86em;
+  color: var(--lumiverse-text-dim);
+  letter-spacing: 0.03em;
+}
+.worldmark::before { color: var(--lumiverse-primary); }
+.worldmark.event::before { content: "\2727"; }
+.worldmark.faction::before { content: "\2691"; }
+.worldmark.supplies::before { content: "\25C6"; }
+.worldmark.standing::before { content: "\2696"; }
+.worldmark.standing b { font-weight: 600; color: var(--hearth-mend); }
+.worldmark.standing.down b { color: var(--hearth-hurt); }
+.scenewhere.passed { font-style: italic; }
+
 /* ---- the storybook ----------------------------------------------------------
    What the game is going to be about, asked once at the top of a new one. It
    is the only dialog in Hearth that is a *page* rather than a form: three

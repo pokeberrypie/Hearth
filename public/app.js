@@ -328,6 +328,32 @@ function verbs(html) {
       /\[\[turn:\s*([^\]\n]{1,60}?)\s*\]\]/gi,
       (_whole, who) => `<span class="turnmark">${who}</span>`,
     )
+    /*
+     * The world moving on, marked by the narrator and kept by Story World.
+     *
+     * Time passing is a divider, the same as a change of scene, because it
+     * is one — "three days pass" is where the next chapter starts. The rest
+     * are quiet marks in the line: something the chronicle now remembers, a
+     * group the host is asked about, the party's standing moving, supplies
+     * running low. Present, so the reader sees the game noticed; small,
+     * because the story is the thing being read.
+     */
+    .replace(
+      /\[\[passed:\s*([^\]\n]{1,80}?)\s*\]\]/gi,
+      (_whole, how) =>
+        `<span class="scenemark"><span class="scenerule"></span>` +
+        `<span class="scenewhere passed">${how} pass</span>` +
+        `<span class="scenerule"></span></span>`,
+    )
+    .replace(
+      /\[\[(event|faction|supplies):\s*([^\]\n]{1,160}?)\s*\]\]/gi,
+      (_whole, kind, what) => `<span class="worldmark ${kind.toLowerCase()}">${what}</span>`,
+    )
+    .replace(
+      /\[\[standing:\s*([^\]\n]{1,100}?)\s+([+\u2212-]\d{1,3})\s*\]\]/gi,
+      (_whole, who, delta) =>
+        `<span class="worldmark standing ${delta.startsWith("+") ? "up" : "down"}">${who} <b>${delta}</b></span>`,
+    )
     .replace(
       /\[\[fight over\]\]/gi,
       `<span class="scenemark"><span class="scenerule"></span>` +

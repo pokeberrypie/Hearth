@@ -54,8 +54,21 @@ export type HitIntent = {
 /** Whose go it is now. */
 export type TurnIntent = { kind: "turn"; who: string };
 
+/** Time passing, in words the calendar reads: "three days", "until dawn". */
+export type TimeIntent = { kind: "time"; said: string };
+
+/** Something that happened, for the chronicle. */
+export type EventIntent = { kind: "event"; title: string };
+
+/** A group the story has named. Put forward, not made: a person says yes. */
+export type FactionIntent = { kind: "faction"; name: string; brief: string };
+
+/** How the party stands with a faction moved: one step, up or down. */
+export type StandingIntent = { kind: "standing"; who: string; way: string };
+
 export type Intent =
-  NpcIntent | SceneIntent | FightIntent | EndFightIntent | HitIntent | TurnIntent;
+  NpcIntent | SceneIntent | FightIntent | EndFightIntent | HitIntent | TurnIntent |
+  TimeIntent | EventIntent | FactionIntent | StandingIntent;
 
 /**
  * What a model actually writes.
@@ -73,7 +86,20 @@ const VERBS: Record<string, Intent["kind"]> = {
   fight: "fight", combat: "fight", encounter: "fight", battle: "fight",
   hit: "hit", damage: "hit", wound: "hit", heal: "hit",
   turn: "turn", up: "turn", acts: "turn",
+  time: "time", passes: "time", elapsed: "time", later: "time", wait: "time", rest: "time",
+  event: "event", happened: "event",
+  faction: "faction", group: "faction", house: "faction", guild: "faction",
+  standing: "standing", reputation: "standing", favour: "standing", favor: "standing",
 };
+
+/** A rest is a length of time: a long one is a night, a short one an hour. */
+function restLength(payload: string): string {
+  const p = payload.toLowerCase();
+  return /\bshort\b/.test(p) ? "1 hour" : /\blong\b|\bnight\b|\bsleep\b/.test(p) ? "8 hours" : payload;
+}
+
+/** "The Blackthorn Guild +", "the guild, down": who, and which way. */
+const STANDING = /^(.*?)[\s,:]+([+\-−–]+\d*|up|down|warmer|colder|better|worse)$/i;
 
 /** The payloads that mean a fight has stopped rather than started. */
 const OVER = /^(over|ends?|ended|done|finished|stop(?:s|ped)?)\.?$/i;
@@ -207,8 +233,15 @@ export function resolveVerbs(text: string, settle?: Settle): Resolved {
 
     // The rest need the game to answer them, and a game that cannot — no
     // fight running, no sheet to roll — leaves the brackets where they were.
+    const said = tidy(payload).replace(/[.]+$/, "");
+    const standing = kind === "standing" ? STANDING.exec(said) : null;
+    const faction = kind === "faction" ? readNpc(payload) : null;
     const intent: Intent | null =
-      kind === "hit" ? readHit(String(word), payload)
+      kind === "time" ? (said ? { kind: "time", said: String(word).toLowerCase() === "rest" ? restLength(said) : said } : null)
+      : kind === "event" ? (said && said.length <= 120 ? { kind: "event", title: said } : null)
+      : kind === "faction" ? (faction ? { kind: "faction", name: faction.name, brief: faction.brief } : null)
+      : kind === "standing" ? (standing && standing[1].trim() ? { kind: "standing", who: standing[1].trim(), way: standing[2] } : null)
+      : kind === "hit" ? readHit(String(word), payload)
       : kind === "turn" ? readTurn(payload)
       : OVER.test(tidy(payload)) ? { kind: "endfight" }
       : tidy(payload) ? { kind: "fight", foes: tidy(payload) }
@@ -233,7 +266,7 @@ export function resolveVerbs(text: string, settle?: Settle): Resolved {
  * walking to the mill without saying so leaves the app behind the story.
  */
 export const VERB_BRIEF = [
-  "Two marks go in your narration itself, in the story text, not in any plan,",
+  "These marks go in your narration itself, in the story text, not in any plan,",
   "summary or tag block:",
   "",
   "1. The first time a person is given a name, mark them — straight after you",
@@ -247,6 +280,13 @@ export const VERB_BRIEF = [
   "   [[fight: two wolves and a bandit captain]]",
   "   Initiative and hit points come back filled in, and are then the real",
   "   ones. Do not roll initiative or invent hit points yourself.",
+  "4. When time passes, say how much — a rest heals and a day on the road",
+  "   eats rations, so the game needs to know:",
+  "   [[time: three days]]  [[rest: long]]  [[rest: short]]",
+  "5. When something happens that the story will remember, a group is named",
+  "   for the first time, or the party rises or falls in a group's eyes:",
+  "   [[event: The mill burns]]  [[faction: The Blackthorn Guild — smugglers]]",
+  "   [[standing: The Blackthorn Guild +]]",
   "",
   "These are part of your reply and are how this game remembers who and where;",
   "write them even if a formatting rule elsewhere in this prompt does not",

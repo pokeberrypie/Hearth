@@ -27,7 +27,7 @@ import { CARRY_SYSTEM, carryEntry, carryPrompt, carriedTitle, cleanSummary, rece
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
 import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinstall";
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
-import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, askedFor, describeCheck, makeSheet, modifier, provideClasses, provideRaces,
+import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, afterTime, askedFor, describeCheck, makeSheet, modifier, provideClasses, provideRaces,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
 import { LEVELS, difficultyForPrompt } from "./difficulty";
 import { bookIsUsable, seedFromBook } from "./frombook";
@@ -49,7 +49,7 @@ import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, s
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
-import { checkAnswer, fieldOf, stewardRequest, type Claim, type Passage, type Person } from "./steward";
+import { checkAnswer, fieldOf, groupKey, stewardRequest, wayOf, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -1250,6 +1250,7 @@ api.post("/chats/:id/generate", async (c) => {
           const joined = (a.prefill ?? "") + full;
           db.query("UPDATE messages SET content = ?, ms = ?, tokens = ? WHERE id = ?")
             .run(joined, ms, tokens, continuingId);
+          tieNarration(chatId, continuingId, t0);
           send({ done: true, id: continuingId, text: joined, thrown, ...stats });
         } else if (mode === "swipe" && swipeTarget) {
           const list = JSON.parse(swipeTarget.swipes || "[]");
@@ -1260,6 +1261,7 @@ api.post("/chats/:id/generate", async (c) => {
           ).run(full, JSON.stringify(list), list.length - 1, think, tokens, ms, swipeTarget.id);
           // What the Steward made of the reply this one replaced no longer happened.
           forgetSteward([swipeTarget.id]);
+          tieNarration(chatId, swipeTarget.id, t0);
           send({ done: true, id: swipeTarget.id, text: full, swipes: list.length, index: list.length - 1, thrown, ...stats });
         } else {
           const id = uid();
@@ -1268,6 +1270,7 @@ api.post("/chats/:id/generate", async (c) => {
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(id, chatId, "assistant", who.name, full, now(), JSON.stringify([full]), 0,
                 think, tokens, ms, who.id ?? null);
+          tieNarration(chatId, id, t0);
           send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", thrown, ...stats });
         }
       } finally {
@@ -3552,7 +3555,12 @@ let chargeSet: Promise<{ ids: string[]; paths: Record<string, string> }> | null 
 export function readAssetsWith(read: (path: string) => Promise<string | null>) {
   readAsset = read;
   chargeSet = null;
+  charges();
 }
+
+/** The charges if they have been read, for the places that cannot wait: an empty set until then. */
+let chargesRead: { ids: string[]; paths: Record<string, string> } = { ids: [], paths: {} };
+const chargesNow = () => chargesRead;
 
 /** Every charge: its id, and its shape. Read once. An unreadable set is an empty one, never an error. */
 function charges() {
@@ -3565,9 +3573,12 @@ function charges() {
         if (d) paths[a.id] = d;
       }
     } catch {}
-    return { ids: Object.keys(paths), paths };
+    chargesRead = { ids: Object.keys(paths), paths };
+    return chargesRead;
   })());
 }
+// Read at start, so a narrator's [[faction:]] in the first reply finds them.
+charges();
 
 /** A faction's arms, drawn. A badge on the modern calendar unless told otherwise. */
 api.get("/chats/:id/factions/:key/arms.svg", async (c) => {
@@ -3623,7 +3634,8 @@ function peopleOf(chat: any): Person[] {
  */
 function forgetSteward(messageIds: string[], reread = true) {
   const t = now();
-  const undo = db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source = 'steward' AND undone_at IS NULL");
+  // The narrator's own marks go with the words they were written in, as the Steward's readings do.
+  const undo = db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN ('steward', 'narrator') AND undone_at IS NULL");
   const rewind = db.query("UPDATE chats SET steward_at = MIN(steward_at, ?) WHERE id = ?");
   db.transaction(() => {
     for (const id of messageIds) {
@@ -5021,6 +5033,82 @@ function partyInFight(chatId: string, hostPersonaId: string | null | undefined) 
  * damage into the next one and the one after, with no rest in the game to put
  * it back. The story can still say somebody is hurt; the numbers start fresh.
  */
+/**
+ * Something the narrator marked, written into the chronicle now and tied to
+ * its message once the reply has been saved — it has no id until then. See
+ * tieNarration.
+ */
+function recordNarrated(chatId: string, fields: Record<string, unknown>) {
+  const at = clockOf(calendarOf(chatId), chronicleOf(chatId));
+  copyChronicle([normaliseChronicleEntry({
+    day: at.day, minute: at.minute, ...fields, id: uid(), message_id: null, source: "narrator", created_at: now(),
+  })], chatId);
+}
+
+/** The reply is saved: whatever the narrator marked in it now belongs to it. */
+function tieNarration(chatId: string, messageId: string, since: number) {
+  db.query("UPDATE chronicle SET message_id = ? WHERE chat_id = ? AND source = 'narrator' AND message_id IS NULL AND created_at >= ?")
+    .run(messageId, chatId, since);
+}
+
+/**
+ * Time passing, by the narrator's word — and what it does to the party.
+ *
+ * Read by the calendar like every other span: "three days" moves the clock,
+ * "a while" moves nothing and its brackets stay where they are. Then the
+ * table's rules: a rest heals, and each night that passes eats a day of
+ * rations (src/tabletop.ts, afterTime). Whoever healed gets the same hit
+ * point chip a fight would give them, so the sheet and the story agree.
+ */
+function narrateTime(chatId: string, said: string, playerId?: string | null): string | null {
+  const cal = calendarOf(chatId);
+  const before = clockOf(cal, chronicleOf(chatId));
+  const span = readSpan(cal, said, before);
+  if (!span) return null;
+  recordNarrated(chatId, { kind: "time", span, title: said, day: null, minute: null });
+  const nights = later(cal, before, span).day - before.day;
+  const marks = [`[[passed: ${said}]]`];
+  for (const member of partyInFight(chatId, playerId)) {
+    if (!member.sheet) continue;
+    const sheet = sheetFor(member.sheet.owner);
+    if (!sheet) continue;
+    const after = afterTime(sheet, span, nights);
+    if (after.healed || after.rations) saveSheet(member.sheet.owner, member.sheet.kind, after.sheet);
+    if (after.healed) marks.push(`[[hp: ${member.name} +${after.healed}, ${after.sheet.hp}/${after.sheet.maxHp}]]`);
+    if (after.rations) marks.push(`[[supplies: ${member.name} — ${after.rations}]]`);
+  }
+  return marks.join(" ");
+}
+
+/** A group the narrator named: put forward to the host, never made outright. */
+function narrateFaction(chatId: string, name: string, brief: string): string | null {
+  const entries = chronicleOf(chatId);
+  const known = [...factionsOf(entries).map((f) => f.name), ...pending(entries).filter((e) => e.kind === "faction").map((e) => e.title)];
+  if (known.some((n) => groupKey(n) === groupKey(name))) return `[[faction: ${name}]]`;
+  const set = chargesNow();
+  recordNarrated(chatId, {
+    kind: "faction", subject: uid(), title: name, body: brief, proposed: true,
+    data: { arms: withContrast(armsFromName(`${name} ${brief}`.trim(), set.ids)), members: [] },
+  });
+  return `[[faction: ${name}]]`;
+}
+
+/**
+ * The party rose or fell in a faction's eyes: one step, whichever way the
+ * narrator wrote it. A faction the chat does not have yet cannot be stood
+ * with, and its brackets are left as written.
+ */
+function narrateStanding(chatId: string, who: string, way: string): string | null {
+  const step = wayOf(way);
+  const f = factionsOf(chronicleOf(chatId)).find((x) => groupKey(x.name) === groupKey(who));
+  if (!step || !f) return null;
+  recordNarrated(chatId, { kind: "standing", subject: f.key, amount: step * STANDING_STEP, title: f.name });
+  return `[[standing: ${f.name} ${step > 0 ? "+" : "−"}${STANDING_STEP}]]`;
+}
+
+/** How far one mark moves the party's standing with a faction, on its -100 to 100 scale. */
+const STANDING_STEP = 10;
+
 function restoreAfterFight(fight: Fight | null) {
   for (const c of fight?.order ?? []) {
     if (!c.player || !c.sheet) continue;
@@ -5044,6 +5132,15 @@ export function applyVerbs(chatId: string, text: string, playerId?: string | nul
     // Names and places settle themselves and never reach here; saying so is
     // what tells the compiler the rest of this function is about fights.
     if (intent.kind === "npc" || intent.kind === "scene") return null;
+
+    // What the narrator says about the world goes into the chronicle.
+    if (intent.kind === "time") return narrateTime(chatId, intent.said, playerId);
+    if (intent.kind === "event") {
+      recordNarrated(chatId, { kind: "event", title: intent.title });
+      return `[[event: ${intent.title}]]`;
+    }
+    if (intent.kind === "faction") return narrateFaction(chatId, intent.name, intent.brief);
+    if (intent.kind === "standing") return narrateStanding(chatId, intent.who, intent.way);
 
     if (intent.kind === "fight") {
       const fight = startFight(intent.foes, partyInFight(chatId, playerId));

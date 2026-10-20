@@ -458,3 +458,55 @@ export const CHECK_BRIEF =
   "To test something the player's character attempts, write [[check: dex]] " +
   "(or str, con, int, wis, cha) and the real roll against their sheet will be " +
   "filled in. Their sheet is above; use it rather than guessing what they can do.";
+
+// ---- time passing ---------------------------------------------------------
+
+/**
+ * How long a supply lasts, read from however the kit wrote it: "Rations for a
+ * week", "Rations (5 days)", "3 days of rations", "Rations x4". Null when it
+ * does not say — and a supply that does not say how much is left alone,
+ * rather than eaten on a guess.
+ */
+export function rationDays(item: string): number | null {
+  const t = String(item ?? "").toLowerCase();
+  if (!/\brations?\b/.test(t)) return null;
+  if (/\bnone left\b|\bout of\b/.test(t)) return 0;
+  if (/\bfortnight\b/.test(t)) return 14;
+  if (/\bweek\b/.test(t)) return 7;
+  const words: Record<string, number> = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  const m = t.match(/(\d{1,3}|a|one|two|three|four|five|six|seven|eight|nine|ten)\s+days?\b/)
+    ?? t.match(/\(\s*(\d{1,3})\s*\)|\bx\s*(\d{1,3})\b|^(\d{1,3})\s+rations?\b/);
+  if (!m) return null;
+  const n = m.slice(1).find((x) => x !== undefined)!;
+  return /^\d+$/.test(n) ? Number(n) : words[n] ?? null;
+}
+
+/**
+ * What passing time does to a character, by the table's rules.
+ *
+ * Rest: eight hours or more is a long rest and restores every hit point; an
+ * hour or more is a short rest and restores a quarter of them. Food: each
+ * night that passes — each midnight crossed, so three eight-hour stretches
+ * count as a day — eats a day of rations. Kept deliberately small: these are
+ * the two rules a narrator forgets and a player notices.
+ */
+export function afterTime(sheet: Sheet, minutes: number, nights: number): { sheet: Sheet; healed: number; rations: string | null } {
+  let hp = sheet.hp;
+  if (minutes >= 8 * 60) hp = sheet.maxHp;
+  else if (minutes >= 60) hp = Math.min(sheet.maxHp, hp + Math.ceil(sheet.maxHp / 4));
+  let rations: string | null = null;
+  let inventory = sheet.inventory;
+  if (nights > 0) {
+    let eaten = false;
+    inventory = sheet.inventory.map((item) => {
+      if (eaten) return item;
+      const days = rationDays(item);
+      if (days === null || days <= 0) return item;
+      eaten = true;
+      const left = days - nights;
+      rations = left > 0 ? `${left} day${left === 1 ? "" : "s"} of rations left` : left === 0 ? "the last of the rations is gone" : `rations ran out ${-left} day${left === -1 ? "" : "s"} ago`;
+      return left > 0 ? `Rations (${left} day${left === 1 ? "" : "s"})` : "Rations (none left)";
+    });
+  }
+  return { sheet: { ...sheet, hp, inventory }, healed: hp - sheet.hp, rations };
+}
