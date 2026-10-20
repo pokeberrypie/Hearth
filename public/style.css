@@ -8257,3 +8257,13 @@ body[data-msgstyle="banner"] .msg.mine .plate:has(> .inlay .blank) > .tools { ri
 .wdthreads li > .linkish { flex: none; align-self: center; font-size: 0.82rem; }
 .wdaddthread { display: flex; gap: 0.5rem; align-items: center; margin: 0.6rem 0 1rem; }
 .wdaddthread input { flex: 1 1 auto; min-width: 0; }
+
+/* At a table the narrator has no face (see "the narrator has no face" above):
+   the in-message portrait goes too, and Banner's plate drops its column. */
+body[data-mode="tabletop"] .msg:not(.mine) .inlay { display: none; }
+body[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate,
+body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate {
+  display: block;
+  min-height: 0;
+  padding-left: 1rem;
+}
