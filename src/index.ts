@@ -3431,6 +3431,9 @@ function chronicleState(chatId: string) {
   return {
     calendar: cal,
     now: { ...at, text: formatDate(cal, at) },
+    // Whether anyone else is sitting at this chat: when secrets, the players'
+    // view and hiding things start to mean something.
+    shared: isShared(chatId),
     entries: chronicleView(entries, { shared: isShared(chatId), host: true }),
     // How everyone is now, by the tracker — whichever field has a word on it.
     status: Object.fromEntries(Object.entries(statusOf(entries)).map(([who, fields]) => [who,

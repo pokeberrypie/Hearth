@@ -7600,3 +7600,195 @@ body.noglass[data-msgstyle="page"] #thread {
   -webkit-backdrop-filter: none !important;
           backdrop-filter: none !important;
 }
+
+/* ---- Story World -------------------------------------------------------------
+   What has happened in this chat, and when. A quiet line under the title, and
+   a window over the chat with four pages. The shapes come from the mockup the
+   design was settled on: the date set like an almanac, round icon tabs that
+   say their name when chosen, a gold line of time, a constellation of bonds,
+   threads drawn as threads, and shields. See public/storyworld.js. */
+
+.worldline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 1.9rem;
+  margin: 0;
+  padding: 0.15rem 1rem 0.35rem;
+  border: 0;
+  background: none;
+  font-family: var(--lumiverse-font-family);
+  font-style: italic;
+  font-size: 0.92rem;
+  color: var(--lumiverse-prose-italic);
+  cursor: pointer;
+}
+.worldline:hover { color: var(--lumiverse-prose-dialogue); }
+.worldline .wlstar { color: var(--lumiverse-primary); font-style: normal; font-size: 0.8em; }
+.worldline #worldNote { font-style: normal; color: var(--lumiverse-prose-dialogue); }
+
+.worlddialog {
+  width: min(96vw, 32rem);
+  padding: 0;
+  background:
+    radial-gradient(90% 30% at 50% 0%, color-mix(in srgb, var(--lumiverse-primary) 14%, transparent), transparent 70%),
+    var(--lumiverse-bg-elevated);
+  border-top: 1px solid color-mix(in srgb, var(--lumiverse-primary) 70%, transparent);
+}
+.wdhead { position: relative; padding: 1.1rem 3rem 0; text-align: center; }
+.wdflourish { color: var(--lumiverse-primary); font-size: 0.8rem; }
+.wdhead h2 {
+  margin: 0.1rem 0 0;
+  font-family: var(--lumiverse-font-heading);
+  font-size: 0.78rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-muted);
+}
+.wdhead .ico { position: absolute; right: 0.6rem; top: 0.6rem; }
+.wddate { display: flex; align-items: center; justify-content: center; gap: 0.9rem; padding: 0.6rem 1rem 0; }
+.wdmoon { width: 2.1rem; height: 2.1rem; flex: none; }
+.wdmoon circle { fill: var(--lumiverse-bg-hover); stroke: color-mix(in srgb, var(--lumiverse-primary) 60%, transparent); }
+.wdmoon path { fill: var(--lumiverse-text); }
+.wdday { font-family: var(--lumiverse-font-heading); font-weight: 600; font-size: 1.35rem; color: var(--lumiverse-primary-hover); line-height: 1.1; }
+.wdcal { font-style: italic; font-size: 0.95rem; color: var(--lumiverse-prose-italic); }
+.wdviewing { text-align: center; font-size: 0.9rem; color: var(--lumiverse-text-muted); padding-top: 0.4rem; }
+
+.wdtabs { display: flex; justify-content: center; gap: 0.55rem; padding: 0.9rem 0.8rem 0.7rem; }
+.wdtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  margin: 0;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--lumiverse-border-hover);
+  background: transparent;
+  color: var(--lumiverse-primary);
+  justify-content: center;
+}
+.wdtab svg { width: 1.15rem; height: 1.15rem; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.wdtab span { display: none; font-family: var(--lumiverse-font-display); font-size: 0.95rem; }
+.wdtab.on { border-color: var(--lumiverse-primary-hover); background: var(--lumiverse-bg-hover); color: var(--lumiverse-primary-hover); }
+.wdtab.on span { display: inline; }
+
+.wdwaiting { margin: 0 1rem 0.6rem; padding: 0.6rem 0.8rem; border: 1px solid var(--lumiverse-border-hover); border-radius: var(--lumiverse-radius); }
+.wdkicker { font-family: var(--lumiverse-font-heading); font-size: 0.68rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--lumiverse-text-muted); margin-bottom: 0.3rem; }
+.wdprop { display: flex; align-items: center; gap: 0.6rem; padding: 0.35rem 0; }
+.wdprop > div:first-child { flex: 1; min-width: 0; }
+.wdpropbtns { display: flex; gap: 0.3rem; flex: none; }
+.wdpropbtns .ghost { width: auto; margin: 0; padding: 0.3rem 0.8rem; }
+.wdwhy { font-style: italic; font-size: 0.9rem; color: var(--lumiverse-prose-italic); margin-top: 0.15rem; }
+
+.wdbody { padding: 0.4rem 1.1rem 1.3rem; height: min(58dvh, 34rem); overflow-y: auto; border-top: 1px solid var(--lumiverse-border); }
+
+/* The line of time: a gold thread down the left, a mark for each event. */
+.wdline { list-style: none; margin: 0.6rem 0 0; padding: 0 0 0 1.6rem; position: relative; }
+.wdline::before {
+  content: ""; position: absolute; left: 0.5rem; top: 0.4rem; bottom: 0.4rem; width: 2px;
+  background: linear-gradient(to bottom, transparent, var(--lumiverse-primary-muted) 12%, var(--lumiverse-primary-muted) 88%, transparent);
+}
+.wdline li { position: relative; display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.35rem 0 0.65rem; }
+.wddot { position: absolute; left: -1.38rem; top: 0.62rem; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--lumiverse-primary); box-shadow: 0 0 0 3px var(--lumiverse-bg-elevated); }
+.wdev { flex: 1; min-width: 0; }
+.wdevtitle { color: var(--lumiverse-text); }
+.wdevbody { font-size: 0.92rem; color: var(--lumiverse-text-muted); }
+.wdwhen, .wdsrc { font-size: 0.8rem; color: var(--lumiverse-text-muted); letter-spacing: 0.02em; }
+.wdpassed { justify-content: center; font-style: italic; font-size: 0.9rem; color: var(--lumiverse-prose-italic); }
+.wdpassed span::before, .wdpassed span::after { content: " — "; color: var(--lumiverse-primary-muted); }
+.wdsealed { color: var(--lumiverse-text-muted); font-style: italic; }
+.wdsealed .wddot { background: transparent; border: 1px dashed var(--lumiverse-primary-muted); }
+.wdrowbtns { display: flex; align-items: center; gap: 0.2rem; flex: none; }
+.wdx {
+  width: 1.75rem; height: 1.75rem; margin: 0; padding: 0; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid var(--lumiverse-border); background: none; color: var(--lumiverse-text-muted);
+}
+.wdx svg { width: 0.8rem; height: 0.8rem; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.wdx:hover { color: var(--lumiverse-danger); border-color: var(--lumiverse-danger); }
+
+.wdtools { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--lumiverse-border); }
+.wdrow { display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; margin: 0.45rem 0; }
+.wdrow input[type="text"], .wdrow input[type="number"] { flex: 1; min-width: 6rem; margin: 0; }
+.wdrow .ghost, .wdrow .solid, .wdrow .filebtn { width: auto; margin: 0; }
+.wdrow label { flex: 1; min-width: 7rem; margin: 0; }
+.wdround {
+  width: 2.5rem; height: 2.5rem; margin: 0; padding: 0; flex: none; border-radius: 50%;
+  border: 1px solid var(--lumiverse-border-hover); background: var(--lumiverse-bg); color: var(--lumiverse-primary-hover);
+}
+.wdmore { margin-top: 0.8rem; }
+.wdmore summary, .wdlog summary { cursor: pointer; color: var(--lumiverse-text-muted); font-size: 0.92rem; }
+.wdrun { padding: 0.4rem 0; border-bottom: 1px solid var(--lumiverse-border); font-size: 0.9rem; }
+.wddrop { font-size: 0.82rem; color: var(--lumiverse-text-muted); }
+.wddrop code { font-size: 0.78rem; word-break: break-word; }
+
+/* Bonds: you in the middle, the people who matter most around you. */
+.wdstars { position: relative; width: min(100%, 18rem); aspect-ratio: 1; margin: 0.6rem auto 1rem; }
+.wdstars svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wdstars line { stroke: color-mix(in srgb, var(--lumiverse-primary) 70%, transparent); }
+.wdstars line.cold { stroke: var(--hearth-hurt); stroke-dasharray: 2 1.5; }
+.wdstar {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 2.6rem; height: 2.6rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--lumiverse-font-display); color: var(--lumiverse-primary);
+  background: var(--lumiverse-bg); border: 1px solid var(--lumiverse-primary-muted);
+}
+.wdstar.me { width: 3.4rem; height: 3.4rem; border: 2px solid var(--lumiverse-primary-hover); color: var(--lumiverse-text); }
+.wdstar em { position: absolute; top: 100%; margin-top: 0.15rem; white-space: nowrap; font-style: normal; font-family: var(--lumiverse-font-family); font-size: 0.75rem; color: var(--lumiverse-text-muted); }
+.wdbonds { list-style: none; margin: 0; padding: 0; }
+.wdbonds li { padding: 0.55rem 0; border-bottom: 1px solid var(--lumiverse-border); }
+.wdbondhead { display: flex; justify-content: space-between; gap: 0.5rem; }
+.wdbondhead b { color: var(--lumiverse-prose-dialogue); font-weight: 500; }
+.wdarrow { color: var(--lumiverse-primary-muted); }
+.wdbar { height: 3px; margin-top: 0.3rem; border-radius: 2px; background: var(--lumiverse-bg-deep); }
+.wdbar span { display: block; height: 100%; border-radius: 2px; background: var(--lumiverse-primary); }
+.wdbar span.cold { background: var(--hearth-hurt); }
+.wdlabel { font-family: var(--lumiverse-font-heading); font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--lumiverse-text-muted); margin-top: 0.3rem; }
+
+/* Threads, drawn as threads: frayed while open, knotted when settled. */
+.wdthreads { list-style: none; margin: 0; padding: 0; }
+.wdthreads li { display: flex; gap: 0.8rem; padding: 0.6rem 0; border-bottom: 1px solid var(--lumiverse-border); }
+.wdthreads svg { width: 1.6rem; height: 2.2rem; flex: none; fill: none; stroke: var(--lumiverse-primary); stroke-width: 2; stroke-linecap: round; }
+.wdthreads li.tied svg { stroke: var(--lumiverse-primary-muted); }
+.wdthreads li.tied svg circle { fill: var(--lumiverse-primary-muted); stroke: none; }
+.wdthreads li.tied .wdthread { color: var(--lumiverse-text-muted); }
+
+/* Factions: shields, then whichever one was chosen. */
+.wdshields { display: grid; grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr)); gap: 0.6rem; margin: 0.6rem 0; }
+.wdfaction {
+  display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+  margin: 0; padding: 0.4rem; border: 0; border-radius: var(--lumiverse-radius); background: none; color: var(--lumiverse-text);
+  font-family: var(--lumiverse-font-display); font-size: 0.9rem; text-align: center;
+}
+.wdfaction:hover { background: var(--lumiverse-bg-hover); }
+.wdfaction img { width: 4.2rem; height: 5rem; }
+.wdnoarms { font-size: 2.4rem; color: var(--lumiverse-primary); }
+.wdfdetail { margin-top: 0.6rem; padding: 0.8rem; border: 1px solid var(--lumiverse-border-hover); border-radius: var(--lumiverse-radius); }
+.wdfdetail h3 { margin: 0 0 0.3rem; font-family: var(--lumiverse-font-heading); color: var(--lumiverse-primary-hover); }
+.wdstanding b { color: var(--hearth-mend); }
+.wdstanding.down b { color: var(--hearth-hurt); }
+.wdfedit fieldset { border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); margin: 0.6rem 0; padding: 0.6rem; }
+.wdcharges { display: grid; grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr)); gap: 0.3rem; max-height: 13rem; overflow-y: auto; margin: 0.5rem 0; }
+.wdcharge {
+  aspect-ratio: 1; margin: 0; padding: 0; border-radius: 8px;
+  border: 1px solid var(--lumiverse-border); background: var(--lumiverse-bg); position: relative;
+}
+/* The charge drawn in the theme's gold with the file as a mask, so a black
+   silhouette is visible on a dark page and takes any theme's colour. */
+.wdcharge::after {
+  content: ""; position: absolute; inset: 14%;
+  background: var(--lumiverse-primary);
+  -webkit-mask: var(--charge) center / contain no-repeat;
+  mask: var(--charge) center / contain no-repeat;
+}
+.wdcharge.none::after { display: none; }
+.wdcharge.none { color: var(--lumiverse-text-muted); }
+.wdcharge.on { border-color: var(--lumiverse-primary-hover); background: var(--lumiverse-bg-hover); box-shadow: 0 0 0 2px color-mix(in srgb, var(--lumiverse-primary) 35%, transparent); }
+
+/* And in the chat, a guest's line looks the same. */
+body.guest .worldline { cursor: pointer; }

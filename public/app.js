@@ -1074,6 +1074,9 @@ const ago = (t) => {
 async function showSplash() {
   S.chatId = null;
   renderTogether?.();
+  // No chat, no Story World line.
+  const worldLine = $("#worldLine");
+  if (worldLine) worldLine.hidden = true;
   // The face strip belongs to whichever chat was open — leaving without
   // clearing it left the last group's cast hanging over the splash page.
   S.cast = [];
@@ -1206,6 +1209,8 @@ async function openChat(id) {
   if (!$("#guideRow").hidden) syncGuideActions();
   closeDrawer();
   paintCarry();
+  // Story World's line under the title. Defined in storyworld.js, which loads after this file.
+  if (typeof paintWorldLine === "function") paintWorldLine();
   openingQuestions(chat);
   // Opening a chat always lands at the newest message, whatever the previous
   // chat's scroll position was. (Passing stick straight to rAF would hand it
@@ -3649,6 +3654,12 @@ async function run(mode, content = "", forcedGuide = "") {
             if (Array.isArray(evt.thrown) && evt.thrown.length) {
               showDie(evt.thrown[evt.thrown.length - 1]);
             }
+          }
+          // Story World, now, for what the narrator marked — and again once
+          // the Steward has had time to read the reply in the background.
+          if (typeof paintWorldLine === "function") {
+            paintWorldLine();
+            setTimeout(paintWorldLine, 8000);
           }
           // Display regex scripts run once, here, rather than on every delta:
           // a pack like DEUS EX MACHINA has fifty of them and re-running the
@@ -9914,6 +9925,8 @@ function guestTurn() {
 const GUEST_PLACEHOLDER = $("#input")?.placeholder || "Say something";
 
 function guestPaint() {
+  // Story World, in a line, from the table's own state. Defined in storyworld.js.
+  if (typeof paintGuestWorldLine === "function") paintGuestWorldLine();
   const thread = $("#thread");
   thread.innerHTML = "";
   for (const m of GUEST.state.messages ?? []) thread.append(messageEl(m));
@@ -10051,6 +10064,11 @@ function guestListen() {
       return;
     }
     if (evt.event === "closed") { guestClosed(); return; }
+    if (evt.event === "world") {
+      GUEST.state.world = evt.world;
+      if (typeof paintGuestWorldLine === "function") paintGuestWorldLine(evt.world);
+      return;
+    }
     if (evt.event === "said") {
       GUEST.state.messages.push(evt.message);
       $("#thread").append(messageEl(evt.message));
