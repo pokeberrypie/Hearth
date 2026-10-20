@@ -125,7 +125,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     "- BOND when how the first person feels about the second changes: + warmer, - colder. It goes one way: write it twice if both change.",
     "- FACTION only for a group the story names — a house, guild, order, company — that is not already listed. Leave the emblem empty if the story gives none.",
     "- THREAD open for something the story leaves hanging that should come back: a promise, a secret, a debt, a question, a letter not yet answered. THREAD settled when one of the open threads listed is resolved here — use its name exactly as listed.",
-    ...(o.scene ? ["- SCENE done only when this part of the story actually reaches the end of the planned scene given below. Not when it is merely heading there."] : []),
+    ...(o.scene ? ["- SCENE done only when this part of the story actually reaches the end of the planned scene given below. Not when it is merely heading there. If reaching it also settles one of the open threads, write that THREAD settled line too, with its own quote."] : []),
     ...(o.scene?.ahead?.length ? ["- SCENE with a number only when the story has clearly already moved into one of the scenes planned later — its people, its place and what it is about are happening now."] : []),
     "- At most one TIME line and five EVENT lines.",
     "- If nothing worth recording happened, write only: NONE",

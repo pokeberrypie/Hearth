@@ -21,7 +21,8 @@ function connectionFrom(s: Record<string, string>, provider = s.provider) {
 }
 import { dirname, join } from "node:path";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { buildParts, buildMessages, buildPostHistory, macros, stripSpeakerLabel, type Character } from "./prompt";
+import { buildParts, buildMessages, buildPostHistory, estimateTokens, macros, stripSpeakerLabel, type Character } from "./prompt";
+import { recall, recallBrief, related } from "./recall";
 import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNote, NOTE_SYSTEM, type Scope } from "./autolore";
 import { CARRY_SYSTEM, carryEntry, carryPrompt, carriedTitle, cleanSummary, recentFor, tailBudget } from "./carryon";
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
@@ -3264,7 +3265,17 @@ const setTale = (chatId: string, mark: Bookmark | null) =>
 /** What the model is told about the plan this chat follows, if it follows one. */
 function taleBrief(chatId: string): string | null {
   const { book, mark } = taleOf(chatId);
-  return book ? briefFor(book, mark) : null;
+  const brief = book ? briefFor(book, mark) : null;
+  if (!brief || getSettings().story_world === "0") return brief;
+  // The open threads this scene touches — its people, its place, what it is about — so the plan and
+  // what the story has left hanging know about each other. Only the story's own, public threads.
+  const scene = scenesOf(book!).find(({ scene }) => scene.id === mark!.scene)?.scene;
+  if (!scene) return brief;
+  const about = [scene.title, scene.setting, scene.cast, scene.purpose, scene.beats, scene.ending].join(" ");
+  const touching = threadsOf(chronicleOf(chatId)).filter((t) => t.open && related(`${t.title} ${t.evidence}`, about)).slice(0, 4);
+  return touching.length
+    ? `${brief}\nMatters still open in the story that this scene could pick up, if it fits: ${touching.map((t) => t.title).join("; ")}.`
+    : brief;
 }
 
 api.get("/apocrypha", (c) => {
@@ -3508,6 +3519,36 @@ function recordEvent(chatId: string, fields: Partial<ChronicleEntry>) {
  * keeps it, Hearth's own is left out entirely, so the model is never handed
  * two versions of one person.
  */
+/**
+ * What from earlier matters now — see src/recall.ts. The scene is the last few
+ * messages; what is already in the conversation being sent is not remembered
+ * twice, so the cut-off is worked out the way buildMessages makes it.
+ */
+function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEntry[], cal: Calendar, threads: string[]) {
+  const rows = db.query("SELECT id, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC").all(chat.id) as any[];
+  const budget = Number(s.context_tokens) > 0 ? Number(s.context_tokens) : 8000;
+  const inContext = new Set<string>();
+  let used = 0;
+  for (const r of rows) {
+    const cost = estimateTokens(r.content) + 4;
+    if (used + cost > budget && inContext.size) break;
+    used += cost;
+    inContext.add(r.id);
+  }
+  const people = peopleOf(chat);
+  const when = (e: ChronicleEntry) => (e.day !== null ? formatDate(cal, { day: e.day, minute: e.minute ?? 0 }) : "");
+  return recall({
+    entries: liveEntries(entries),
+    bonds: bondsOf(entries),
+    present: people.filter((p) => p.present).map((p) => p.name),
+    everyone: [...new Set([...people.map((p) => p.name), ...peopleOfChat(chat.id)])],
+    recent: rows.slice(0, 6).map((r) => r.content).join("\n"),
+    inContext,
+    threads,
+    when,
+  });
+}
+
 function worldBrief(chat: any, s: Record<string, string>): string | null {
   // Story World off: a plain story, with nothing of it in the prompt.
   if (s.story_world === "0") return null;
@@ -3534,6 +3575,7 @@ function worldBrief(chat: any, s: Record<string, string>): string | null {
   // newest first; each a possibility to return to, not something to force.
   const open = threadsOf(entries).filter((t) => t.open).slice(0, 8);
   if (open.length) lines.push(`Threads still open, to pick up when it fits: ${open.map((t) => t.title).join("; ")}.`);
+  lines.push(...recallBrief(rememberFor(chat, s, entries, cal, open.map((t) => t.title))));
   lines.push(...offstageBrief(chat.id, entries));
   return lines.length ? lines.join("\n") : null;
 }
