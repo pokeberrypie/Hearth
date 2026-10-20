@@ -32,7 +32,7 @@
  */
 
 import { readSpan, type Calendar, type Moment } from "./calendar";
-import { STATUS_FIELDS, type StatusField } from "./chronicle";
+import { BOND_STEP, STATUS_FIELDS, type StatusField } from "./chronicle";
 
 /** Someone the Steward may refer to, by number. */
 export type Person = {
@@ -50,17 +50,22 @@ export type Passage = { id: string; who: string; text: string };
 export type Claim =
   | { kind: "time"; span: number; said: string; evidence: string; message_id: string; proposed: boolean }
   | { kind: "event"; title: string; people: string[]; evidence: string; message_id: string }
-  | { kind: "status"; subject: string; field: StatusField; value: string; evidence: string; message_id: string };
+  | { kind: "status"; subject: string; field: StatusField; value: string; evidence: string; message_id: string }
+  | { kind: "bond"; from: string; to: string; amount: number; label: string; evidence: string; message_id: string }
+  | { kind: "faction"; name: string; description: string; symbol: string; evidence: string; message_id: string };
 
 export type Dropped = { line: string; why: string };
 
 /** How far time may move on its own before a person is asked; -1 for never ask. */
-export type Limits = { askAboveMinutes: number; maxEvents: number; maxStatus: number };
+export type Limits = { askAboveMinutes: number; maxEvents: number; maxStatus: number; maxBonds: number; maxFactions: number };
 
-export const DEFAULT_LIMITS: Limits = { askAboveMinutes: 7 * 1440, maxEvents: 5, maxStatus: 12 };
+export const DEFAULT_LIMITS: Limits = { askAboveMinutes: 7 * 1440, maxEvents: 5, maxStatus: 12, maxBonds: 6, maxFactions: 3 };
 
-/** Whether the Steward keeps the tracker, or a preset does and it should stay out of it. */
-export type Options = { tracking: boolean };
+/**
+ * Whether the Steward keeps the tracker, or a preset does and it should stay
+ * out of it; and the factions already known, so it does not propose them again.
+ */
+export type Options = { tracking: boolean; factions?: string[] };
 
 /**
  * Blocks a preset has the story model write its working-out into. They are
@@ -89,6 +94,8 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     'TIME | how much time passed | "the exact words from the story that show it"',
     'EVENT | a short title for something that happened | "the exact words from the story that show it"',
     ...(o.tracking ? ['STATUS | person number | what | how they are now | "the exact words from the story that show it"'] : []),
+    'BOND | person number | person number | + or - | what they are to each other now | "the exact words from the story that show it"',
+    'FACTION | its name | what it is, in a few words | one word for its emblem, if the story gives one | "the exact words from the story that show it"',
     "",
     "Rules:",
     "- The quote must be copied exactly from the story: four to twenty-five words, in the story's own language.",
@@ -98,6 +105,8 @@ export function stewardSystem(o: Options = { tracking: true }): string {
       "- STATUS only for people marked (here), using their number from the list, and only when the story changes something about them or shows it for the first time.",
       "- For STATUS, \"what\" is one of: physical (injuries, health, tiredness), mental (mood, state of mind), clothes (what they wear), location (where they are), inventory (what they carry). Say how they are now in a few words.",
     ] : []),
+    "- BOND when how the first person feels about the second changes: + warmer, - colder. It goes one way: write it twice if both change.",
+    "- FACTION only for a group the story names — a house, guild, order, company — that is not already listed. Leave the emblem empty if the story gives none.",
     "- At most one TIME line and five EVENT lines.",
     "- If nothing worth recording happened, write only: NONE",
   ].join("\n");
@@ -124,7 +133,8 @@ export function stewardPrompt(people: Person[], nowText: string, passages: Passa
     .filter((l) => l.trim())
     .join("\n\n");
   const already = known.length ? `\n\nAlready known about them (report only what changes):\n${known.join("\n")}` : "";
-  return `People in this story:\n${roster}${already}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
+  const groups = o.factions?.length ? `\n\nFactions already known: ${o.factions.join(", ")}` : "";
+  return `People in this story:\n${roster}${already}${groups}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
 }
 
 /**
@@ -147,7 +157,9 @@ export function stewardRequest(model: string, people: Person[], nowText: string,
 
 // ---- reading the answer ---------------------------------------------------
 
-const KIND_WORDS: Record<string, "time" | "event" | "status" | "none"> = {
+const KIND_WORDS: Record<string, "time" | "event" | "status" | "bond" | "faction" | "none"> = {
+  BOND: "bond", RELATIONSHIP: "bond", RELATION: "bond", FEELING: "bond",
+  FACTION: "faction", GROUP: "faction", HOUSE: "faction", ORGANISATION: "faction", ORGANIZATION: "faction",
   TIME: "time", TIMEPASSED: "time", TIMESKIP: "time", ELAPSED: "time", DURATION: "time",
   EVENT: "event", EVENTS: "event", HAPPENED: "event",
   STATUS: "status", STATE: "status", CONDITION: "status", TRACKER: "status",
@@ -188,6 +200,8 @@ export type Parsed = {
   time: { said: string; evidence: string }[];
   events: { title: string; people: string; evidence: string }[];
   status: { who: string; field: string; value: string; evidence: string }[];
+  bonds: { from: string; to: string; way: string; label: string; evidence: string }[];
+  factions: { name: string; description: string; symbol: string; evidence: string }[];
   none: boolean;
   dropped: Dropped[];
   /** Lines that were not findings at all — chatter, headings — counted, not judged. */
@@ -196,7 +210,7 @@ export type Parsed = {
 
 /** The answer as lines, before anything is checked against the story. */
 export function parseAnswer(raw: string): Parsed {
-  const out: Parsed = { time: [], events: [], status: [], none: false, dropped: [], noise: 0 };
+  const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], none: false, dropped: [], noise: 0 };
   const text = withoutThinking(raw).replace(/```[a-z]*\n?/gi, "");
   for (const original of text.split(/\r?\n/)) {
     const line = tidyLine(original);
@@ -214,7 +228,13 @@ export function parseAnswer(raw: string): Parsed {
     const first = unquote(parts[1]);
     if (!evidence) { out.dropped.push({ line: original.trim(), why: "no quote from the story" }); continue; }
     if (!first) { out.dropped.push({ line: original.trim(), why: "nothing between the bars" }); continue; }
-    if (kind === "status") {
+    if (kind === "bond") {
+      if (parts.length < 5) { out.dropped.push({ line: original.trim(), why: "a BOND line needs two people, which way, and a quote" }); continue; }
+      out.bonds.push({ from: first, to: unquote(parts[2]), way: unquote(parts[3]), label: parts.length > 5 ? unquote(parts.slice(4, -1).join(" ")) : "", evidence });
+    } else if (kind === "faction") {
+      if (parts.length < 4) { out.dropped.push({ line: original.trim(), why: "a FACTION line needs a name, what it is, and a quote" }); continue; }
+      out.factions.push({ name: first, description: unquote(parts[2]), symbol: parts.length > 4 ? unquote(parts[3]) : "", evidence });
+    } else if (kind === "status") {
       if (parts.length < 5) { out.dropped.push({ line: original.trim(), why: "a STATUS line needs who, what, how and a quote" }); continue; }
       out.status.push({ who: first, field: unquote(parts[2]), value: unquote(parts.slice(3, -1).join(" | ")), evidence });
     } else if (kind === "time") out.time.push({ said: first, evidence });
@@ -367,7 +387,57 @@ export function checkAnswer(
     claims.push({ kind: "status", subject: person.name, field, value, evidence: s.evidence, message_id: at });
   }
 
+  const paired = new Set<string>();
+  for (const b of p.bonds) {
+    const line = `BOND | ${b.from} | ${b.to} | ${b.way} | ${b.label} | "${b.evidence}"`;
+    const from = whoIs(b.from, people);
+    const to = whoIs(b.to, people);
+    if (!from || !to) { dropped.push({ line, why: "not someone on the list" }); continue; }
+    if (from.name === to.name) { dropped.push({ line, why: "a bond is between two people" }); continue; }
+    const step = wayOf(b.way);
+    if (step === null) { dropped.push({ line, why: "not + or -" }); continue; }
+    const key = `${from.name}\u0000${to.name}`;
+    if (paired.has(key)) { dropped.push({ line, why: "the same bond twice" }); continue; }
+    if (paired.size >= limits.maxBonds) { dropped.push({ line, why: "more bonds than allowed in one go" }); continue; }
+    const at = findEvidence(b.evidence, passages);
+    if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
+    paired.add(key);
+    // One step, whatever was asked: "++", "much warmer", "+50" all move it by one.
+    claims.push({ kind: "bond", from: from.name, to: to.name, amount: step * BOND_STEP, label: b.label.replace(/\s+/g, " ").slice(0, 60),
+      evidence: b.evidence, message_id: at });
+  }
+
+  const known = new Set((o.factions ?? []).map(groupKey));
+  const named = new Set<string>();
+  for (const f of p.factions) {
+    const line = `FACTION | ${f.name} | ${f.description} | "${f.evidence}"`;
+    const name = f.name.replace(/\s+/g, " ").slice(0, 80);
+    const key = groupKey(name);
+    if (!key) { dropped.push({ line, why: "no name" }); continue; }
+    if (known.has(key)) { dropped.push({ line, why: "already known" }); continue; }
+    if (named.has(key)) { dropped.push({ line, why: "the same faction twice" }); continue; }
+    if (named.size >= limits.maxFactions) { dropped.push({ line, why: "more factions than allowed in one go" }); continue; }
+    const at = findEvidence(f.evidence, passages);
+    if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
+    named.add(key);
+    claims.push({ kind: "faction", name, description: f.description.replace(/\s+/g, " ").slice(0, 200),
+      symbol: f.symbol.slice(0, 40), evidence: f.evidence, message_id: at });
+  }
+
   return { claims, dropped, none: p.none && !claims.length, noise: p.noise };
+}
+
+/** +1, -1 or null: which way a bond moved, however a model wrote it. Never more than one step. */
+export function wayOf(word: string): 1 | -1 | null {
+  const w = String(word ?? "").trim().toLowerCase();
+  if (/^\++\d*$|^(up|warmer|better|closer|improves?|improved|positive|increase[sd]?)\b/.test(w)) return 1;
+  if (/^[-−–]+\d*$|^(down|colder|worse|cooler|further|worsens?|worsened|negative|decrease[sd]?)\b/.test(w)) return -1;
+  return null;
+}
+
+/** A faction's name as compared: case, a leading "the", and punctuation set aside. */
+export function groupKey(name: string): string {
+  return words(name).filter((w, i) => !(i === 0 && w === "the")).join(" ");
 }
 
 const FIELD_WORDS: Record<string, StatusField> = {

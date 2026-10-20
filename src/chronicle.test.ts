@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 
 import { db, wipe, setSettings } from "./test-support";
 import { MOONS, UNDATED } from "./calendar";
-import { clockOf, forBranch, forCarryOn, live, normaliseEntry, statusOf, view, type Entry } from "./chronicle";
+import { bondsOf, clockOf, factionsOf, forBranch, forCarryOn, live, normaliseEntry, statusOf, view, type Entry } from "./chronicle";
 
 const { app } = await import("./index");
 
@@ -62,6 +62,37 @@ describe("how everyone is", () => {
 
   test("a status with no field the tracker keeps counts for nothing", () => {
     expect(statusOf([entry({ kind: "status", subject: "Loras", field: "ambition" as any, title: "the crown" })])).toEqual({});
+  });
+});
+
+describe("bonds and factions", () => {
+  test("a bond starts in the middle, moves with each change, stays in bounds, and goes one way", () => {
+    const es = [
+      entry({ kind: "bond", subject: "Jaime", object: "Yvenna", amount: 5, title: "betrothed", evidence: "affirmed his betrothal" }),
+      entry({ kind: "bond", subject: "Jaime", object: "Yvenna", amount: 60, title: "" }),
+      entry({ kind: "bond", subject: "Yvenna", object: "Jaime", amount: -5, title: "" }),
+    ];
+    const [jy, yj] = bondsOf(es);
+    expect(jy).toMatchObject({ from: "Jaime", to: "Yvenna", score: 100, label: "betrothed", memory: "affirmed his betrothal" });
+    expect(jy.history).toHaveLength(2);
+    expect(yj).toMatchObject({ from: "Yvenna", to: "Jaime", score: 45 });
+    expect(bondsOf([{ ...es[0], undone_at: 1 }])).toEqual([]);
+  });
+
+  test("a faction is its latest entry; one marked gone is gone; standing adds up", () => {
+    const es = [
+      entry({ kind: "faction", subject: "k1", title: "Blackthorn Guild", body: "smugglers", data: JSON.stringify({ members: ["Melda"] }) }),
+      entry({ kind: "faction", subject: "k1", title: "The Blackthorn Guild", body: "smugglers who own the docks" }),
+      entry({ kind: "standing", subject: "k1", amount: 10 }),
+      entry({ kind: "standing", subject: "k1", amount: -25 }),
+      entry({ kind: "faction", subject: "k2", title: "The Watch" }),
+      entry({ kind: "faction", subject: "k2", title: "The Watch", data: JSON.stringify({ gone: true }) }),
+    ];
+    expect(factionsOf(es).map(({ entry: _e, ...f }) => f)).toEqual([
+      { key: "k1", name: "The Blackthorn Guild", description: "smugglers who own the docks", arms: null, members: [], standing: -15 },
+    ]);
+    // Waiting on a person, it is not a faction yet.
+    expect(factionsOf([{ ...es[4], proposed: true }])).toEqual([]);
   });
 });
 

@@ -298,3 +298,121 @@ describe("the tracker, in a chat", () => {
     expect((await send("/api/chats/ch/chronicle", "POST", { kind: "status", subject: "Loras Tyrell", field: "ambition", value: "x" })).status).toBe(400);
   });
 });
+
+describe("bonds and factions, in a chat", () => {
+  const FACTION_LINE = 'FACTION | The Royal Court | the king and those about him | crown | "the court gathered in the Great Hall"';
+  const BONDS = [
+    'BOND | 2 | 3 | + | betrothed | "Jaime publicly affirmed his betrothal to Yvenna"',
+    'BOND | 2 | 3 | +++ | "Jaime publicly affirmed his betrothal to Yvenna"',
+    FACTION_LINE,
+  ].join("\n");
+
+  test("a bond moves one step, one way round, with its evidence", async () => {
+    seed(3);
+    answers = [BONDS];
+    await stewardTurn("ch");
+    const s = await chronicle();
+    expect(s.bonds).toEqual([{ from: "Jaime Lannister", to: "Yvenna Hightower", score: 55, label: "betrothed",
+      memory: "Jaime publicly affirmed his betrothal to Yvenna", changes: 1 }]);
+  });
+
+  test("a faction waits to be accepted, then exists with arms drawn from its emblem", async () => {
+    seed(3);
+    answers = [BONDS];
+    await stewardTurn("ch");
+    let s = await chronicle();
+    expect(s.factions).toEqual([]);
+    const prop = s.proposals.find((p: any) => p.kind === "faction");
+    expect(prop.title).toBe("The Royal Court");
+    expect(JSON.parse(prop.data).arms.charge.type).toBe("crown");
+    s = await (await send(`/api/chronicle/${prop.id}/accept`, "POST")).json();
+    expect(s.factions).toHaveLength(1);
+    expect(s.factions[0]).toMatchObject({ name: "The Royal Court", description: "the king and those about him", standing: 0 });
+    const svg = await (await ask(`/api/chats/ch/factions/${s.factions[0].key}/arms.svg`)).text();
+    expect(svg).toContain('aria-label="Arms of The Royal Court"');
+    expect(svg).toContain("M6 6H94");
+  });
+
+  test("a faction already known or already waiting is not put forward again", async () => {
+    seed(3);
+    answers = [BONDS, FACTION_LINE];
+    await stewardTurn("ch");
+    // Something new to read, so the next run is not a re-reading of the same words.
+    setSettings({ steward_every: "1" });
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m4', 'ch', 'assistant', 'Loras Tyrell', ?, ?)")
+      .run("The court gathered in the Great Hall again that evening, and the king said nothing.", Date.now());
+    await stewardTurn("ch");
+    expect(JSON.stringify(sent[1].messages)).toContain("Factions already known: The Royal Court");
+    expect((await chronicle()).proposals.filter((p: any) => p.kind === "faction")).toHaveLength(1);
+  });
+
+  test("factions by hand: made, given arms, renamed, and gone", async () => {
+    seed(3);
+    let s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "faction", name: "House Hightower",
+      arms: { field: { colours: ["silver"] }, charge: { type: "tower", colour: "gold" } }, members: ["Yvenna Hightower"] })).json();
+    const key = s.factions[0].key;
+    // Gold on silver breaks the rule of tincture, and is corrected rather than refused.
+    expect(s.factions[0].arms.charge).toEqual({ type: "tower", colour: "gules", count: 1 });
+    expect(s.factions[0].members).toEqual(["Yvenna Hightower"]);
+    s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "faction", key, name: "The Hightowers of Oldtown" })).json();
+    expect(s.factions[0]).toMatchObject({ key, name: "The Hightowers of Oldtown", members: ["Yvenna Hightower"] });
+    expect(s.factions[0].arms.charge.type).toBe("tower");
+    s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "standing", key, amount: -20 })).json();
+    expect(s.factions[0].standing).toBe(-20);
+    s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "faction", key, gone: true })).json();
+    expect(s.factions).toEqual([]);
+    expect((await send("/api/chats/ch/chronicle", "POST", { kind: "standing", key: "nope", amount: 5 })).status).toBe(404);
+  });
+
+  test("with the rule switched off, arms are drawn as chosen", async () => {
+    seed(3);
+    setSettings({ heraldry_contrast: "0" });
+    const s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "faction", name: "Gilt",
+      arms: { field: { colours: ["silver"] }, charge: { type: "tower", colour: "gold" } } })).json();
+    expect(s.factions[0].arms.charge.colour).toBe("or");
+  });
+
+  test("a story on the modern calendar gets badges, not shields", async () => {
+    seed(3);
+    await send("/api/chats/ch/calendar", "PUT", { id: "modern" });
+    const s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "faction", name: "Hightower Holdings" })).json();
+    const svg = await (await ask(`/api/chats/ch/factions/${s.factions[0].key}/arms.svg`)).text();
+    expect(svg).toContain("A46 46");
+  });
+
+  test("a bond by hand can be set outright", async () => {
+    seed(3);
+    const s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "bond", from: "Cersei Lannister", to: "Yvenna Hightower", score: 0, label: "open enmity" })).json();
+    expect(s.bonds[0]).toMatchObject({ score: 0, label: "open enmity" });
+    expect((await send("/api/chats/ch/chronicle", "POST", { kind: "bond", from: "Cersei", to: "Cersei" })).status).toBe(400);
+  });
+
+  test("a branch takes its bonds and factions with it", async () => {
+    seed(3);
+    answers = [BONDS];
+    await stewardTurn("ch");
+    await send("/api/chats/ch/chronicle", "POST", { kind: "faction", name: "House Hightower" });
+    const branch = await (await ask("/api/messages/m3/branch", { method: "POST" })).json();
+    const s = await (await ask(`/api/chats/${branch.id}/chronicle`)).json();
+    expect(s.bonds[0].score).toBe(55);
+    expect(s.factions.map((f: any) => f.name)).toEqual(["House Hightower"]);
+  });
+});
+
+test("the server finds the charges wherever a build keeps them", async () => {
+  const { readAssetsWith } = await import("./index");
+  seed(3);
+  const files: Record<string, string> = {
+    "/charges/manifest.json": JSON.stringify({ assets: [{ id: "only_one", svg: "x/only_one.svg" }] }),
+    "/charges/x/only_one.svg": '<svg viewBox="0 0 100 100"><path fill="currentColor" d="M10,10 90,10 90,90Z"/></svg>',
+  };
+  readAssetsWith(async (p) => files[p] ?? null);
+  try {
+    const s = await (await send("/api/chats/ch/chronicle", "POST", { kind: "faction", name: "Anyone" })).json();
+    expect(s.factions[0].arms.charge.type).toBe("only_one");
+  } finally {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    readAssetsWith(async (p) => { try { return readFileSync(join("public", p), "utf8"); } catch { return null; } });
+  }
+});

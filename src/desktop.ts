@@ -103,7 +103,7 @@ if (alive) {
 }
 
 const { serveStatic } = await import("hono/bun");
-const { app, ensureStarterCharacter, markPublic } = await import("./index");
+const { app, ensureStarterCharacter, markPublic, readAssetsWith } = await import("./index");
 const { provideListener, stopHosting } = await import("./hosting");
 const { withLean } = await import("./lean");
 // Compressed and validated on the way out; see src/lean.ts.
@@ -127,6 +127,9 @@ if (fromDisk) {
   app.use("/*", serveStatic({ root: "./public" }));
 } else {
   const { FILES } = await import("./embedded.generated");
+  // The server reads a few of these itself — the faction charges — so it is
+  // told where they are too.
+  readAssetsWith(async (path) => (FILES[path] ? await Bun.file(FILES[path]).text() : null));
   app.use("/*", async (c, next) => {
     const path = c.req.path === "/" ? "/index.html" : c.req.path;
     const file = FILES[path];

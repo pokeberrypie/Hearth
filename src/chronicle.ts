@@ -25,7 +25,17 @@
 
 import { later, type Calendar, type Moment } from "./calendar";
 
-export const KINDS = ["event", "time", "set", "status"] as const;
+export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing"] as const;
+
+/**
+ * Bonds run from 0 to 100 and start in the middle: a stranger is neither
+ * friend nor enemy. The Steward moves one by a single step at a time; only a
+ * person sets one outright. Small steps are the point — a model that misreads
+ * one scene can nudge a relationship, never overturn it.
+ */
+export const BOND_START = 50;
+export const BOND_STEP = 5;
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 /**
  * What the tracker keeps for each person. Fixed, so a model cannot invent a
@@ -71,6 +81,12 @@ export type Entry = {
   /** For a status: whose it is, and which of STATUS_FIELDS. The value is the title. */
   subject: string | null;
   field: StatusField | null;
+  /** For a bond: whom it is towards. (The subject is whom it is from.) */
+  object: string | null;
+  /** For a bond or a standing: how far it moves, in points. */
+  amount: number;
+  /** For a faction: the rest of it — arms, members — as JSON. */
+  data: string;
   created_at: number;
   /** Set when taken back. An undone entry is kept, for the record, and counts for nothing. */
   undone_at: number | null;
@@ -108,6 +124,9 @@ export function normaliseEntry(raw: any): Entry {
     scene_id: str(raw?.scene_id, 80) || null,
     subject: str(raw?.subject, 120) || null,
     field: STATUS_FIELDS.includes(raw?.field) ? raw.field : null,
+    object: str(raw?.object, 120) || null,
+    amount: clamp(Math.round(Number(raw?.amount)) || 0, -100, 100),
+    data: str(typeof raw?.data === "object" && raw?.data ? JSON.stringify(raw.data) : raw?.data, 8000),
     created_at: Math.round(Number(raw?.created_at)) || 0,
     undone_at: intOrNull(raw?.undone_at),
     proposed: !!Number(raw?.proposed ?? 0) || raw?.proposed === true,
@@ -131,6 +150,77 @@ export function statusOf(entries: Entry[]): Record<string, Partial<Record<Status
     (out[e.subject] ??= {})[e.field] = e;
   }
   return out;
+}
+
+export type Bond = {
+  from: string;
+  to: string;
+  score: number;
+  label: string;
+  /** The latest reason it moved, in the story's own words where there are any. */
+  memory: string;
+  /** Every change, oldest first, each with what it was read from. */
+  history: Entry[];
+};
+
+/**
+ * Every bond, one way round: Loras towards Yvenna is not Yvenna towards
+ * Loras. Each change moves the score and is kept, with its evidence, so
+ * "why does he feel this way?" always has an answer.
+ */
+export function bondsOf(entries: Entry[]): Bond[] {
+  const out = new Map<string, Bond>();
+  for (const e of live(entries)) {
+    if (e.kind !== "bond" || !e.subject || !e.object || e.subject === e.object) continue;
+    const key = `${e.subject}\u0000${e.object}`;
+    const b = out.get(key) ?? { from: e.subject, to: e.object, score: BOND_START, label: "", memory: "", history: [] };
+    b.score = clamp(b.score + e.amount, 0, 100);
+    if (e.title) b.label = e.title;
+    if (e.body || e.evidence) b.memory = e.body || e.evidence;
+    b.history.push(e);
+    out.set(key, b);
+  }
+  return [...out.values()];
+}
+
+export type Faction = {
+  key: string;
+  name: string;
+  description: string;
+  /** A blazon (see src/heraldry.ts), or null for arms not yet chosen. */
+  arms: unknown;
+  members: string[];
+  /** How the party stands with them, in tabletop: -100 to 100, starting at 0. */
+  standing: number;
+  entry: Entry;
+};
+
+/**
+ * Every faction as it stands now. A faction is defined by its latest entry —
+ * renaming one, or giving it arms, is a new entry under the same key, and
+ * taking that back shows the one before. One marked gone is gone.
+ */
+export function factionsOf(entries: Entry[]): Faction[] {
+  const out = new Map<string, Faction>();
+  const standing = new Map<string, number>();
+  for (const e of live(entries)) {
+    if (e.kind === "standing" && e.subject) standing.set(e.subject, clamp((standing.get(e.subject) ?? 0) + e.amount, -100, 100));
+    if (e.kind !== "faction" || !e.subject || !e.title) continue;
+    let d: any = {};
+    try { d = e.data ? JSON.parse(e.data) : {}; } catch {}
+    if (d?.gone) { out.delete(e.subject); continue; }
+    out.set(e.subject, {
+      key: e.subject,
+      name: e.title,
+      description: e.body,
+      arms: d?.arms ?? null,
+      members: Array.isArray(d?.members) ? d.members.filter((m: unknown) => typeof m === "string").slice(0, 100) : [],
+      standing: 0,
+      entry: e,
+    });
+  }
+  for (const f of out.values()) f.standing = standing.get(f.key) ?? 0;
+  return [...out.values()];
 }
 
 /** What is waiting for a person to say yes or no. */

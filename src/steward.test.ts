@@ -14,7 +14,7 @@ import { describe, expect, test } from "bun:test";
 
 import { MOONS, UNDATED } from "./calendar";
 import {
-  DEFAULT_LIMITS, STEWARD_SYSTEM, checkAnswer, fieldOf, findEvidence, needsFoldedSystem, parseAnswer, storyOnly, stewardRequest, whoIs,
+  DEFAULT_LIMITS, STEWARD_SYSTEM, checkAnswer, fieldOf, findEvidence, groupKey, needsFoldedSystem, parseAnswer, storyOnly, stewardRequest, wayOf, whoIs,
   type Passage, type Person,
 } from "./steward";
 
@@ -157,7 +157,7 @@ describe("time", () => {
     const story: Passage[] = [{ id: "w", who: "Narrator", text: "Two weeks passed before the wedding party set out for the Vale." }];
     const r = check('TIME | two weeks | "Two weeks passed before the wedding party set out"', story);
     expect(r.claims[0]).toMatchObject({ kind: "time", span: 14 * DAY, proposed: true });
-    const never = checkAnswer('TIME | two weeks | "Two weeks passed before the wedding party set out"', story, PEOPLE, MOONS, NOW, { askAboveMinutes: -1, maxEvents: 5, maxStatus: 12 });
+    const never = checkAnswer('TIME | two weeks | "Two weeks passed before the wedding party set out"', story, PEOPLE, MOONS, NOW, { ...DEFAULT_LIMITS, askAboveMinutes: -1 });
     expect(never.claims[0]).toMatchObject({ proposed: false });
   });
 });
@@ -294,5 +294,62 @@ describe("the tracker", () => {
     expect(["Health", "injuries", "MOOD", "clothing", "outfit", "where", "items", "gear"].map(fieldOf))
       .toEqual(["physical", "physical", "mental", "clothes", "clothes", "location", "inventory", "inventory"]);
     expect(fieldOf("ambition")).toBeNull();
+  });
+});
+
+describe("bonds", () => {
+  const run = (raw: string) => checkAnswer(raw, STORY, PEOPLE, MOONS, NOW);
+
+  test("one way round, by number, one step however far the model says", () => {
+    const r = run([
+      'BOND | 2 | 3 | + | betrothed | "Jaime publicly affirmed his betrothal to Yvenna"',
+      'BOND | 1 | 2 | ++50 | "Loras came through the door at speed"',
+    ].join("\n"));
+    expect(r.claims).toEqual([
+      { kind: "bond", from: "Jaime Lannister", to: "Yvenna Hightower", amount: 5, label: "betrothed",
+        evidence: "Jaime publicly affirmed his betrothal to Yvenna", message_id: "m3" },
+      { kind: "bond", from: "Loras Tyrell", to: "Jaime Lannister", amount: 5, label: "",
+        evidence: "Loras came through the door at speed", message_id: "m1" },
+    ]);
+  });
+
+  test("words for which way, and nothing that is not a way", () => {
+    expect(["+", "++", "warmer", "Improved", "-", "colder", "worse", "–", "sideways", "", "=" ].map(wayOf))
+      .toEqual([1, 1, 1, 1, -1, -1, -1, -1, null, null, null]);
+  });
+
+  test("not with oneself, not with strangers, not twice", () => {
+    const r = run([
+      'BOND | 1 | 1 | + | "Loras came through the door at speed"',
+      'BOND | 1 | 9 | + | "Loras came through the door at speed"',
+      'BOND | 1 | 2 | sideways | "Loras came through the door at speed"',
+      'BOND | 2 | 3 | + | "Jaime publicly affirmed his betrothal to Yvenna"',
+      'BOND | 2 | 3 | - | "Jaime publicly affirmed his betrothal to Yvenna"',
+    ].join("\n"));
+    expect(r.claims).toHaveLength(1);
+    expect(r.dropped.map((d) => d.why)).toEqual(["a bond is between two people", "not someone on the list", "not + or -", "the same bond twice"]);
+  });
+});
+
+describe("factions", () => {
+  const story: Passage[] = [{ id: "f1", who: "Narrator", text: "The Blackthorn Guild owns the docks now, and their black key hangs over every door on the quay." }];
+
+  test("a group the story names is put forward, with the emblem it was given", () => {
+    const r = checkAnswer('FACTION | The Blackthorn Guild | smugglers who own the docks | key | "The Blackthorn Guild owns the docks now"', story, PEOPLE, MOONS, NOW);
+    expect(r.claims).toEqual([{ kind: "faction", name: "The Blackthorn Guild", description: "smugglers who own the docks", symbol: "key",
+      evidence: "The Blackthorn Guild owns the docks now", message_id: "f1" }]);
+  });
+
+  test("one already known is not put forward again, under any spelling", () => {
+    const r = checkAnswer('FACTION | blackthorn guild | smugglers | "The Blackthorn Guild owns the docks now"', story, PEOPLE, MOONS, NOW,
+      DEFAULT_LIMITS, { tracking: true, factions: ["The Blackthorn Guild"] });
+    expect(r.claims).toEqual([]);
+    expect(r.dropped[0].why).toBe("already known");
+    expect(groupKey("The  Blackthorn Guild!")).toBe(groupKey("blackthorn guild"));
+  });
+
+  test("the Steward is told which factions it need not mention", () => {
+    expect(stewardRequest("x", PEOPLE, "Day 1", STORY, { tracking: true, factions: ["House Tyrell"] }).messages[0].content)
+      .toContain("Factions already known: House Tyrell");
   });
 });

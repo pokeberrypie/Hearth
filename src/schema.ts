@@ -184,6 +184,11 @@ CREATE TABLE IF NOT EXISTS chronicle (
   -- For a status: whose, and which part of them (see STATUS_FIELDS).
   subject    TEXT,
   field      TEXT,
+  -- For a bond: towards whom. For a bond or a standing: how far it moved.
+  object     TEXT,
+  amount     INTEGER NOT NULL DEFAULT 0,
+  -- For a faction: its arms and members, as JSON.
+  data       TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   undone_at  INTEGER,
   -- Waiting for a person to accept it: counts for nothing until then.
@@ -566,6 +571,13 @@ export const DEFAULTS: Record<string, string> = {
    * most presets keep no tracker at all.
    */
   tracker_source: "hearth",
+  /*
+   * Arms. Whether the rule of tincture is enforced (a blazon that breaks it is
+   * corrected, not refused), and how arms are drawn: "shield", "badge", or
+   * "auto" — a badge for a story on the modern calendar, a shield otherwise.
+   */
+  heraldry_contrast: "1",
+  heraldry_style: "auto",
   /** "since" the last note, or a "window" of the last `auto_lore_every`. */
   auto_lore_scope: "since",
   lore_budget: "8000",

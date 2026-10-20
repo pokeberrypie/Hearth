@@ -47,7 +47,8 @@ import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, startBookmark, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
-import { STATUS_FIELDS, clockOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
+import { armsFromName, chargeFor, drawArms, normaliseBlazon, withContrast, type Blazon } from "./heraldry";
+import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { checkAnswer, fieldOf, stewardRequest, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
@@ -3311,14 +3312,15 @@ function chronicleOf(chatId: string): ChronicleEntry[] {
 function copyChronicle(entries: ChronicleEntry[], chatId: string) {
   const ins = db.query(
     `INSERT INTO chronicle (id, chat_id, message_id, kind, day, minute, span, title, body, visibility,
-                            source, evidence, scene_id, subject, field, created_at, undone_at, proposed)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                            source, evidence, scene_id, subject, field, object, amount, data, created_at, undone_at, proposed)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   db.transaction(() => {
     for (const e of entries) {
       ins.run(e.id && !db.query("SELECT 1 FROM chronicle WHERE id = ?").get(e.id) ? e.id : uid(),
               chatId, e.message_id, e.kind, e.day, e.minute, e.span, e.title, e.body, e.visibility,
-              e.source, e.evidence, e.scene_id, e.subject, e.field, e.created_at, e.undone_at, e.proposed ? 1 : 0);
+              e.source, e.evidence, e.scene_id, e.subject, e.field, e.object, e.amount, e.data,
+              e.created_at, e.undone_at, e.proposed ? 1 : 0);
     }
   })();
 }
@@ -3382,6 +3384,11 @@ function chronicleState(chatId: string) {
     // How everyone is now, by the tracker — whichever field has a word on it.
     status: Object.fromEntries(Object.entries(statusOf(entries)).map(([who, fields]) => [who,
       Object.fromEntries(Object.entries(fields).map(([f, e]) => [f, { value: e!.title, evidence: e!.evidence, source: e!.source, id: e!.id }]))])),
+    // How each person feels about each other one, one way round.
+    bonds: bondsOf(entries).map((b) => ({ from: b.from, to: b.to, score: b.score, label: b.label, memory: b.memory,
+      changes: b.history.length })),
+    // The groups in the story, with their arms and the party's standing with them.
+    factions: factionsOf(entries).map(({ entry, ...f }) => f),
     // Waiting on the host. A hidden one is still hidden here: accepting it is
     // not the same as reading it.
     proposals: chronicleView(pending(entries).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
@@ -3410,7 +3417,43 @@ api.post("/chats/:id/chronicle", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const cal = calendarOf(chatId);
   const at = clockOf(cal, chronicleOf(chatId));
-  const kind = ["event", "time", "set", "status"].includes(b.kind) ? b.kind : "event";
+  const kind = ["event", "time", "set", "status", "bond", "faction", "standing"].includes(b.kind) ? b.kind : "event";
+  const lastMessage = () =>
+    (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
+  const add = (fields: Record<string, unknown>) => {
+    copyChronicle([normaliseChronicleEntry({ ...fields, id: uid(), kind, message_id: lastMessage(), day: at.day, minute: at.minute,
+      source: "user", created_at: now() })], chatId);
+    return c.json(chronicleState(chatId));
+  };
+  if (kind === "bond") {
+    const from = String(b.from ?? "").trim().slice(0, 120);
+    const to = String(b.to ?? "").trim().slice(0, 120);
+    if (!from || !to || from === to) return c.json({ error: "A bond needs two different people." }, 400);
+    // A person may set it outright: the step is whatever gets it there.
+    const current = bondsOf(chronicleOf(chatId)).find((x) => x.from === from && x.to === to)?.score ?? BOND_START;
+    const amount = Number.isFinite(Number(b.score)) && b.score !== null && b.score !== ""
+      ? Math.max(0, Math.min(100, Math.round(Number(b.score)))) - current
+      : Math.round(Number(b.amount) || 0);
+    return add({ subject: from, object: to, amount, title: b.label, body: b.memory });
+  }
+  if (kind === "faction") {
+    const set = await charges();
+    const name = String(b.name ?? "").trim().slice(0, 80);
+    const existing = b.key ? factionsOf(chronicleOf(chatId)).find((f) => f.key === b.key) : null;
+    if (b.key && !existing) return c.json({ error: "No such faction in this chat." }, 404);
+    if (b.gone) return add({ subject: existing!.key, title: existing!.name, data: { gone: true } });
+    if (!name && !existing) return c.json({ error: "A faction needs a name." }, 400);
+    let arms: Blazon | null = b.arms === undefined ? (existing?.arms as Blazon) ?? null : normaliseBlazon(b.arms, set.ids);
+    if (!arms) arms = armsFromName(name || existing!.name, set.ids);
+    if (getSettings().heraldry_contrast !== "0") arms = withContrast(arms);
+    const members = Array.isArray(b.members) ? b.members.map((m: unknown) => String(m).slice(0, 120)).slice(0, 100) : existing?.members ?? [];
+    return add({ subject: existing?.key ?? uid(), title: name || existing!.name,
+      body: b.description === undefined ? existing?.description ?? "" : b.description, data: { arms, members } });
+  }
+  if (kind === "standing") {
+    if (!factionsOf(chronicleOf(chatId)).some((f) => f.key === b.key)) return c.json({ error: "No such faction in this chat." }, 404);
+    return add({ subject: b.key, amount: Math.round(Number(b.amount) || 0), title: b.title, body: b.body });
+  }
   if (kind === "status") {
     const field = fieldOf(b.field);
     const subject = String(b.subject ?? "").trim().slice(0, 120);
@@ -3492,6 +3535,55 @@ api.put("/chats/:id/calendar", async (c) => {
   if (!cal) return c.json({ error: "That is not a calendar Hearth can read." }, 400);
   db.query("UPDATE chats SET calendar = ? WHERE id = ?").run(cal.kind === "undated" ? "" : JSON.stringify(cal), chatId);
   return c.json(chronicleState(chatId));
+});
+
+// ---- the faction charges ---------------------------------------------------
+//
+// The emblems in public/charges, read by the server to draw arms. Read from
+// the public folder on disk, except in the installed desktop app, which has
+// no such folder: desktop.ts points this at the copies compiled into it.
+
+let readAsset: (path: string) => Promise<string | null> = async (path) => {
+  try { return readFileSync(join("public", path), "utf8"); } catch { return null; }
+};
+let chargeSet: Promise<{ ids: string[]; paths: Record<string, string> }> | null = null;
+
+/** Where the server reads public files from, for a build that keeps them somewhere else. */
+export function readAssetsWith(read: (path: string) => Promise<string | null>) {
+  readAsset = read;
+  chargeSet = null;
+}
+
+/** Every charge: its id, and its shape. Read once. An unreadable set is an empty one, never an error. */
+function charges() {
+  return (chargeSet ??= (async () => {
+    const paths: Record<string, string> = {};
+    try {
+      const manifest = JSON.parse((await readAsset("/charges/manifest.json")) ?? "{}");
+      for (const a of manifest.assets ?? []) {
+        const d = (await readAsset(`/charges/${a.svg}`))?.match(/ d="([^"]+)"/)?.[1];
+        if (d) paths[a.id] = d;
+      }
+    } catch {}
+    return { ids: Object.keys(paths), paths };
+  })());
+}
+
+/** A faction's arms, drawn. A badge on the modern calendar unless told otherwise. */
+api.get("/chats/:id/factions/:key/arms.svg", async (c) => {
+  const chatId = c.req.param("id");
+  const f = factionsOf(chronicleOf(chatId)).find((x) => x.key === c.req.param("key"))
+    ?? pending(chronicleOf(chatId)).filter((e) => e.kind === "faction" && e.subject === c.req.param("key"))
+      .map((e) => ({ key: e.subject!, name: e.title, arms: (() => { try { return JSON.parse(e.data).arms; } catch { return null; } })() }))[0];
+  if (!f) return c.json({ error: "No such faction in this chat." }, 404);
+  const set = await charges();
+  const s = getSettings();
+  const style = s.heraldry_style === "shield" || s.heraldry_style === "badge" ? s.heraldry_style
+    : calendarOf(chatId).kind === "gregorian" ? "badge" : "shield";
+  const arms = normaliseBlazon(f.arms, set.ids) ?? armsFromName(f.name, set.ids);
+  const svg = drawArms(s.heraldry_contrast === "0" ? arms : withContrast(arms), set.paths,
+    { style, id: `f${String(f.key).slice(0, 12)}`, label: `Arms of ${f.name}` });
+  return new Response(svg, { headers: { "content-type": "image/svg+xml", "cache-control": "no-cache" } });
 });
 
 // ---- the Steward -----------------------------------------------------------
@@ -3577,9 +3669,12 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     ...p,
     known: Object.fromEntries(Object.entries(known[p.name] ?? {}).map(([f, e]) => [f, e!.title])),
   }));
+  // Factions it should not propose again: those that exist, and those already waiting on a person.
+  const groups = [...factionsOf(before).map((f) => f.name),
+    ...pending(before).filter((e) => e.kind === "faction").map((e) => e.title)];
   const conn = stewardConnection(s);
   const start = clockOf(cal, before);
-  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking });
+  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups });
 
   let said = "";
   let problem = "";
@@ -3606,10 +3701,12 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     askAboveMinutes: s.steward_ask_days !== "" && Number.isFinite(askDays) && askDays >= 0 ? askDays * minutesPerDay(cal) : -1,
     maxEvents: 5,
     maxStatus: 12,
+    maxBonds: 6,
+    maxFactions: 3,
   };
   const checked = problem
     ? { claims: [] as Claim[], dropped: [], none: false, noise: 0 }
-    : checkAnswer(said, passages, people, cal, start, limits, { tracking });
+    : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups });
   if (!problem && !checked.claims.length && !checked.none) problem = "Nothing in the answer could be used.";
 
   if (!problem) {
@@ -3617,7 +3714,8 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     forgetSteward(rows.map((m) => m.id), false);
     const order = new Map(passages.map((p, i) => [p.id, i]));
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
-    const rank = { time: 0, event: 1, status: 2 } as const;
+    const rank = { time: 0, event: 1, status: 2, bond: 3, faction: 4 } as const;
+    const set = await charges();
     const story = [...checked.claims].sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
     let at = start;
@@ -3636,6 +3734,23 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           body: claim.people.length ? `With ${claim.people.join(", ")}.` : "",
           evidence: claim.evidence, source: "steward", created_at: t++,
         }));
+      } else if (claim.kind === "bond") {
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "bond", message_id: claim.message_id, day: at.day, minute: at.minute,
+          subject: claim.from, object: claim.to, amount: claim.amount, title: claim.label,
+          evidence: claim.evidence, source: "steward", created_at: t++,
+        }));
+      } else if (claim.kind === "faction") {
+        // Proposed, never made: a person says yes. Its arms are derived from its
+        // name, with the emblem the story gave it if that is one Hearth has.
+        const arms = armsFromName(claim.name, set.ids);
+        const emblem = chargeFor(claim.symbol, set.ids);
+        if (emblem && arms.charge) arms.charge = { ...arms.charge, type: emblem };
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "faction", message_id: claim.message_id, day: at.day, minute: at.minute,
+          subject: uid(), title: claim.name, body: claim.description, data: { arms: withContrast(arms), members: [] },
+          evidence: claim.evidence, source: "steward", created_at: t++, proposed: true,
+        }));
       } else {
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
@@ -3647,7 +3762,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     copyChronicle(entries, chat.id);
   }
 
-  const proposed = checked.claims.filter((c) => c.kind === "time" && c.proposed).length;
+  const proposed = checked.claims.filter((c) => (c.kind === "time" && c.proposed) || c.kind === "faction").length;
   db.query(
     `INSERT INTO steward_runs (id, chat_id, model, kept, proposed, dropped, problem, answer, created_at)
      VALUES (?,?,?,?,?,?,?,?,?)`,
