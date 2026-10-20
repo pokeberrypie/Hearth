@@ -52,10 +52,12 @@ async function paintWorldLine() {
   $("#worldDate").textContent = dated ? s.now.text : "Story World";
   const note = $("#worldNote");
   note.hidden = !waiting;
-  note.textContent = waiting ? ` · ${waiting} waiting` : "";
+  note.textContent = waiting ? String(waiting) : "";
+  note.title = waiting ? `${waiting} waiting for you` : "";
   if (!$("#worldDialog")?.open) return;
   paintWorld();
 }
+
 
 /** A guest's line comes from the table's own state, and moves with the live feed. */
 function paintGuestWorldLine(summary) {
@@ -64,8 +66,10 @@ function paintGuestWorldLine(summary) {
   if (!line || !w) return;
   line.hidden = !w.today;
   $("#worldDate").textContent = w.today;
-  $("#worldNote").hidden = !w.latest;
-  $("#worldNote").textContent = w.latest ? ` · ${w.latest}` : "";
+  // Under a title there is room for the date and nothing more; the latest
+  // event is in the window, a tap away.
+  $("#worldNote").hidden = true;
+  line.title = w.latest ? `Latest: ${w.latest}` : "";
 }
 
 // ---- the window -------------------------------------------------------------
