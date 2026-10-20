@@ -45,11 +45,11 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
          startFight, stateOf, type Fight } from "./fight";
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
-import { advance, briefFor, jumpTo, normaliseChapters, readBookmark, scenesOf, startBookmark, type Apocryphon, type Bookmark } from "./apocrypha";
+import { WRITE_APOC_SYSTEM, advance, apocWritePrompt, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
-import { checkAnswer, fieldOf, groupKey, stewardRequest, wayOf, type Claim, type Passage, type Person } from "./steward";
+import { checkAnswer, fieldOf, groupKey, needsFoldedSystem, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -1262,6 +1262,7 @@ api.post("/chats/:id/generate", async (c) => {
           // What the Steward made of the reply this one replaced no longer happened.
           forgetSteward([swipeTarget.id]);
           tieNarration(chatId, swipeTarget.id, t0);
+          openingTime(chatId, swipeTarget.id, full);
           send({ done: true, id: swipeTarget.id, text: full, swipes: list.length, index: list.length - 1, thrown, ...stats });
         } else {
           const id = uid();
@@ -1271,6 +1272,7 @@ api.post("/chats/:id/generate", async (c) => {
           ).run(id, chatId, "assistant", who.name, full, now(), JSON.stringify([full]), 0,
                 think, tokens, ms, who.id ?? null);
           tieNarration(chatId, id, t0);
+          openingTime(chatId, id, full);
           send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", thrown, ...stats });
         }
       } finally {
@@ -3290,6 +3292,95 @@ api.delete("/apocrypha/:id", (c) => {
   return c.json({ ok: true });
 });
 
+/** Stories from a file: Hearth's own export, or the outline text (see src/apocrypha.ts). */
+api.post("/apocrypha/import", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const books = readImport(String(b.text ?? "").slice(0, 2_000_000));
+  if (!books.length) {
+    return c.json({ error: "Nothing in that file reads as a story. Hearth takes its own export, or an outline: \"# Name\", then \"## Chapter\" and \"### Scene\" headings." }, 400);
+  }
+  const fallback = String(b.filename ?? "").replace(/\.[a-z0-9]+$/i, "").trim();
+  const ins = db.query("INSERT INTO apocrypha (id, name, premise, chapters, created_at, updated_at) VALUES (?,?,?,?,?,?)");
+  const made: { id: string; name: string }[] = [];
+  db.transaction(() => {
+    for (const book of books) {
+      const id = uid();
+      const t = now();
+      const name = book.name || fallback || "An untold story";
+      ins.run(id, name.slice(0, 200), book.premise, JSON.stringify(book.chapters), t, t);
+      made.push({ id, name });
+    }
+  })();
+  return c.json({ books: made });
+});
+
+/** One story, as Hearth's own JSON or as the outline text. */
+api.get("/apocrypha/:id/export", (c) => {
+  const book = apocryphon(c.req.param("id"));
+  if (!book) return c.json({ error: "That book is not on the shelf any more." }, 404);
+  const { created_at, updated_at, ...plain } = book;
+  return c.req.query("format") === "md"
+    ? c.json({ filename: `${book.name}.md`, text: toOutline(book) })
+    : c.json({ filename: `${book.name}.json`, text: JSON.stringify({ hearth: "apocrypha", version: 1, ...plain }, null, 2) });
+});
+
+/**
+ * A model writing part of a story's plan, when asked: the premise, the next
+ * chapters, or the blanks in one scene. It writes in the outline text and the
+ * same reader as an import takes it in, so a cheap model's untidy answer still
+ * lands as fields — and nothing is saved here. The editor puts what came back
+ * into the draft, where the person can keep it, change it, or not save it.
+ */
+api.post("/apocrypha/write", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const what = b.what === "premise" || b.what === "scene" ? b.what : "outline";
+  const book = {
+    name: String(b.book?.name ?? "").slice(0, 200),
+    premise: String(b.book?.premise ?? "").slice(0, 20000),
+    chapters: normaliseChapters(b.book?.chapters),
+  };
+  const s = getSettings();
+  const model = s.model;
+  const prompt = apocWritePrompt(what, book, { idea: b.idea, chapter: Number(b.chapter), scene: Number(b.scene), chapters: Number(b.chapters) });
+  const fold = needsFoldedSystem(model);
+  let text = "";
+  try {
+    for await (const chunk of generate({
+      ...connectionFrom(s),
+      model,
+      system: fold ? "" : WRITE_APOC_SYSTEM,
+      messages: [{ role: "user", content: fold ? `${WRITE_APOC_SYSTEM}\n\n${prompt}` : prompt }],
+      sampling: { temperature: 0.9, maxTokens: what === "outline" ? 3000 : what === "scene" ? 900 : 500, topP: 1, minP: 0,
+                  repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0,
+                  stream: false, reasoningEffort: "off" },
+    })) {
+      if (chunk.kind === "text") text += chunk.text;
+      if (text.length > 40000) break;
+    }
+  } catch (err: any) {
+    return c.json({ error: err?.message ?? "The model could not be reached." }, 502);
+  }
+  text = withoutThinking(text).replace(/^```[a-z]*\n?|```\s*$/gim, "").trim();
+
+  if (what === "premise") {
+    const premise = text.replace(/^#+.*$/gm, "").replace(/^\s*(?:premise|the story)\s*:\s*/i, "").trim().replace(/^["“]|["”]$/g, "");
+    if (premise.length < 20) return c.json({ error: "The model did not write a premise. Try again, or say a little more." }, 502);
+    return c.json({ premise: premise.slice(0, 4000) });
+  }
+  const read = readOutline(text);
+  const scenes = (read?.chapters ?? []).flatMap((ch) => ch.scenes);
+  if (what === "scene") {
+    const sc = scenes[0];
+    if (!sc || !(sc.setting || sc.cast || sc.purpose || sc.beats || sc.ending)) {
+      return c.json({ error: "The model did not fill in the scene. Try again." }, 502);
+    }
+    return c.json({ scene: sc });
+  }
+  const chapters = (read?.chapters ?? []).filter((ch) => ch.scenes.length);
+  if (!chapters.length) return c.json({ error: "The model did not write any chapters. Try again, or say a little more." }, 502);
+  return c.json({ chapters });
+});
+
 /** Which book this chat follows, and where it has got to. */
 api.get("/chats/:id/apocrypha", (c) => c.json(taleOf(c.req.param("id"))));
 
@@ -3754,10 +3845,11 @@ function peopleOf(chat: any): Person[] {
  * them, so the new words are read in their turn. Taken back, not deleted:
  * the record of what it once thought stays, counting for nothing.
  */
-function forgetSteward(messageIds: string[], reread = true) {
+function forgetSteward(messageIds: string[], reread = true, narrator = true) {
   const t = now();
-  // The narrator's own marks go with the words they were written in, as the Steward's readings do.
-  const undo = db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN ('steward', 'narrator') AND undone_at IS NULL");
+  // The narrator's own marks go with the words they were written in, as the Steward's readings do —
+  // when the words change. The Steward reading the same words again replaces only its own.
+  const undo = db.query(`UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN (${narrator ? "'steward', 'narrator'" : "'steward'"}) AND undone_at IS NULL`);
   const rewind = db.query("UPDATE chats SET steward_at = MIN(steward_at, ?) WHERE id = ?");
   const chats = new Set<string>();
   db.transaction(() => {
@@ -3848,12 +3940,16 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
 
   if (!problem) {
     // Read again, so whatever it made of these messages before is replaced.
-    forgetSteward(rows.map((m) => m.id), false);
+    forgetSteward(rows.map((m) => m.id), false, false);
     const order = new Map(passages.map((p, i) => [p.id, i]));
+    // Time a message already moved the clock by — its opening line, the
+    // narrator's mark, a person — is not counted a second time.
+    const timed = new Set(liveEntries(chronicleOf(chat.id))
+      .filter((e) => e.kind === "time" && e.source !== "steward" && e.message_id).map((e) => e.message_id));
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
     const rank = { time: 0, event: 1, status: 2, bond: 3, faction: 4 } as const;
     const set = await charges();
-    const story = [...checked.claims].sort((a, b) =>
+    const story = [...checked.claims].filter((c) => !(c.kind === "time" && timed.has(c.message_id))).sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
     let at = start;
     let t = now();
@@ -5189,6 +5285,37 @@ function recordNarrated(chatId: string, fields: Record<string, unknown>) {
 function tieNarration(chatId: string, messageId: string, since: number) {
   db.query("UPDATE chronicle SET message_id = ? WHERE chat_id = ? AND source = 'narrator' AND message_id IS NULL AND created_at >= ?")
     .run(messageId, chatId, since);
+}
+
+/**
+ * Time a reply opens on: "Three days later, …", "The next morning, …".
+ *
+ * Read the moment the reply is saved, so a time skip moves the date at once
+ * rather than whenever the Steward next reads (every so many messages, and
+ * only with a model to read with). Only the opening clause, and only through
+ * readSpan, which reads a plain span or nothing: "Some time later" and a
+ * line of dialogue move nothing. Skipped where the narrator already marked
+ * the time, so nothing is counted twice; recorded as the narrator's, so an
+ * edit or a swipe of the reply takes it away with the words.
+ */
+export function openingClause(text: string): string {
+  const start = String(text ?? "").replace(/^(?:\s|[*_>#~]|<[^>]*>)+/, "");
+  if (/^["“'‘(\[]/.test(start)) return "";
+  const clause = start.split(/[,.;:!?\n—–]/)[0]?.replace(/[*_~]/g, "").trim() ?? "";
+  return clause.length <= 60 ? clause : "";
+}
+
+function openingTime(chatId: string, messageId: string, text: string) {
+  const entries = chronicleOf(chatId);
+  if (liveEntries(entries).some((e) => e.kind === "time" && e.message_id === messageId)) return;
+  const said = openingClause(text);
+  if (!said) return;
+  const cal = calendarOf(chatId);
+  const span = readSpan(cal, said, clockOf(cal, entries));
+  if (!span) return;
+  const t = now();
+  recordNarrated(chatId, { kind: "time", span, title: said, day: null, minute: null });
+  tieNarration(chatId, messageId, t);
 }
 
 /**

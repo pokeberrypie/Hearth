@@ -669,6 +669,11 @@
           <div id="apocShelf" class="shelf"></div>
           <div id="apocDetail" class="pulled" hidden></div>
           <button class="solid wide" id="newApocBtn">New story</button>
+          <button class="ghost wide" id="apocImportBtn">Import a story</button>
+          <input type="file" id="apocImport" accept=".json,.md,.markdown,.txt,application/json,text/plain,text/markdown" multiple hidden>
+          <p class="hint">Takes Hearth's own export, or an outline written anywhere: <code># Story name</code>,
+            then <code>## Chapter</code> and <code>### Scene</code> headings, with <code>Setting:</code>,
+            <code>Cast:</code>, <code>Purpose:</code>, <code>Beats:</code> and <code>Ending:</code> lines under a scene.</p>
         </div>
         <div id="archivesWing">
         <div id="loreActive" class="loreactive"></div>
@@ -1726,11 +1731,13 @@
   <label>The story, in a paragraph
     <textarea id="ap_premise" rows="3" placeholder="Where it starts, and roughly where it is meant to go."></textarea>
   </label>
+  <button type="button" class="linkish apwrite" id="ap_writePremise">✦ Write the premise for me</button>
   <p class="hint" id="ap_omen">With no scenes yet this is an omen — an idea on the shelf. Give it a
     chapter and a scene and it becomes something a chat can follow.</p>
   <div id="ap_chapters"></div>
   <div class="actions">
     <button class="ghost" id="ap_addChapter">Add a chapter</button>
+    <button class="ghost" id="ap_writeChapters">✦ Draft chapters with AI</button>
     <button class="solid" id="ap_save">Save</button>
   </div>
 </dialog>

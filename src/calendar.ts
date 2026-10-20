@@ -330,12 +330,22 @@ export function readSpan(cal: Calendar, text: string, from: Moment): number | nu
   if (!t || t.length > 80) return null;
   const perDay = minutesPerDay(cal);
 
-  // "until dawn", "the next morning", "tomorrow", "morning came".
-  const toward = t.match(/^(?:until|till|til|to)\s+(?:the\s+)?([a-z]+)$/);
+  // "Later that evening", "that night": later today, and only if that part of
+  // the day is still to come — one already past is not guessed at.
+  const sameDay = t.match(/^(?:later\s+)?that\s+(?:same\s+)?([a-z]+)$/);
+  if (sameDay) {
+    const part = cal.parts.find((p) => p.name === sameDay[1]);
+    const wait = part ? part.hour * 60 - from.minute : 0;
+    return wait > 0 ? wait : null;
+  }
+
+  // "until dawn", "by dawn", "the next morning", "the following day", "tomorrow", "morning came".
+  const toward = t.match(/^(?:until|till|til|to|by)\s+(?:the\s+)?([a-z]+)$/)
+    ?? t.match(/^([a-z]+)\s+(?:came|comes|broke|breaks|arrived)$/);
   const nextOne = t.match(/^(?:the\s+)?(?:next|following)\s+([a-z]+)$/) ?? t.match(/^([a-z]+)\s+tomorrow$/);
   if (toward || nextOne || t === "tomorrow") {
     const name = (toward ?? nextOne)?.[1] ?? "morning";
-    if (name === "day") return t === "the next day" || t === "next day" ? perDay : null;
+    if (name === "day") return nextOne ? perDay : null;
     const part = cal.parts.find((p) => p.name === name);
     if (!part) return null;
     const wait = part.hour * 60 - from.minute;
@@ -375,7 +385,7 @@ export function readSpan(cal: Calendar, text: string, from: Moment): number | nu
 const FILLER = new Set([
   "about", "around", "roughly", "some", "nearly", "almost", "over", "another", "just", "later",
   "pass", "passes", "passed", "go", "goes", "went", "by", "of", "has", "have", "had", "after",
-  "for", "the", "full", "whole", "good", "long",
+  "for", "the", "full", "whole", "good", "long", "on",
 ]);
 
 function countOf(word: string): number | null {

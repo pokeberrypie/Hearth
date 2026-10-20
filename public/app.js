@@ -4247,7 +4247,8 @@ document.addEventListener("click", async (e) => {
     case "timeskip":
       run("reply", "", "Move the scene forward in time. Open on a later moment — " +
         "later that day, the next morning, a week on, whatever the story wants. " +
-        "Say plainly how much time has passed, then continue.");
+        "Begin the reply by saying how much time has passed, in so many words, as its very first " +
+        "phrase (\"Three days later,\" or \"The next morning,\"), then continue.");
       break;
 
     case "twist":
@@ -11279,10 +11280,14 @@ function renderPulledApoc() {
     (S.chatId && n
       ? `<button class="ghost" data-follow>${a.id === followedApoc ? "Followed in this chat" : "Follow in this chat"}</button>`
       : "") +
+    `<button class="ghost" data-export>Export</button>` +
+    `<button class="ghost" data-export-md>Export as an outline</button>` +
     `<button class="ghost danger" data-del>Delete</button>` +
     `</div>`;
   box.onclick = async (e) => {
     if (e.target.closest("[data-edit]")) return openApoc(a);
+    if (e.target.closest("[data-export]")) return exportApoc(a, "json");
+    if (e.target.closest("[data-export-md]")) return exportApoc(a, "md");
     if (e.target.closest("[data-follow]")) {
       if (a.id === followedApoc) return;
       const r = await api(`/chats/${S.chatId}/apocrypha`, {
@@ -11347,6 +11352,7 @@ function renderApocChapters() {
         ? `<label>${label}<input data-ci="${ci}" data-si="${si}" data-f="${f}" value="${esc(sc[f])}" placeholder="${esc(hint)}"></label>`
         : `<label>${label}<textarea rows="3" data-ci="${ci}" data-si="${si}" data-f="${f}" placeholder="${esc(hint)}">${esc(sc[f])}</textarea></label>`,
       ).join("") +
+      `<button type="button" class="linkish apwrite" data-fillscene="${ci}:${si}">✦ Fill in the rest with AI</button>` +
       `</div></details>`,
     ).join("") +
     `<button class="linkish" data-addscene="${ci}">Add a scene</button>` +
@@ -11370,6 +11376,18 @@ $("#ap_chapters").addEventListener("click", async (e) => {
   const add = e.target.closest("[data-addscene]");
   const rmScene = e.target.closest("[data-rmscene]");
   const rmChapter = e.target.closest("[data-rmchapter]");
+  const fill = e.target.closest("[data-fillscene]");
+  if (fill) {
+    const [ci, si] = fill.dataset.fillscene.split(":").map(Number);
+    const r = await apocWrite(fill, { what: "scene", chapter: ci, scene: si });
+    if (!r?.scene) return;
+    // Only the blanks: whatever the person already wrote stays as written.
+    const sc = editingApoc.chapters[ci].scenes[si];
+    for (const [f] of SCENE_FIELDS) if (!String(sc[f] ?? "").trim() && r.scene[f]) sc[f] = r.scene[f];
+    renderApocChapters();
+    $("#ap_chapters").querySelectorAll(".apocchapter")[ci]?.querySelectorAll("details")[si]?.setAttribute("open", "");
+    return;
+  }
   if (add) {
     editingApoc.chapters[+add.dataset.addscene].scenes.push(blankScene());
     renderApocChapters();
@@ -11394,6 +11412,58 @@ $("#ap_addChapter").onclick = () => {
 
 $("#ap_close").onclick = () => $("#apocDialog").close();
 
+/**
+ * Asking the model to write part of the plan. Nothing is saved by this: what
+ * comes back goes into the draft in front of the person, who keeps it with
+ * Save or does not. The button says it is writing, since a long outline can
+ * take a while on a slow model.
+ */
+async function apocWrite(button, body) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Writing…";
+  try {
+    const r = await api("/apocrypha/write", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ ...body, book: { name: $("#ap_name").value, premise: $("#ap_premise").value, chapters: editingApoc.chapters } }),
+    });
+    if (r?.error) { toast(r.error); return null; }
+    return r;
+  } catch {
+    toast("The model could not be reached.");
+    return null;
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+$("#ap_writePremise").onclick = async (e) => {
+  const had = $("#ap_premise").value.trim();
+  const idea = await askDialog({ title: had ? "Rewrite the premise around what?" : "What is the story about?",
+    text: "A few words is plenty — or leave it empty and the name is the idea.", confirmLabel: "Write", value: "" });
+  if (idea === null) return;
+  const r = await apocWrite(e.currentTarget, { what: "premise", idea });
+  if (r?.premise) $("#ap_premise").value = r.premise;
+};
+
+$("#ap_writeChapters").onclick = async (e) => {
+  const button = e.currentTarget;
+  const more = editingApoc.chapters.some((ch) => ch.scenes.length);
+  const idea = await askDialog({ title: more ? "Where should the next chapters go?" : "Draft the chapters",
+    text: "Optional: anything they should include. Three chapters, a few scenes each; you can change all of it.",
+    confirmLabel: "Write", value: "" });
+  if (idea === null) return;
+  const r = await apocWrite(button, { what: "outline", idea, chapters: 3 });
+  if (!r?.chapters?.length) return;
+  // A lone empty chapter from "Add a chapter" is replaced rather than left above the draft.
+  editingApoc.chapters = editingApoc.chapters.filter((ch) => ch.title.trim() || ch.summary.trim()
+    || ch.scenes.some((sc) => SCENE_FIELDS.some(([f]) => String(sc[f] ?? "").trim())));
+  editingApoc.chapters.push(...r.chapters);
+  renderApocChapters();
+  toast(`${r.chapters.length} chapter${r.chapters.length === 1 ? "" : "s"} drafted. Save to keep them.`);
+};
+
 $("#ap_save").onclick = async () => {
   const r = await api("/apocrypha/" + editingApoc.id, {
     method: "PUT", headers: JSON_HEADERS,
@@ -11404,6 +11474,30 @@ $("#ap_save").onclick = async () => {
   await refreshApocrypha();
   toast("Story saved.");
 };
+
+$("#apocImportBtn").onclick = () => $("#apocImport").click();
+$("#apocImport").onchange = async (e) => {
+  const files = [...(e.target.files ?? [])];
+  e.target.value = "";
+  let made = 0;
+  for (const file of files) {
+    const r = await api("/apocrypha/import", {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ text: await file.text(), filename: file.name }),
+    });
+    if (r?.error) { toast(`${file.name}: ${r.error}`); continue; }
+    made += r.books.length;
+    if (r.books.length) pulledApoc = r.books[0].id;
+  }
+  if (!made) return;
+  await refreshApocrypha();
+  toast(made === 1 ? "Story imported." : `${made} stories imported.`);
+};
+
+async function exportApoc(a, format) {
+  const r = await api(`/apocrypha/${a.id}/export${format === "md" ? "?format=md" : ""}`);
+  if (r?.error) return toast(r.error);
+  download(r.filename, r.text);
+}
 
 $("#newApocBtn").onclick = async () => {
   const name = await askFor("Name this story", "");

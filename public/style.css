@@ -8104,3 +8104,5 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
 .inlaystatus .linkish { margin-top: 0.4rem; }
 @keyframes inlaystatus-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (prefers-reduced-motion: reduce) { .inlaystatus { animation: none; } }
+.apwrite { display: block; margin: 0.25rem 0 0.7rem; }
+.apwrite:disabled { opacity: 0.6; cursor: progress; }

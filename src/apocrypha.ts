@@ -188,3 +188,197 @@ export function briefFor(book: Apocryphon, mark: Bookmark | null): string | null
   }
   return lines.join("\n");
 }
+
+// ---- import, export, and writing with a model -------------------------------
+//
+// One plain-text shape does all three jobs. A book exports as it, imports from
+// it, and a model asked to write one writes in it — so whatever a person
+// drafts in a notes app, or pastes from another assistant, or a cheap model
+// produces, goes through the same forgiving reader:
+//
+//   # The Champion of the Hand
+//   A marriage on her own terms, and what it costs.
+//
+//   ## The Tourney
+//   Summary of the chapter, if any.
+//
+//   ### A Lion Cornered
+//   Setting: The Red Keep, that evening
+//   Cast: Jaime, Cersei
+//   Purpose: Cersei learns of the betrothal
+//   Beats:
+//   - a dropped cup
+//   - a threat, quietly made
+//   Ending: Jaime leaves without answering
+//
+// Field names are matched loosely ("Where", "Who", "For", "Possible beats");
+// a line that is not a field is added to whatever field came last, so prose
+// wrapped over several lines is not lost.
+
+type Draft = { name: string; premise: string; chapters: Chapter[] };
+
+const FIELD_NAMES: [keyof Scene, RegExp][] = [
+  ["setting", /^(?:setting|where(?: and when)?|location|place|when)$/],
+  ["cast", /^(?:cast|who|characters|people|present|who is (?:meant to be )?there)$/],
+  ["purpose", /^(?:purpose|for|goal|point|what (?:the scene|it) is for|why)$/],
+  ["beats", /^(?:beats|possible beats|things that could happen|could happen|possibilities|events)$/],
+  ["ending", /^(?:ending|ends|end|roughly where it ends|where it ends|exit)$/],
+];
+
+const fieldOf = (label: string): keyof Scene | null => {
+  const l = label.toLowerCase().replace(/[*_]/g, "").trim();
+  return FIELD_NAMES.find(([, re]) => re.test(l))?.[0] ?? null;
+};
+
+/** The outline text, read into a book. Null when there is not even a name or a scene in it. */
+export function readOutline(text: string): Draft | null {
+  const draft: Draft = { name: "", premise: "", chapters: [] };
+  let chapter: Chapter | null = null;
+  let scene: Scene | null = null;
+  let field = "premise" as string | null;
+  const add = (to: { [k: string]: any }, key: string, line: string) => {
+    to[key] = to[key] ? `${to[key]}\n${line}` : line;
+  };
+  const newChapter = (title: string) => {
+    chapter = { id: crypto.randomUUID(), title, summary: "", scenes: [] };
+    draft.chapters.push(chapter);
+    scene = null;
+    field = "summary";
+  };
+
+  for (const raw of String(text ?? "").replace(/\r/g, "").split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    const head = line.match(/^(#{1,6})\s+(.*)$/);
+    if (head) {
+      const level = head[1].length;
+      const title = head[2].replace(/^(?:chapter|scene)\s*[\dIVXLC]*\s*[:.—–-]\s*/i, "").trim() || head[2].trim();
+      if (level === 1 && !draft.name && !draft.chapters.length) { draft.name = title; field = "premise"; continue; }
+      if (level <= 2) { newChapter(title); continue; }
+      if (!chapter) newChapter("");
+      scene = { id: crypto.randomUUID(), title, setting: "", cast: "", purpose: "", beats: "", ending: "" };
+      chapter!.scenes.push(scene);
+      field = null;
+      continue;
+    }
+    // "**Setting:** …" and "__Setting:__ …", as models like to write them, read as "Setting: …".
+    const plain = line.replace(/^(\s*[-*]?\s*)(\*\*|__)([^*_]+?):\2/, "$1$3:");
+    const labelled = plain.match(/^\s*[-*]?\s*\**([A-Za-z][A-Za-z ]{0,40}?)\**\s*:\s*(.*)$/);
+    const key = labelled && scene ? fieldOf(labelled[1]) : null;
+    if (key && scene) {
+      field = key;
+      if (labelled![2].trim()) add(scene, key, labelled![2].replace(/^[*_]+\s*/, "").trim());
+      continue;
+    }
+    if (!line.trim()) continue;
+    if (scene && field) add(scene, field, line.trim());
+    else if (scene) add(scene, "purpose", line.trim());
+    else if (chapter && field === "summary") add(chapter, "summary", line.trim());
+    else if (!chapter) add(draft, "premise", line.trim());
+  }
+  if (!draft.name && !draft.chapters.length && !draft.premise) return null;
+  return { name: draft.name, premise: draft.premise, chapters: normaliseChapters(draft.chapters) };
+}
+
+/** A book as the outline text: what exports, and what readOutline reads back. */
+export function toOutline(book: Pick<Apocryphon, "name" | "premise" | "chapters">): string {
+  const out: string[] = [`# ${book.name || "An untold story"}`];
+  if (book.premise.trim()) out.push(book.premise.trim());
+  for (const ch of book.chapters) {
+    out.push("", `## ${ch.title || "Untitled chapter"}`);
+    if (ch.summary.trim()) out.push(ch.summary.trim());
+    for (const sc of ch.scenes) {
+      out.push("", `### ${sc.title || "Untitled scene"}`);
+      if (sc.setting.trim()) out.push(`Setting: ${sc.setting.trim()}`);
+      if (sc.cast.trim()) out.push(`Cast: ${sc.cast.trim()}`);
+      if (sc.purpose.trim()) out.push(`Purpose: ${sc.purpose.trim()}`);
+      if (sc.beats.trim()) out.push(`Beats:\n${sc.beats.trim()}`);
+      if (sc.ending.trim()) out.push(`Ending: ${sc.ending.trim()}`);
+    }
+  }
+  return out.join("\n") + "\n";
+}
+
+/**
+ * Whatever was imported, as books: Hearth's own export (one book or several),
+ * a bare book object, or the outline text. Empty when nothing in it is a book.
+ */
+export function readImport(text: string): Draft[] {
+  const t = String(text ?? "").trim();
+  if (/^[\[{]/.test(t)) {
+    try {
+      const parsed = JSON.parse(t);
+      const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.books) ? parsed.books : [parsed];
+      return list
+        .filter((b: any) => b && typeof b === "object" && (b.name || Array.isArray(b.chapters)))
+        .slice(0, 100)
+        .map((b: any) => ({
+          name: String(b.name ?? "").trim().slice(0, 200),
+          premise: String(b.premise ?? "").slice(0, 20000),
+          chapters: normaliseChapters(b.chapters),
+        }));
+    } catch {
+      return [];
+    }
+  }
+  const one = readOutline(t);
+  return one ? [one] : [];
+}
+
+export const WRITE_APOC_SYSTEM = [
+  "You help a person plan a story they will later play through, scene by scene, with another AI as narrator.",
+  "You write plans, never prose: short, concrete, in the exact outline format asked for, with nothing before or after it.",
+  "A plan is possibilities, not a script. Beats are things that could happen; an ending is roughly where a scene stops.",
+  "Keep to the names, places and tone already given. Do not resolve the whole story in the first chapter.",
+].join("\n");
+
+const FORMAT_HELP = [
+  "Use exactly this format:",
+  "## Chapter title",
+  "One line on what the chapter is about.",
+  "",
+  "### Scene title",
+  "Setting: where and when",
+  "Cast: who is meant to be there",
+  "Purpose: what changes because of this scene",
+  "Beats:",
+  "- something that could happen",
+  "- something else that could happen",
+  "Ending: roughly where it stops",
+].join("\n");
+
+/** What a model is asked, for each of the three things it can be asked to write. */
+export function apocWritePrompt(
+  what: "premise" | "outline" | "scene",
+  book: Pick<Apocryphon, "name" | "premise" | "chapters">,
+  o: { idea?: string; chapter?: number; scene?: number; chapters?: number } = {},
+): string {
+  const known = toOutline(book).trim();
+  const idea = String(o.idea ?? "").trim().slice(0, 1500);
+  if (what === "premise") {
+    return [
+      `The story so far:\n${known}`,
+      idea && `What the person wants: ${idea}`,
+      "Write the story's premise: one paragraph, three to five sentences — where it starts, what is at stake, and roughly where it is meant to go. Only the paragraph.",
+    ].filter(Boolean).join("\n\n");
+  }
+  if (what === "outline") {
+    const n = Math.min(Math.max(Number(o.chapters) || 3, 1), 8);
+    return [
+      `The story so far:\n${known}`,
+      idea && `What the person wants: ${idea}`,
+      book.chapters.length
+        ? `Write the next ${n} chapter${n === 1 ? "" : "s"}, following on from the last one above, each with two to four scenes.`
+        : `Write ${n} chapter${n === 1 ? "" : "s"}, each with two to four scenes.`,
+      FORMAT_HELP,
+      "Only the chapters, starting with the first \"##\" line.",
+    ].filter(Boolean).join("\n\n");
+  }
+  const ch = book.chapters[o.chapter ?? -1];
+  const sc = ch?.scenes[o.scene ?? -1];
+  return [
+    `The story so far:\n${known}`,
+    `Fill in the scene "${sc?.title || "the untitled scene"}" in the chapter "${ch?.title || "untitled"}". Keep anything it already says; write what is missing.`,
+    idea && `What the person wants: ${idea}`,
+    "Use exactly this format, for this one scene only:\n### Scene title\nSetting: …\nCast: …\nPurpose: …\nBeats:\n- …\nEnding: …",
+  ].filter(Boolean).join("\n\n");
+}
