@@ -3912,6 +3912,9 @@ const cannotAct = (fields: Record<string, { title: string } | undefined> | undef
  * feel. Never the ledger's other entries, never anything hidden they had no
  * part in. A secret they could not have does not reach the prompt.
  */
+/** Words too common to say two things are about the same matter. */
+const NOT_TELLING = new Set(["about", "their", "there", "which", "would", "could", "other", "where", "while", "after", "before", "again"]);
+
 function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calendar, goals: Agenda[]): View & { lately: string[] } {
   const live = liveEntries(entries);
   const at = clockOf(cal, entries);
@@ -3925,6 +3928,15 @@ function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calenda
     return `${e.title}${d.outcome === "failed" ? " — it failed" : d.outcome === "succeeded" ? " — it worked" : ""}`;
   });
   const oldest = Math.min(...goals.map((g) => (g as any).since ?? at.day), at.day);
+  // The unresolved matters they are caught up in: open threads the story has that name them or touch what
+  // they want, and those they have had a hand in — their own secret ones included, which nobody else is shown.
+  const wanting = new Set(goals.flatMap((g) => groupKey(g.goal).split(" ")).filter((w) => w.length > 4 && !NOT_TELLING.has(w)));
+  const threads = threadsOf(entries, { hidden: true }).filter((t) => t.open && (t.by.includes(who) || (!t.hidden
+    && (namesIn(`${t.title} ${t.evidence}`, who) || t.key.split(" ").some((w) => wanting.has(w))))))
+    .slice(0, 6).map((t) => {
+      const mine = t.notes.filter((n) => n.by === who).at(-1);
+      return `${t.title}${t.hidden ? " (nobody else knows of it yet)" : ""}${mine ? ` — last: ${mine.text}` : ""}`;
+    });
   return {
     who,
     card: card ? `${card.description ?? ""}\n${card.personality ?? ""}`.trim().slice(0, 1500) : "",
@@ -3935,8 +3947,60 @@ function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calenda
     goals,
     known,
     lately,
+    threads,
     pressure: pressureOf(mine.slice(-3).map((e) => { const o = dataOf(e).outcome; return { succeeded: o === "succeeded" ? true : o === "failed" ? false : null }; }), at.day - oldest),
   };
+}
+
+/**
+ * What someone did to the story's threads, checked against the threads there
+ * are. Everything the Offstage does to one is private — a new matter moving
+ * out of sight, a step on an old one — so a plot never names itself on a page
+ * the story or its author can see. A thread comes into the open only when the
+ * story shows it, and the Steward, reading the story, says so.
+ *
+ * The one exception is settling a thread the story already has: when it
+ * worked and left something true in the world, the thread is settled where
+ * everyone sees, in the words of what became true — which have already been
+ * checked for pointing at anyone.
+ */
+function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "failed", who: string, entries: ChronicleEntry[],
+  base: Record<string, unknown>, next: () => number) {
+  const known = threadsOf(entries, { hidden: true });
+  const out: ChronicleEntry[] = [];
+  const kept: { move: string; name: string; note: string }[] = [];
+  let secretOpen = known.filter((t) => t.hidden && t.open).length;
+  for (const m of r.threads) {
+    const key = groupKey(m.name);
+    if (!key) continue;
+    // The same matter under a slightly different name is the same matter.
+    const same = known.find((t) => t.key === key)
+      ?? known.find((t) => Math.min(t.key.length, key.length) >= 6 && (t.key.includes(key) || key.includes(t.key)));
+    let move = m.move;
+    if (move === "open" && same?.open) move = "advance";
+    if (move !== "open" && !same) { r.notes.push(`moved a thread there is none of: ${m.name}`); continue; }
+    if (move !== "open" && !same!.open) { r.notes.push(`moved a thread already settled: ${same!.title}`); continue; }
+    if (move === "advance" && outcome === "failed") { r.notes.push(`it failed, so ${same!.title} did not move on`); continue; }
+    if (move === "settle" && outcome === "failed") { r.notes.push(`it failed, so ${same!.title} is not settled`); continue; }
+    if (move === "open" && secretOpen >= 12) { r.notes.push("too many matters already moving out of sight"); continue; }
+    if (kept.some((k) => groupKey(k.name) === (same?.key ?? key))) continue;
+    const note = m.note || r.act;
+    const data = { by: who, move };
+    if (move === "open") {
+      out.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "thread", subject: same?.key ?? key, title: m.name, amount: 1, body: note, data, created_at: next() }));
+      secretOpen++;
+    } else if (move === "settle") {
+      out.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "thread", subject: same!.key, title: same!.title, amount: -1, body: note, data, created_at: next() }));
+      if (!same!.hidden && r.fact) {
+        out.push(normaliseChronicleEntry({ ...base, visibility: "table", id: uid(), kind: "thread", subject: same!.key, title: same!.title, amount: -1,
+          body: r.fact, created_at: next() }));
+      }
+    } else {
+      out.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "thread", subject: same!.key, title: "", amount: 0, body: note, data, created_at: next() }));
+    }
+    kept.push({ move, name: same?.title ?? m.name, note });
+  }
+  return { entries: out, kept };
 }
 
 /**
@@ -4003,11 +4067,13 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     const trace = r.clue && (outcome === "succeeded" || outcome === "failed") ? traceOf(r.difficulty, outcome === "succeeded") : { left: false, roll: null, dc: 0 };
     const add: ChronicleEntry[] = [];
     const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
+    const moved = outcome === "succeeded" || outcome === "failed" ? threadMoves(r, outcome, person, entries, base, () => t++) : { entries: [], kept: [] };
     add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "offstage", subject: person,
       title: r.act || (r.kind === "abandon" ? "Gave something up" : "An ordinary day"), body: r.why, created_at: t++,
       data: { day: at.day, want: d.want, fear: d.fear, considered: d.considered.slice(0, 4), choice: d.choice, kind: r.kind,
               difficulty: r.difficulty, harm: r.harm, roll: out.roll, dc: out.dc, outcome, notes: r.notes,
-              seen: r.seen, fact: r.fact, clue: r.clue, traced: trace.left, trace_roll: trace.roll, trace_dc: trace.dc } }));
+              seen: r.seen, fact: r.fact, clue: r.clue, traced: trace.left, trace_roll: trace.roll, trace_dc: trace.dc, threads: moved.kept } }));
+    add.push(...moved.entries);
     // What the narrator may have: what could be seen — even of a failure — and what is now true, only on success.
     if (r.seen && outcome !== "dropped" && !r.threat) {
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.seen, created_at: t++, data: { until: at.day + 3 } }));
@@ -4088,6 +4154,9 @@ api.get("/chats/:id/offstage", (c) => {
       facts: live.filter((e) => e.kind === "consequence").reverse().slice(0, 20).map((e) => ({ id: e.id, text: e.title, when: when(e) })),
       hooks: live.filter((e) => e.kind === "hook").reverse().slice(0, 20).map((e) => ({ id: e.id, text: e.title, when: when(e) })),
     },
+    // Matters moving out of sight, and what was done offstage to the ones the story has.
+    threads: threadsOf(entries, { hidden: true }).filter((t) => t.hidden || t.notes.some((n) => n.private))
+      .map((t) => ({ key: t.key, title: t.title, open: t.open, hidden: t.hidden, notes: t.notes.filter((n) => n.private).map((n) => ({ ...n, when: n.day === null ? "" : formatDate(cal, { day: n.day, minute: 0 }) })) })),
     people: [...new Set([...peopleOfChat(chatId), ...agendasOf(entries).map((g) => g.who)])].filter(Boolean),
   });
 });
@@ -4229,6 +4298,9 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     ...pending(before).filter((e) => e.kind === "faction").map((e) => e.title)];
   // Threads already open, by name, so it settles them rather than opening them again.
   const threads = threadsOf(before).filter((t) => t.open).map((t) => t.title);
+  // Matters moving out of sight that the story may have brought into the open: named so that, if the
+  // passage plainly shows one, it comes out under the same name — and is the same thread.
+  const surfacing = threadsOf(before, { hidden: true }).filter((t) => t.hidden && t.open).slice(0, 8).map((t) => t.title);
   // The planned scene, if the chat follows a story and nobody has been asked about this one yet.
   const { book: taleBook, mark: taleMark } = taleOf(chat.id);
   const planned = taleBook && taleMark?.scene ? scenesOf(taleBook).find(({ scene }) => scene.id === taleMark.scene)?.scene : undefined;
@@ -4239,7 +4311,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     : undefined;
   const conn = stewardConnection(s);
   const start = clockOf(cal, before);
-  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups, threads, scene });
+  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups, threads, surfacing, scene });
 
   let said = "";
   let problem = "";
@@ -4272,7 +4344,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   };
   const checked = problem
     ? { claims: [] as Claim[], dropped: [], none: false, noise: 0 }
-    : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups, threads, scene });
+    : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups, threads, surfacing, scene });
   if (!problem && !checked.claims.length && !checked.none) problem = "Nothing in the answer could be used.";
 
   if (!problem) {

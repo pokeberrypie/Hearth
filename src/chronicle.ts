@@ -233,23 +233,47 @@ export function factionsOf(entries: Entry[]): Faction[] {
  * The story's threads: things left open — a promise, a secret, a letter not
  * yet answered — and whether each is open or settled now. A thread is its
  * entries in order, the latest saying how it stands (`amount` 1 for open,
- * -1 for settled), keyed by `subject` so it is the same thread however its
- * name is cased. Open ones first, most recent first; then the settled.
+ * -1 for settled, 0 for a development that leaves it as it was), keyed by
+ * `subject` so it is the same thread however its name is cased. Open ones
+ * first, most recent first; then the settled.
+ *
+ * A private entry belongs to the Offstage: a matter moving out of sight, or
+ * what someone did to one. Left out unless asked for (`hidden`), so a thread
+ * nobody in the story knows of yet does not exist anywhere the story or its
+ * author's pages can see — until a public entry, on the same key, brings it
+ * into the open. Even then, only its public entries show.
  */
-export type Thread = { key: string; title: string; open: boolean; since: number; evidence: string; id: string };
+export type ThreadNote = { text: string; move: string; by: string; day: number | null; private: boolean };
+export type Thread = { key: string; title: string; open: boolean; since: number; evidence: string; id: string;
+  /** Nothing about it is public yet. Only ever true when asked for hidden ones. */
+  hidden: boolean;
+  /** Who has had a hand in it offstage. */
+  by: string[];
+  notes: ThreadNote[] };
 
-export function threadsOf(entries: Entry[]): Thread[] {
+export function threadsOf(entries: Entry[], o: { hidden?: boolean } = {}): Thread[] {
   const out = new Map<string, Thread>();
   for (const e of live(entries)) {
     if (e.kind !== "thread" || !e.subject) continue;
+    const secret = e.visibility === "private";
+    if (secret && !o.hidden) continue;
     const was = out.get(e.subject);
+    let d: Record<string, any> = {};
+    try { d = e.data ? JSON.parse(e.data) : {}; } catch {}
+    const by = was?.by ?? [];
+    if (d.by && !by.includes(d.by)) by.push(String(d.by));
+    const notes = was?.notes ?? [];
+    if (e.amount === 0 || e.body) notes.push({ text: e.body || e.title, move: String(d.move ?? (e.amount === 0 ? "advance" : e.amount > 0 ? "open" : "settle")), by: String(d.by ?? ""), day: e.day, private: secret });
     out.set(e.subject, {
       key: e.subject,
-      title: e.title || was?.title || e.subject,
-      open: e.amount >= 0,
+      title: e.amount === 0 ? was?.title || e.title || e.subject : e.title || was?.title || e.subject,
+      open: e.amount === 0 ? was?.open ?? true : e.amount > 0,
       since: e.created_at,
-      evidence: e.evidence,
+      evidence: e.amount === 0 ? was?.evidence ?? "" : e.evidence,
       id: e.id,
+      hidden: (was?.hidden ?? true) && secret,
+      by,
+      notes,
     });
   }
   return [...out.values()].sort((a, b) => Number(b.open) - Number(a.open) || b.since - a.since);

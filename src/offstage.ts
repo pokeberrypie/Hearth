@@ -57,6 +57,8 @@ export type View = {
   known: string[];
   /** How their own recent attempts went. */
   lately: string[];
+  /** Unresolved matters they are caught up in: the story's open threads that touch them, and their own secret ones. */
+  threads?: string[];
   /** Said plainly when things have been going badly: what pushes a careful person to a risk. */
   pressure: string;
 };
@@ -75,6 +77,7 @@ export const OFFSTAGE_SYSTEM = [
   "SEEN | something another person might notice, without saying who did it or why",
   "FACT | what is now true in the world because of it, without saying who did it",
   "CLUE | a trace it could leave, whether or not it works: something someone could find or notice that points toward who was behind it",
+  "THREAD | open or advance or complicate or settle | its name | what changed, in a few words",
   "GOAL | a new goal, only if they take one up | why",
   "",
   "Rules:",
@@ -83,6 +86,7 @@ export const OFFSTAGE_SYSTEM = [
   "- The last field of ACT is the harm it would do to the player's character: none, social (their name, standing, friendships), physical (their body or freedom), grave (death, maiming, imprisonment for good).",
   "- SEEN and FACT never name the person acting, never point to them — not by title, house, household, servants or friends — and never say why. \"The marriage contract is missing\", not \"the queen's handmaiden took it\". Leave them out when nothing would show or nothing changed.",
   "- CLUE is the only line that may point to them: the trace a careless or unlucky moment leaves — a witness, a dropped pin, a smell of their perfume. A theft can succeed and still be seen. Whether it is left at all is decided separately, by chance.",
+  "- THREAD only when what they do moves a matter that will take more than a day: open a new one (named as people would speak of it if it came out — \"Unrest in the Guild\", never \"the Duke's plot\"), or advance, complicate or settle one of the matters listed, by its name exactly as listed. At most two. Leave it out on an ordinary day.",
   "- NOTHING when they simply live their day: then ACT is the ordinary thing they do, easy, none, and there is no SEEN or FACT.",
   "- ABANDON when they give up a goal because it is costing them more than it is worth: then name the goal in the why.",
 ].join("\n");
@@ -99,6 +103,7 @@ export function offstagePrompt(v: View): string {
     part("What they want:", v.goals.map((g) => `${g.goal}${g.why ? ` — ${g.why}` : ""}`)),
     part("What they know (and only this):", v.known),
     part("How their own recent attempts went:", v.lately),
+    part("Unresolved matters they are caught up in — these weigh on what they do next:", v.threads ?? []),
     v.pressure && `Their situation: ${v.pressure}`,
     `The player's character is ${v.player || "the player"}: someone ${v.who} may act toward, never someone they decide for.`,
     "Write the lines now.",
@@ -122,7 +127,10 @@ export type Decision = {
   fact: string;
   clue: string;
   goal: { goal: string; why: string } | null;
+  threads: ThreadMove[];
 };
+
+export type ThreadMove = { move: "open" | "advance" | "complicate" | "settle"; name: string; note: string };
 
 const unquote = (s: string) => String(s ?? "").replace(/^["'“”‘’*_\s]+|["'“”‘’*_\s]+$/g, "").trim();
 const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
@@ -130,7 +138,7 @@ const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/
 /** A model's answer, read. Untidy answers are read as far as they go; nothing here is believed yet. */
 export function readDecision(raw: string): Decision {
   const d: Decision = { want: "", fear: "", considered: [], choice: "", why: "", kind: "nothing", act: "", difficulty: "easy",
-    harm: "none", seen: "", fact: "", clue: "", goal: null };
+    harm: "none", seen: "", fact: "", clue: "", goal: null, threads: [] };
   const text = String(raw ?? "")
     .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
     .replace(/```[a-z]*\n?/gi, "");
@@ -153,7 +161,12 @@ export function readDecision(raw: string): Decision {
     } else if (key === "SEEN" || key === "NOTICE" || key === "NOTICED") d.seen = parts[1] ?? "";
     else if (key === "FACT" || key === "CONSEQUENCE") d.fact = parts[1] ?? "";
     else if (key === "CLUE" || key === "TRACE") d.clue = parts[1] ?? "";
-    else if (key === "GOAL" && parts[1]) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
+    else if ((key === "THREAD" || key === "PLOTTHREAD") && parts[1] && parts[2]) {
+      const m = parts[1].toLowerCase();
+      const move = /^(open|new|start|begin)/.test(m) ? "open" : /^(settle|resolve|close|end|finish)/.test(m) ? "settle"
+        : /^(complicat|worsen|twist|setback|hinder)/.test(m) ? "complicate" : /^(advance|progress|move|further|develop)/.test(m) ? "advance" : null;
+      if (move) d.threads.push({ move, name: parts[2], note: parts.slice(3).join(" | ") });
+    } else if (key === "GOAL" && parts[1]) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
   }
   if (d.kind === "act" && !d.act) d.kind = "nothing";
   return d;
@@ -174,6 +187,8 @@ export type Ruling = {
   /** What the attempt could leave behind that points to them — the one deliberate clue. Whether it is left is rolled apart from whether it works: see traceOf. */
   clue: string;
   goal: { goal: string; why: string } | null;
+  /** What they do to the story's unresolved matters. Matched against the real threads, and kept, in the run. */
+  threads: ThreadMove[];
   /** Which goal was given up, when one was. */
   abandons: string;
   /** Why anything was taken out. Shown in the author's ledger, so a dull run can be understood. */
@@ -218,7 +233,7 @@ export function identityOf(who: string, card: string, factions: string[] = []): 
 export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[] }): Ruling {
   const notes: string[] = [];
   const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
-    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, abandons: "", notes };
+    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], abandons: "", notes };
   if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.clue = ""; r.harm = "none"; r.difficulty = "easy"; }
   // Something that cannot fail leaves no careless trace.
   if (r.difficulty === "easy") r.clue = "";
@@ -233,6 +248,16 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
     notes.push("acted for the player's character");
     return { ...r, kind: "dropped", act: "", seen: "", fact: "", clue: "", threat: false };
   }
+  // A thread's name is public the moment it comes out: it may no more point to them than what could be seen.
+  if (d.kind === "act") {
+    for (const t of d.threads) {
+      if (r.threads.length >= 2) break;
+      const name = t.name.replace(/\s+/g, " ").trim().slice(0, 80);
+      if (!name) continue;
+      if (names(name, o.who, o.identity ?? [])) { notes.push("a thread's name pointed to who is behind it"); continue; }
+      r.threads.push({ move: t.move, name, note: t.note.replace(/\s+/g, " ").trim().slice(0, 240) });
+    }
+  }
   const atPlayer = !!o.player && names(d.act, o.player);
   if (atPlayer && (d.harm === "physical" || d.harm === "grave")) {
     if (o.protection === "sheltered") {
@@ -240,7 +265,7 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
       return { ...r, kind: "dropped", act: "", seen: "", fact: "", clue: "", threat: false };
     }
     // Fair: anything to their body or freedom is played out. Grim: only the grave is.
-    if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; r.clue = ""; }
+    if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; r.clue = ""; r.threads = []; }
   }
   const id = o.identity ?? [];
   if (r.seen && names(r.seen, o.who, id)) { notes.push("what could be seen pointed to who did it"); r.seen = ""; }

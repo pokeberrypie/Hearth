@@ -71,6 +71,8 @@ export type Options = {
   tracking: boolean;
   factions?: string[];
   threads?: string[];
+  /** Matters moving out of sight that the story may have brought out. A thread opened under one of these names is that one. */
+  surfacing?: string[];
   /**
    * The planned scene a followed apocryphon is in, so the Steward can say when
    * it has ended — and the scenes planned after it, numbered, so it can say the
@@ -152,7 +154,8 @@ export function stewardPrompt(people: Person[], nowText: string, passages: Passa
     .join("\n\n");
   const already = known.length ? `\n\nAlready known about them (report only what changes):\n${known.join("\n")}` : "";
   const groups = o.factions?.length ? `\n\nFactions already known: ${o.factions.join(", ")}` : "";
-  const threads = o.threads?.length ? `\n\nOpen threads: ${o.threads.join("; ")}` : "";
+  const threads = (o.threads?.length ? `\n\nOpen threads: ${o.threads.join("; ")}` : "")
+    + (o.surfacing?.length ? `\n\nMatters that may have come into the open — open one, by this exact name, only if this passage plainly shows it: ${o.surfacing.join("; ")}` : "");
   const ahead = o.scene?.ahead?.length
     ? `\nScenes planned after it:\n${o.scene.ahead.map((a, i) => `${i + 1}. ${a.title || "untitled"}${a.setting ? ` (${a.setting})` : ""}`).join("\n")}`
     : "";
@@ -473,6 +476,7 @@ export function checkAnswer(
 
   // Threads: a new one opened, or one already open settled — by its listed name.
   const open = new Map((o.threads ?? []).map((t) => [groupKey(t), t]));
+  const surfacing = new Map((o.surfacing ?? []).map((t) => [groupKey(t), t]));
   const touched = new Set<string>();
   for (const t of p.threads) {
     const line = `THREAD | ${t.state} | ${t.name} | "${t.evidence}"`;
@@ -489,7 +493,7 @@ export function checkAnswer(
     const at = findEvidence(t.evidence, passages);
     if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
     touched.add(key);
-    claims.push({ kind: "thread", name: state === "settled" ? open.get(key)! : name, open: state === "open", evidence: t.evidence, message_id: at });
+    claims.push({ kind: "thread", name: state === "settled" ? open.get(key)! : surfacing.get(key) ?? name, open: state === "open", evidence: t.evidence, message_id: at });
   }
 
   // The planned scene, over: only if there is one, only "done", once, and quoted.

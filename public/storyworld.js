@@ -435,7 +435,7 @@ function threadsHtml(s, who) {
   const host = who === "host";
   const mine = s?.threads ?? [];
   const rows = mine.map((t) => `<li class="${t.open ? "open" : "tied"}">${THREAD_ICON(t.open)}
-      <div><div class="wdthread">${txt(t.title)}</div><div class="wdwhen">${t.open ? "open" : "settled"}</div></div>
+      <div><div class="wdthread">${txt(t.title)}</div><div class="wdwhen">${t.open ? "open" : "settled"}${!t.open && t.notes?.length ? ` — ${txt(t.notes.at(-1).text)}` : ""}</div></div>
       ${host ? `<button type="button" class="linkish" data-thread="${txt(t.key)}" data-open="${t.open ? "0" : "1"}">${t.open ? "Settle" : "Reopen"}</button>` : ""}
     </li>`).join("");
   const add = host ? `<div class="wdrow wdaddthread">
@@ -499,12 +499,17 @@ async function paintOffstage() {
         ${a.why ? `<div class="wdwhy">“${txt(a.why)}”</div>` : ""}
         ${a.considered?.length ? `<details><summary>What they weighed</summary><ul>${a.considered.map((c) => `<li>${txt(c.option)}${c.stakes ? ` — <i>${txt(c.stakes)}</i>` : ""}</li>`).join("")}</ul>${a.want ? `<p class="hint">Wanted: ${txt(a.want)}${a.fear ? `; afraid of: ${txt(a.fear)}` : ""}</p>` : ""}</details>` : ""}
         ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("");
+    const MOVE = { open: "began", advance: "moved on", complicate: "grew harder", settle: "settled" };
+    const threads = (l.threads ?? []).map((t) => `<li><div><b>${txt(t.title)}</b></div>
+        <div class="wdwhen">${t.hidden ? "out of sight — the story does not know of it" : "a thread the story has"} · ${t.open ? "open" : "settled"}</div>
+        ${t.notes.length ? `<ul>${t.notes.map((n) => `<li><span class="wdwhen">${txt(n.when)}${n.by ? ` · ${txt(n.by)}` : ""} · ${MOVE[n.move] ?? txt(n.move)}</span> ${txt(n.text)}</li>`).join("")}</ul>` : ""}</li>`).join("");
     const told = [...l.told.facts.map((f) => `<li>True now: ${txt(f.text)}</li>`), ...l.told.hooks.map((h) => `<li>Could be noticed: ${txt(h.text)}</li>`)].join("");
     body.innerHTML = `${off}
       <div class="wdrow wdledgerbar"><span class="wdkicker">The ledger</span><button type="button" class="linkish" id="wdReseal">Seal it again</button></div>
       ${run}
       <div class="wdkicker">Goals</div>${goals ? `<ul class="wdledger">${goals}</ul>` : `<p class="hint">None yet.</p>`}
       ${addGoal}
+      ${threads ? `<div class="wdkicker">Threads, behind the scenes</div><ul class="wdledger">${threads}</ul>` : ""}
       <div class="wdkicker">What the story has been told</div>${told ? `<ul class="wdledger">${told}</ul>` : `<p class="hint">Nothing yet.</p>`}
       <div class="wdkicker">What they did</div>${acts ? `<ul class="wdledger">${acts}</ul>` : `<p class="hint">Nothing yet.</p>`}`;
   }

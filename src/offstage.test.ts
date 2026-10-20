@@ -108,6 +108,20 @@ describe("the rules, in code", () => {
     expect(rule(easy, base).clue).toBe("");
   });
 
+  test("a thread's name is public the day it comes out: one that points to them is refused", () => {
+    const id = identityOf("Cersei Lannister", "Queen.", []);
+    const d = readDecision(["CHOOSE | it | x", "ACT | has the septa whisper | uncertain | social",
+      "THREAD | open | Cersei's Plot Against Yvenna | the septa is paid", "THREAD | open | The Queen's Scheme | x",
+      "THREAD | complicate | The Hightower Wedding | the septa's tale reaches the Faith", "THREAD | open | Whispers at Court | a rumour of Targaryen blood"].join("\n"));
+    expect(d.threads.length).toBe(4);
+    const r = rule(d, { ...base, identity: id });
+    // Two at most, and never the ones that name her.
+    expect(r.threads).toEqual([{ move: "complicate", name: "The Hightower Wedding", note: "the septa's tale reaches the Faith" },
+      { move: "open", name: "Whispers at Court", note: "a rumour of Targaryen blood" }]);
+    expect(rule(readDecision("CHOOSE | it | x\nACT | rests | easy | none\nTHREAD | open | Whispers at Court | x"), base).threads.length).toBe(1);
+    expect(rule(readDecision("CHOOSE | NOTHING | x\nACT | rests | easy | none\nTHREAD | open | Whispers at Court | x"), base).threads).toEqual([]);
+  });
+
   test("harm to the player's body: fair makes it a scene, sheltered forbids it, grim allows all but the grave", () => {
     const d = readDecision("CHOOSE | it | x\nACT | has Yvenna Hightower pushed down the stairs | uncertain | physical\nFACT | Yvenna is hurt");
     expect(rule(d, base)).toMatchObject({ kind: "act", threat: true, fact: "" });
@@ -258,7 +272,7 @@ describe("a day offstage", () => {
     // Two people act on one turned day: a secret action, a new goal of her own, what could be noticed,
     // what became true — and, from the other, a threat waiting to be let in.
     const DAY = [
-      CERSEI_PLOTS + "\nGOAL | turn the High Septon against the match | the Faith outranks a father's word",
+      CERSEI_PLOTS + "\nGOAL | turn the High Septon against the match | the Faith outranks a father's word\nTHREAD | open | Whispers at Court | the septa's tale has begun",
       "CHOOSE | it | she must not reach the wedding\nACT | hires a sellsword to waylay Yvenna Hightower on the kingsroad | uncertain | physical",
     ];
     async function dayTurnsOnAReply() {
@@ -277,6 +291,7 @@ describe("a day offstage", () => {
       // All of it is there, tied to that reply.
       const l = await ledger();
       expect(l.goals.map((g: any) => g.goal)).toContain("turn the High Septon against the match");
+      expect(l.threads.map((t: any) => t.title)).toEqual(["Whispers at Court"]);
       expect((await (await ask("/api/chats/ch/chronicle")).json()).proposals.some((p: any) => p.kind === "threat")).toBe(true);
       expect(await narrator()).toContain("High Septon has heard a rumour");
       return reply.id as string;
@@ -289,6 +304,7 @@ describe("a day offstage", () => {
       expect(l.actions.filter((a: any) => a.outcome !== "routine")).toEqual([]);
       expect(l.goals.map((g: any) => g.goal).sort()).toEqual(["a better match for Jaime", "stop Jaime's marriage to Yvenna"]);
       expect(l.told).toEqual({ facts: [], hooks: [] });
+      expect(l.threads).toEqual([]);
       expect((await (await ask("/api/chats/ch/chronicle")).json()).proposals).toEqual([]);
       const told = await narrator();
       for (const gone of ["High Septon", "septa seems nervous", "sellsword"]) expect(told).not.toContain(gone);
@@ -356,5 +372,92 @@ describe("Story World switched off: plain story, nothing kept, nothing told", ()
     // Switched back on, everything kept from before is still there.
     setSettings({ story_world: "1" });
     expect(await narrator()).toContain("High Septon");
+  });
+});
+
+describe("Threads, moved by the world: hidden until the story shows them", () => {
+  const threadsOnPage = async () => (await (await ask("/api/chats/ch/chronicle")).json()).threads;
+  const offstageAsked = () => sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages)).join("\n");
+  const act = (lines: string) => `CHOOSE | it | x\nACT | ${lines}`;
+
+  test("a matter she starts in secret is hers and the ledger's — not the story's, not the Threads page — until it comes out", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the Hightower wedding");
+    answers = [act("pays Yvenna's septa to whisper to the High Septon | easy | social\nTHREAD | open | Whispers at Court | the septa has been paid")];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(await threadsOnPage()).toEqual([]);
+    expect(await narrator()).not.toContain("Whispers at Court");
+    const l = await ledger();
+    expect(l.threads).toMatchObject([{ title: "Whispers at Court", open: true, hidden: true, notes: [{ by: "Cersei Lannister", move: "open", text: "the septa has been paid" }] }]);
+    // It weighs on her the next day — and on nobody else.
+    sent = [];
+    setSettings({ offstage_level: "dynamic" });
+    db.query("INSERT INTO characters (id, name, created_at) VALUES ('o', 'Olenna Tyrell', 1)").run();
+    await goal("Olenna Tyrell", "keep the Hightowers in her debt");
+    await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "1 day" });
+    answers = [];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const asked = sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages));
+    expect(asked.find((m) => m.includes("deciding for: Cersei"))).toContain("Whispers at Court (nobody else knows of it yet) — last: the septa has been paid");
+    expect(asked.find((m) => m.includes("deciding for: Olenna"))).not.toContain("Whispers at Court");
+    // The story shows it — here, the author naming it on the page, as the Steward does from the story's words: same thread, now in the open.
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "Whispers at Court" });
+    const page = await threadsOnPage();
+    expect(page).toMatchObject([{ title: "Whispers at Court", open: true, hidden: false }]);
+    // Only its public side: what she did to it stays in the ledger.
+    expect(JSON.stringify(page)).not.toContain("septa");
+    expect(await narrator()).toContain("Whispers at Court");
+    expect(await narrator()).not.toContain("septa has been paid");
+  });
+
+  test("a thread the story already has weighs on whoever it touches, and what they do to it stays private", async () => {
+    seed();
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "The Hightower Wedding" });
+    await goal("Cersei Lannister", "stop the Hightower wedding");
+    answers = [act("delays the wedding silks from Myr | easy | none\nTHREAD | complicate | The Hightower Wedding | the silks will be late")];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(offstageAsked()).toContain("Unresolved matters they are caught up in");
+    expect(offstageAsked()).toContain("- The Hightower Wedding");
+    const page = await threadsOnPage();
+    expect(page).toMatchObject([{ title: "The Hightower Wedding", open: true, notes: [] }]);
+    expect((await ledger()).threads).toMatchObject([{ title: "The Hightower Wedding", hidden: false, notes: [{ move: "complicate", text: "the silks will be late" }] }]);
+    expect(await narrator()).not.toContain("silks");
+  });
+
+  test("checked against the threads there are: the same matter twice is one, a thread that isn't there is not moved", async () => {
+    seed();
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "The Hightower Wedding" });
+    await goal("Cersei Lannister", "stop the Hightower wedding");
+    answers = [act("writes to Oldtown | easy | none\nTHREAD | open | Hightower Wedding | she wrote to Oldtown\nTHREAD | advance | The Dornish Question | x")];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const l = await ledger();
+    expect(l.threads.map((t: any) => t.title)).toEqual(["The Hightower Wedding"]);
+    expect(l.threads[0].notes).toMatchObject([{ move: "advance", text: "she wrote to Oldtown" }]);
+    expect(l.actions[0].notes).toContain("moved a thread there is none of: The Dornish Question");
+  });
+
+  test("settled offstage: only if it worked, and in the open only in the words of what became true", async () => {
+    seed();
+    await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "The Missing Contract" });
+    await goal("Cersei Lannister", "be rid of the contract question");
+    const plan = act("has the contract left where the steward will find it | uncertain | none\nFACT | the marriage contract is found in the archive, no one knows how\nTHREAD | settle | The Missing Contract | she put it back");
+    const roll = Math.random;
+    try {
+      Math.random = () => 0; // it fails: nothing settles
+      answers = [plan];
+      await send("/api/chats/ch/offstage/run", "POST");
+      expect((await threadsOnPage())[0].open).toBe(true);
+      expect((await ledger()).actions[0].notes).toContain("it failed, so The Missing Contract is not settled");
+      seed();
+      await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "The Missing Contract" });
+      await goal("Cersei Lannister", "be rid of the contract question");
+      Math.random = () => 0.99; // it works
+      answers = [plan];
+      await send("/api/chats/ch/offstage/run", "POST");
+      const page = await threadsOnPage();
+      expect(page).toMatchObject([{ title: "The Missing Contract", open: false }]);
+      expect(page[0].notes.map((n: any) => n.text)).toEqual(["the marriage contract is found in the archive, no one knows how"]);
+      expect(JSON.stringify(page)).not.toContain("she put it back");
+    } finally { Math.random = roll; }
   });
 });

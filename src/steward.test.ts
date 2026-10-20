@@ -353,3 +353,15 @@ describe("factions", () => {
       .toContain("Factions already known: House Tyrell");
   });
 });
+
+describe("a matter moving out of sight, brought into the open by the story", () => {
+  test("the Steward is shown what might surface, and opens it under the same name — so it is the same thread", () => {
+    const req = stewardRequest("m", PEOPLE, "now", STORY, { tracking: true, surfacing: ["The Betrothal Question"] });
+    expect(JSON.stringify(req)).toContain("open one, by this exact name, only if this passage plainly shows it: The Betrothal Question");
+    const r = checkAnswer('THREAD | open | the betrothal question | "Jaime publicly affirmed his betrothal to Yvenna"', STORY, PEOPLE, MOONS, NOW, DEFAULT_LIMITS, { tracking: true, surfacing: ["The Betrothal Question"] });
+    expect(r.claims).toMatchObject([{ kind: "thread", name: "The Betrothal Question", open: true }]);
+    // And never without the story's own words for it.
+    const none = checkAnswer('THREAD | open | The Betrothal Question | "Jaime confessed everything"', STORY, PEOPLE, MOONS, NOW, DEFAULT_LIMITS, { tracking: true, surfacing: ["The Betrothal Question"] });
+    expect(none.claims).toEqual([]);
+  });
+});
