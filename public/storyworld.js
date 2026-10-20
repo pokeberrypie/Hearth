@@ -598,5 +598,86 @@ async function paintWorldSettings() {
   }
 }
 
+// ---- how someone is now, from their portrait ------------------------------
+
+const STATUS_LABELS = { physical: "Body", mental: "Mind", clothes: "Wearing", location: "Where", inventory: "Carrying" };
+
+/**
+ * The last `<status>` block a preset's tracker wrote, at or before this
+ * message — the preset keeps its own records in the prose, and when it is the
+ * one keeping track, Hearth only reads them back. The lines are shown as the
+ * preset wrote them; there is no telling what shape another preset's are.
+ */
+function presetStatus(msg) {
+  const all = [...document.querySelectorAll("#thread .msg")];
+  for (let i = all.indexOf(msg); i >= 0; i--) {
+    const found = [...(all[i].dataset.raw ?? "").matchAll(/<status>([\s\S]*?)<\/status>/gi)].pop();
+    if (found) return found[1].trim().split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function statusDialog() {
+  let d = $("#statusDialog");
+  if (d) return d;
+  d = document.createElement("dialog");
+  d.id = "statusDialog";
+  d.className = "statusdialog";
+  d.addEventListener("click", (e) => {
+    if (e.target === d || e.target.closest("[data-close]")) d.close();
+    if (e.target.closest("[data-picture]")) {
+      const url = d.dataset.picture;
+      d.close();
+      $("#faceImage").src = url;
+      $("#faceName").textContent = d.dataset.name;
+      $("#faceDialog").showModal();
+    }
+  });
+  document.body.appendChild(d);
+  return d;
+}
+
+/**
+ * Tapping a portrait in a message: who they are, and how they are now. The
+ * cast row above the chat stays for choosing who speaks next, so this never
+ * gets in its way. The big picture is one more tap, from here.
+ */
+async function openStatus(msg, button) {
+  const name = msg.querySelector(".platename")?.textContent ?? "";
+  const face = button.querySelector(".medallion");
+  const url = face && !face.classList.contains("blank")
+    ? (face.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/) ?? [])[1] ?? "" : "";
+  const d = statusDialog();
+  d.dataset.name = name;
+  d.dataset.picture = url;
+  const preset = !GUEST.on && $("#tracker_source")?.value === "preset";
+  let rows = "";
+  if (preset) {
+    const lines = presetStatus(msg);
+    rows = lines.map((l) => `<li>${txt(l)}</li>`).join("");
+  } else {
+    if (!W.state) {
+      W.state = GUEST.on ? await api("/table/world").catch(() => null)
+        : S.chatId ? await api(`/chats/${S.chatId}/chronicle`).catch(() => null) : null;
+    }
+    const mine = W.state?.status?.[name] ?? {};
+    rows = Object.keys(STATUS_LABELS).filter((f) => mine[f]).map((f) => {
+      const v = typeof mine[f] === "string" ? mine[f] : mine[f].value;
+      return `<li><span class="stlabel">${STATUS_LABELS[f]}</span><span>${txt(v)}</span></li>`;
+    }).join("");
+  }
+  d.innerHTML = `
+    <button type="button" class="ico stclose" data-close aria-label="Close">&times;</button>
+    <div class="sthead">
+      ${url ? `<button type="button" class="stface" data-picture style="background-image:url(&quot;${encodeURI(url)}&quot;)" aria-label="See ${txt(name)}'s picture"></button>`
+        : `<span class="stface blank">${txt(name.trim()[0] ?? "?")}</span>`}
+      <div><h2>${txt(name)}</h2>${url ? `<button type="button" class="linkish" data-picture>See the picture</button>` : ""}</div>
+    </div>
+    <div class="stnow">now:</div>
+    ${rows ? `<ul class="stlist${preset ? " preset" : ""}">${rows}</ul>`
+      : `<p class="hint">${preset ? "Your preset has not written a status for anyone yet." : "Nothing noted about them yet."}</p>`}`;
+  if (!d.open) d.showModal();
+}
+
 $("#worldLine")?.addEventListener("click", openWorld);
 paintWorldSettings();

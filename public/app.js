@@ -752,7 +752,7 @@ function messageEl(m, depth = 0) {
   const { name: who, avatar: face } = speakerOf(m);
   el.innerHTML =
     `<div class="who">${medallion(face, who)}<span class="nametext">${esc(who)}</span></div>` +
-    `<div class="plate"><span class="platename">${esc(who)}</span>` +
+    `<div class="plate">${inlay(face, who)}<span class="platename">${esc(who)}</span>` +
     `<div class="meta-line">${metaLine(m)}${statsLine(m)}</div>` +
     swipeBar(m) +
     thinkBlock(m) +
@@ -1045,6 +1045,26 @@ function medallion(avatar, name, cls = "") {
   return avatar
     ? `<span class="medallion ${cls}" style="background-image:url(&quot;${encodeURI(avatar)}&quot;)"></span>`
     : `<span class="medallion blank ${cls}">${initial(name)}</span>`;
+}
+
+/**
+ * The face set into the plate itself, which is where Hearthside and Banner
+ * draw it: Hearthside lets the prose wrap round it, Banner stretches it down
+ * the message's whole length. Page still uses `.who`, so both are written and
+ * the stylesheet picks one. Tapping it asks how that person is now.
+ */
+const inlay = (avatar, name) =>
+  `<div class="inlay"><button type="button" class="inlayface" aria-label="How ${esc(name)} is now">` +
+  `${medallion(avatar, name)}</button></div>`;
+
+/** Changes who a message is from, everywhere the message says so. */
+function setSpeaker(el, avatar, name) {
+  const who = el.querySelector(".who");
+  if (who) who.innerHTML = medallion(avatar, name) + `<span class="nametext">${esc(name)}</span>`;
+  const face = el.querySelector(".inlay");
+  if (face) face.outerHTML = inlay(avatar, name);
+  const plate = el.querySelector(".platename");
+  if (plate) plate.textContent = name;
 }
 
 /**
@@ -3588,12 +3608,7 @@ async function run(mode, content = "", forcedGuide = "") {
           // The bubble is drawn before anyone knows whose turn it is, and used
           // to fall back to the chat's founder — in a group that left the wrong
           // face and name above the text for the whole stream.
-          const who = evt.speaker.name || S.charName;
-          const face = target.querySelector('.who');
-          if (face) face.innerHTML = medallion(evt.speaker.avatar, who) +
-            `<span class="nametext">${esc(who)}</span>`;
-          const plate = target.querySelector('.platename');
-          if (plate) plate.textContent = who;
+          setSpeaker(target, evt.speaker.avatar, evt.speaker.name || S.charName);
         } else if (evt.reasoning) {
           think += evt.reasoning;
           let d = target.querySelector(".think");
@@ -3694,11 +3709,7 @@ async function run(mode, content = "", forcedGuide = "") {
             // so comparing names to decide "did the speaker change" is not
             // reliable — always resync instead. `medallion()` is the same
             // markup a fresh page load produces, so there is nothing to drift.
-            if (evt.name) {
-              target.querySelector(".who").innerHTML =
-                medallion(evt.avatar, evt.name) + `<span class="nametext">${esc(evt.name)}</span>`;
-              target.querySelector(".platename").textContent = evt.name;
-            }
+            if (evt.name) setSpeaker(target, evt.avatar, evt.name);
             const bar = target.querySelector(".swipes");
             if (bar && evt.swipes) {
               bar.dataset.count = evt.swipes;
@@ -4071,6 +4082,9 @@ $("#thread").addEventListener("click", async (e) => {
    * character's picture large — which is a shame, because it is usually the
    * best thing about the card.
    */
+  const inlaid = e.target.closest(".inlay");
+  if (inlaid && typeof openStatus === "function") return openStatus(msg, inlaid);
+
   const face = e.target.closest(".who .medallion");
   if (face && !face.classList.contains("blank")) {
     const url = (face.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/) ?? [])[1];
@@ -8233,7 +8247,7 @@ function buildSwatches() {
 
 const LORE_SETTINGS = ["lore_scan_depth", "lore_budget", "auto_lore_every", "auto_lore_scope",
                        "summary_at", "summary_size"];
-const LOOK = ["overlay_opacity", "glow_opacity", "font_scale", "avatar_size", "radius", "banner_width", "measure", "fade_start", "plate_blur", "plate_opacity", "tuck"];
+const LOOK = ["overlay_opacity", "glow_opacity", "font_scale", "avatar_size", "radius", "banner_width", "measure", "fade_start", "plate_blur", "plate_opacity"];
 const TOGGLES = ["bleed", "show_stats", "show_cutoff", "sound", "page_faces"];
 /**
  * Behaviour switches. Saved with the look because they ride the same debounce,
@@ -8342,7 +8356,6 @@ function applyLook() {
   // the layer is what some GPUs misplace, and this is the way to be rid of it.
   document.body.classList.toggle("noglass", Number($("#plate_blur").value) === 0);
   r.setProperty("--plate-opacity", $("#plate_opacity").value);
-  r.setProperty("--tuck", $("#tuck").value);
   const rad = $("#radius").value;
   r.setProperty("--lumiverse-radius", rad + "px");
   r.setProperty("--lumiverse-radius-sm", Math.round(rad * 0.6) + "px");
@@ -8356,7 +8369,6 @@ function applyLook() {
   $("#v_fade").textContent = $("#fade_start").value + "%";
   $("#v_blur").textContent = $("#plate_blur").value + "px";
   $("#v_solid").textContent = Math.round($("#plate_opacity").value * 100) + "%";
-  $("#v_tuck").textContent = Math.round($("#tuck").value * 100) + "%";
 
   /*
    * Say when the system is overruling two of these.
@@ -8476,7 +8488,6 @@ function applyToggles() {
   document.body.classList.toggle("pagefaces", !!$("#page_faces")?.checked);
   const page = document.body.dataset.msgstyle === "page";
   $("#fadeRow").hidden = page || !$("#bleed").checked;
-  $("#tuckRow").hidden = page || !$("#bleed").checked || document.body.dataset.msgstyle !== "banner";
   document.body.classList.toggle("nostats", !$("#show_stats").checked);
   /*
    * In tabletop mode dice are always on, so a switch offering to turn them on
@@ -8558,8 +8569,9 @@ function setMsgStyle(style) {
   document.body.dataset.msgstyle = style;
   document.querySelectorAll("[data-style]").forEach((b) =>
     b.classList.toggle("on", b.dataset.style === style));
-  $("#avatarRow").hidden = style !== "portrait";
-  $("#bannerRow").hidden = style !== "banner";
+  // Hearthside and Banner both size their portrait from the one slider.
+  $("#avatarRow").hidden = true;
+  $("#bannerRow").hidden = style === "page";
   // Only offered where it does anything; the other two styles always show faces.
   if ($("#pagefaceRow")) $("#pagefaceRow").hidden = style !== "page";
   $("#fadeRow").hidden = style === "page" || !$("#bleed").checked;

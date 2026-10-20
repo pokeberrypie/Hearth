@@ -7792,3 +7792,296 @@ body.noglass[data-msgstyle="page"] #thread {
 
 /* And in the chat, a guest's line looks the same. */
 body.guest .worldline { cursor: pointer; }
+
+/* ---- Hearthside and Banner: the face set into the message ------------------
+   Both draw the portrait inside the plate rather than beside it, so a message
+   and the person saying it are one thing over the wallpaper. Hearthside (the
+   style once called Portrait) sets the face in the top corner and lets the
+   prose wrap round it. Banner stretches it down the whole length of the
+   message, and on a long one the face travels with you as you read: it is
+   sticky inside its own column and the column is clipped to the plate.
+
+   The plate is the glass from further up — its blur and solidity are the
+   Look panel's two sliders — and `.who` is left to Page, which still uses it.
+   This section comes last so that, at the same specificity, it wins over the
+   rules these two styles grew up with. */
+
+:root { --inlay-w: min(calc(var(--banner-w-user, 150px) * 0.66), 32vw); }
+
+body[data-msgstyle="banner"] .msg,
+body[data-msgstyle="portrait"] .msg {
+  display: block;
+  position: relative;
+  min-height: 0;
+  padding: 0 0 1.1rem;
+  border: 0;
+}
+body[data-msgstyle="banner"] .who,
+body[data-msgstyle="portrait"] .who { display: none; }
+body[data-msgstyle="page"] .inlay { display: none; }
+
+body[data-msgstyle="banner"] .plate,
+body[data-msgstyle="portrait"] .plate,
+body.bleed[data-msgstyle="banner"] .plate {
+  position: relative;
+  min-width: 0;
+  max-width: var(--measure);
+  margin: 0 auto;
+  border: 1px solid var(--lumiverse-border);
+  border-left: 1px solid var(--lumiverse-border);
+  border-radius: 14px;
+  overflow: clip;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 10px 34px rgba(0, 0, 0, 0.42);
+}
+
+.inlayface {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
+.inlay .medallion {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background-size: cover;
+  background-position: center top;
+  box-shadow: none;
+}
+.inlayface:focus-visible { outline: 2px solid var(--lumiverse-primary); outline-offset: -2px; }
+
+/* The name is flush left in both, with room kept clear for the four buttons. */
+body[data-msgstyle="banner"] .platename,
+body[data-msgstyle="portrait"] .platename {
+  display: block;
+  text-align: left;
+  padding-right: 7.2rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--lumiverse-primary);
+  white-space: normal;
+  overflow: visible;
+  margin: 0 0 0.1rem;
+}
+body[data-msgstyle="banner"] .msg.mine .platename,
+body[data-msgstyle="portrait"] .msg.mine .platename { color: var(--lumiverse-text-muted); }
+body[data-msgstyle="banner"] .meta-line,
+body[data-msgstyle="portrait"] .meta-line { text-align: left; justify-content: flex-start; margin-bottom: 0.5rem; }
+body[data-msgstyle="banner"] .swipes,
+body[data-msgstyle="portrait"] .swipes {
+  margin: 0 0 0.8rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--lumiverse-border);
+}
+body[data-msgstyle="banner"] .msg.mine .body,
+body[data-msgstyle="portrait"] .msg.mine .body { padding-left: 0; border-left: 0; color: var(--lumiverse-text-muted); }
+
+/* Four small round buttons in the plate's top-right corner. */
+body[data-msgstyle="banner"] .tools,
+body[data-msgstyle="portrait"] .tools {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  left: auto;
+  display: flex;
+  gap: 0.2rem;
+  padding: 0;
+  z-index: 4;
+}
+body[data-msgstyle="banner"] .tools button,
+body[data-msgstyle="portrait"] .tools button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+}
+body[data-msgstyle="banner"] .tools button svg,
+body[data-msgstyle="portrait"] .tools button svg { width: 13px; }
+
+/* -- Hearthside: the face in the corner, the prose round it -- */
+
+body[data-msgstyle="portrait"] .plate {
+  display: flow-root;
+  padding: 0.85rem 1rem 0.9rem;
+}
+body[data-msgstyle="portrait"] .inlay {
+  float: left;
+  width: var(--inlay-w);
+  aspect-ratio: 4 / 5;
+  /* Out to the plate's own corner, so the face is cut by its edge. */
+  margin: -0.85rem 1rem 0.6rem -1rem;
+}
+body[data-msgstyle="portrait"]:not(.bleed) .inlay .medallion {
+  border-bottom-right-radius: 12px;
+  box-shadow: inset -1px -1px 0 color-mix(in srgb, var(--lumiverse-primary) 40%, transparent);
+}
+body.bleed[data-msgstyle="portrait"] .inlay .medallion {
+  -webkit-mask-image:
+    linear-gradient(to right, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to bottom, #000 var(--fade-start), transparent 100%);
+          mask-image:
+    linear-gradient(to right, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to bottom, #000 var(--fade-start), transparent 100%);
+  -webkit-mask-composite: source-in;
+          mask-composite: intersect;
+}
+/* Nobody's picture: a small round monogram, not a big empty card. */
+body[data-msgstyle="portrait"] .inlay:has(.blank) {
+  width: 2.6rem;
+  height: 2.6rem;
+  aspect-ratio: 1;
+  margin: 0 0.8rem 0.3rem 0;
+}
+body[data-msgstyle="portrait"] .inlay .medallion.blank,
+body[data-msgstyle="banner"] .inlay .medallion.blank {
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  background: var(--lumiverse-bg-hover);
+  box-shadow: 0 0 0 1px var(--lumiverse-border);
+  -webkit-mask-image: none;
+          mask-image: none;
+}
+
+/* -- Banner: the face the length of the message, travelling with you -- */
+
+:root { --banner-w: var(--banner-w-user, 150px); }
+body[data-msgstyle="banner"] .plate,
+body.bleed[data-msgstyle="banner"] .plate {
+  display: grid;
+  grid-template-columns: var(--banner-w) minmax(0, 1fr);
+  column-gap: 1.1rem;
+  align-content: start;
+  min-height: calc(var(--banner-w) * 1.15);
+  padding: 0.85rem 1rem 0.9rem 0;
+}
+body[data-msgstyle="banner"] .plate > * { grid-column: 2; min-width: 0; }
+body[data-msgstyle="banner"] .plate > .inlay {
+  grid-column: 1;
+  grid-row: 1 / span 12;
+  align-self: stretch;
+  position: relative;
+  margin: -0.85rem 0 -0.9rem;
+}
+body[data-msgstyle="banner"] .plate > .tools { grid-column: auto; }
+body[data-msgstyle="banner"] .inlayface {
+  position: sticky;
+  top: 0;
+  display: block;
+  height: 100%;
+  /* Short message: the face is as long as it is. Long one: capped, and it
+     rides down the column as you read. */
+  max-height: min(78dvh, calc(var(--banner-w) * 2.6));
+}
+body[data-msgstyle="banner"]:not(.bleed) .inlay .medallion:not(.blank) {
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--lumiverse-primary) 40%, transparent);
+}
+body.bleed[data-msgstyle="banner"] .inlay .medallion:not(.blank) {
+  -webkit-mask-image:
+    linear-gradient(to right, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to bottom, #000 80%, transparent 100%);
+          mask-image:
+    linear-gradient(to right, #000 var(--fade-start), transparent 100%),
+    linear-gradient(to bottom, #000 80%, transparent 100%);
+  -webkit-mask-composite: source-in;
+          mask-composite: intersect;
+}
+/* Nobody's picture: the column shrinks to a monogram. */
+body[data-msgstyle="banner"] .plate:has(.inlay .blank) {
+  grid-template-columns: 2.6rem minmax(0, 1fr);
+  min-height: 0;
+  padding-left: 0.9rem;
+}
+body[data-msgstyle="banner"] .plate:has(.inlay .blank) > .inlay { margin: 0; align-self: start; }
+body[data-msgstyle="banner"] .plate:has(.inlay .blank) .inlayface { height: auto; }
+
+@media (max-width: 700px) {
+  body[data-msgstyle="banner"] { --banner-w: min(var(--banner-w-user, 150px), 28vw); }
+  body[data-msgstyle="banner"] .plate,
+  body.bleed[data-msgstyle="banner"] .plate { column-gap: 0.8rem; padding-right: 0.8rem; }
+  body[data-msgstyle="portrait"] .plate { padding: 0.8rem 0.85rem 0.85rem; }
+  body[data-msgstyle="portrait"] .inlay { margin: -0.8rem 0.85rem 0.5rem -0.85rem; }
+  body[data-msgstyle="banner"] .platename,
+  body[data-msgstyle="portrait"] .platename { font-size: 1.02rem; }
+}
+
+/* ---- how someone is now --------------------------------------------------- */
+
+.statusdialog {
+  width: min(92vw, 22rem);
+  padding: 1.1rem 1.2rem 1.2rem;
+  background: var(--lumiverse-bg-elevated);
+  border-top: 1px solid color-mix(in srgb, var(--lumiverse-primary) 70%, transparent);
+}
+.statusdialog .stclose { position: absolute; top: 0.5rem; right: 0.5rem; }
+.sthead { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 0.8rem; }
+.sthead h2 {
+  margin: 0;
+  font-family: var(--lumiverse-font-display);
+  font-size: 1.15rem;
+  color: var(--lumiverse-primary);
+}
+.stface {
+  flex: none;
+  width: 4.2rem;
+  aspect-ratio: 4 / 5;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background-size: cover;
+  background-position: center top;
+  box-shadow: 0 0 0 1px var(--lumiverse-border-hover), 0 6px 18px rgba(0, 0, 0, 0.45);
+  cursor: zoom-in;
+}
+.stface.blank {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--lumiverse-bg-hover);
+  font-size: 1.2rem;
+  cursor: default;
+}
+.stnow {
+  font-family: var(--lumiverse-font-heading);
+  font-style: italic;
+  color: var(--lumiverse-text-hint);
+  margin-bottom: 0.35rem;
+}
+.stlist { list-style: none; margin: 0; padding: 0; }
+.stlist li {
+  display: grid;
+  grid-template-columns: 5.2rem minmax(0, 1fr);
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--lumiverse-border);
+}
+.stlist.preset li { display: block; }
+.stlabel {
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lumiverse-text-hint);
+  padding-top: 0.15rem;
+}
+/* With only a monogram there is no column worth keeping: wrap like Hearthside. */
+body[data-msgstyle="banner"] .plate:has(> .inlay .blank),
+body.bleed[data-msgstyle="banner"] .plate:has(> .inlay .blank) {
+  display: flow-root;
+  padding-left: 1rem;
+}
+body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left; margin: 0 0.8rem 0.3rem 0; }
