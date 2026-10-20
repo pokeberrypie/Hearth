@@ -110,6 +110,18 @@ describe("the routes", () => {
     const p = await (await send("/api/apocrypha/write", "POST", { what: "premise", book })).json();
     expect(p.premise).toStartWith("A Hightower daughter");
 
+    // One field at a time, from its die: labels, quotes and extra lines are cleaned away.
+    answer = "Setting: **the sept at dawn**";
+    expect((await (await send("/api/apocrypha/write", "POST", { what: "field", field: "scene.setting", chapter: 0, scene: 0, book })).json()).value)
+      .toBe("the sept at dawn");
+    answer = "\"Roses and Ruin\"\nA second line nobody asked for";
+    expect((await (await send("/api/apocrypha/write", "POST", { what: "field", field: "name", book })).json()).value).toBe("Roses and Ruin");
+    answer = "- a toast\n- a slap";
+    expect((await (await send("/api/apocrypha/write", "POST", { what: "field", field: "scene.beats", chapter: 0, scene: 1, book })).json()).value)
+      .toBe("- a toast\n- a slap");
+    expect((await send("/api/apocrypha/write", "POST", { what: "field", field: "scene.nonsense", chapter: 0, scene: 0, book })).status).toBe(400);
+    expect((await send("/api/apocrypha/write", "POST", { what: "field", field: "scene.title", chapter: 5, scene: 0, book })).status).toBe(400);
+
     answer = "I'm sorry, I can't help with that.";
     expect((await send("/api/apocrypha/write", "POST", { what: "outline", book })).status).toBe(502);
   });

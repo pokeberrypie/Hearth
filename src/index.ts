@@ -45,7 +45,7 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
          startFight, stateOf, type Fight } from "./fight";
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
-import { WRITE_APOC_SYSTEM, advance, apocWritePrompt, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
+import { WRITE_APOC_SYSTEM, advance, apocFieldPrompt, apocWritePrompt, cleanField, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
@@ -3341,7 +3341,11 @@ api.post("/apocrypha/write", async (c) => {
   };
   const s = getSettings();
   const model = s.model;
-  const prompt = apocWritePrompt(what, book, { idea: b.idea, chapter: Number(b.chapter), scene: Number(b.scene), chapters: Number(b.chapters) });
+  // One field, from its randomize button.
+  const target = b.what === "field" ? { field: String(b.field ?? ""), chapter: Number(b.chapter), scene: Number(b.scene) } : null;
+  const fieldPrompt = target ? apocFieldPrompt(book, target as any) : null;
+  if (target && !fieldPrompt) return c.json({ error: "That is not a field Hearth can fill." }, 400);
+  const prompt = fieldPrompt ?? apocWritePrompt(what, book, { idea: b.idea, chapter: Number(b.chapter), scene: Number(b.scene), chapters: Number(b.chapters) });
   const fold = needsFoldedSystem(model);
   let text = "";
   try {
@@ -3350,7 +3354,7 @@ api.post("/apocrypha/write", async (c) => {
       model,
       system: fold ? "" : WRITE_APOC_SYSTEM,
       messages: [{ role: "user", content: fold ? `${WRITE_APOC_SYSTEM}\n\n${prompt}` : prompt }],
-      sampling: { temperature: 0.9, maxTokens: what === "outline" ? 3000 : what === "scene" ? 900 : 500, topP: 1, minP: 0,
+      sampling: { temperature: target ? 1 : 0.9, maxTokens: target ? 500 : what === "outline" ? 3000 : what === "scene" ? 900 : 500, topP: 1, minP: 0,
                   repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0,
                   stream: false, reasoningEffort: "off" },
     })) {
@@ -3361,6 +3365,12 @@ api.post("/apocrypha/write", async (c) => {
     return c.json({ error: err?.message ?? "The model could not be reached." }, 502);
   }
   text = withoutThinking(text).replace(/^```[a-z]*\n?|```\s*$/gim, "").trim();
+
+  if (target) {
+    const value = cleanField(target.field, text);
+    if (!value) return c.json({ error: "The model did not write anything usable. Try again." }, 502);
+    return c.json({ value });
+  }
 
   if (what === "premise") {
     const premise = text.replace(/^#+.*$/gm, "").replace(/^\s*(?:premise|the story)\s*:\s*/i, "").trim().replace(/^["“]|["”]$/g, "");

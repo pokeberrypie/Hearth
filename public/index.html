@@ -1728,19 +1728,17 @@
 
 <dialog id="apocDialog" class="apocdialog">
   <div class="bookhead">
-    <input id="ap_name" class="booktitle" aria-label="Story name" placeholder="Name this story">
+    <span class="randwrap grow"><input id="ap_name" class="booktitle" aria-label="Story name" placeholder="Name this story"><button type="button" class="randbtn" data-rand="name" title="Randomize" aria-label="Randomize the story's name"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.1"/><circle cx="15" cy="15" r="1.1"/><circle cx="15" cy="9" r="1.1"/><circle cx="9" cy="15" r="1.1"/><circle cx="12" cy="12" r="1.1"/></svg></button></span>
     <button class="ico" id="ap_close" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
   <label>The story, in a paragraph
-    <textarea id="ap_premise" rows="3" placeholder="Where it starts, and roughly where it is meant to go."></textarea>
+    <span class="randwrap"><textarea id="ap_premise" rows="3" placeholder="Where it starts, and roughly where it is meant to go."></textarea><button type="button" class="randbtn" data-rand="premise" title="Randomize" aria-label="Randomize the premise"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.1"/><circle cx="15" cy="15" r="1.1"/><circle cx="15" cy="9" r="1.1"/><circle cx="9" cy="15" r="1.1"/><circle cx="12" cy="12" r="1.1"/></svg></button></span>
   </label>
-  <button type="button" class="linkish apwrite" id="ap_writePremise">✦ Write the premise for me</button>
   <p class="hint" id="ap_omen">With no scenes yet this is an omen — an idea on the shelf. Give it a
     chapter and a scene and it becomes something a chat can follow.</p>
   <div id="ap_chapters"></div>
   <div class="actions">
     <button class="ghost" id="ap_addChapter">Add a chapter</button>
-    <button class="ghost" id="ap_writeChapters">✦ Draft chapters with AI</button>
     <button class="solid" id="ap_save">Save</button>
   </div>
 </dialog>

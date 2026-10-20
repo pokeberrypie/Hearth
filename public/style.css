@@ -8104,8 +8104,33 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
 .inlaystatus .linkish { margin-top: 0.4rem; }
 @keyframes inlaystatus-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (prefers-reduced-motion: reduce) { .inlaystatus { animation: none; } }
-.apwrite { display: block; margin: 0.25rem 0 0.7rem; }
-.apwrite:disabled { opacity: 0.6; cursor: progress; }
+/* The story editor's randomize dice: one in the corner of every field. */
+.randwrap { position: relative; display: block; min-width: 0; }
+.randwrap.grow { flex: 1 1 auto; }
+.randwrap > input, .randwrap > textarea { width: 100%; padding-right: 2.4rem; }
+.randbtn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 55%, transparent);
+  color: color-mix(in srgb, var(--lumiverse-primary) 75%, transparent);
+  cursor: pointer;
+}
+.randwrap > input + .randbtn { top: 50%; margin-top: -13px; }
+.randbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.randbtn circle { fill: currentColor; stroke: none; }
+.randbtn:hover { color: var(--lumiverse-primary); border-color: var(--lumiverse-border-hover); }
+.randbtn.rolling svg { animation: randroll 0.7s linear infinite; }
+.randbtn:disabled { cursor: progress; }
+@keyframes randroll { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .randbtn.rolling svg { animation: none; opacity: 0.5; } }
 
 /* The title and, under it, Story World's line: one block in the bar. */
 .titlestack {
@@ -8146,3 +8171,13 @@ body[data-msgstyle="portrait"] .msg + .msg::before {
   top: calc(-0.55rem - 3px);
   z-index: 5;
 }
+.randundo {
+  position: absolute;
+  right: 0.45rem;
+  bottom: 0.3rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 80%, transparent);
+}
+.randwrap > input ~ .randundo { bottom: auto; top: 50%; right: 2.3rem; margin-top: -0.65rem; }

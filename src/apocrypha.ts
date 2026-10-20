@@ -382,3 +382,61 @@ export function apocWritePrompt(
     "Use exactly this format, for this one scene only:\n### Scene title\nSetting: …\nCast: …\nPurpose: …\nBeats:\n- …\nEnding: …",
   ].filter(Boolean).join("\n\n");
 }
+
+/** The one field a randomize button asks for, and how its answer is kept. */
+export type FieldTarget =
+  | { field: "name" | "premise" }
+  | { field: "chapter.title" | "chapter.summary"; chapter: number }
+  | { field: `scene.${"title" | "setting" | "cast" | "purpose" | "beats" | "ending"}`; chapter: number; scene: number };
+
+const FIELD_ASK: Record<string, [string, number, boolean]> = {
+  // what to write, the most characters kept, one line or several
+  name: ["a title for the whole story: a few evocative words", 80, false],
+  premise: ["the story's premise: one paragraph, three to five sentences — where it starts, what is at stake, roughly where it is meant to go", 1500, true],
+  "chapter.title": ["a title for this chapter: a few words", 80, false],
+  "chapter.summary": ["one or two sentences on what this chapter is about", 500, true],
+  "scene.title": ["a title for this scene: a few words", 80, false],
+  "scene.setting": ["where and when this scene takes place, in a short phrase", 160, false],
+  "scene.cast": ["who is meant to be there, as a short comma-separated list of names", 200, false],
+  "scene.purpose": ["what this scene is for — the change it brings about — in one or two sentences", 500, true],
+  "scene.beats": ["three or four things that could happen in this scene, as a list with one \"- \" line each; possibilities, not a script", 800, true],
+  "scene.ending": ["roughly where this scene stops, in one sentence", 300, true],
+};
+
+export function fieldLimits(field: string): { max: number; multiline: boolean } | null {
+  const f = FIELD_ASK[field];
+  return f ? { max: f[1], multiline: f[2] } : null;
+}
+
+/** What a model is asked for one field: the plan as it stands, and only that field back. */
+export function apocFieldPrompt(book: Pick<Apocryphon, "name" | "premise" | "chapters">, t: FieldTarget): string | null {
+  const ask = FIELD_ASK[t.field];
+  if (!ask) return null;
+  // By the field's own name: a request carries chapter and scene keys either way.
+  const inChapter = t.field.startsWith("chapter.") || t.field.startsWith("scene.");
+  const ch = inChapter ? book.chapters[(t as any).chapter] : undefined;
+  const sc = t.field.startsWith("scene.") && ch ? ch.scenes[(t as any).scene] : undefined;
+  if (inChapter && !ch) return null;
+  if (t.field.startsWith("scene.") && !sc) return null;
+  const where = sc ? `the scene "${sc.title || "untitled"}" in the chapter "${ch!.title || "untitled"}"`
+    : ch ? `the chapter "${ch.title || "untitled"}"` : "the story as a whole";
+  return [
+    `The plan so far:\n${toOutline(book).trim()}`,
+    `For ${where}, write ${ask[0]}.`,
+    "Something fresh — not what is already there. Keep to the names, places and tone of the plan.",
+    "Reply with only that text: no label, no heading, no quotation marks, nothing before or after it.",
+  ].join("\n\n");
+}
+
+/** A model's answer for one field, cleaned to what the field can hold. Empty when there is nothing usable. */
+export function cleanField(field: string, raw: string): string {
+  const lim = fieldLimits(field);
+  if (!lim) return "";
+  let t = String(raw ?? "").replace(/^```[a-z]*\n?|```\s*$/gim, "").trim();
+  t = t.replace(/^#+\s*/gm, "");
+  // A label it was asked not to write: "Setting: …", "**Title:** …".
+  t = t.replace(/^\s*\**\s*(?:title|name|premise|summary|setting|where|cast|who|purpose|beats|ending|scene|chapter)\s*\**\s*:\s*\**\s*/i, "");
+  if (!lim.multiline) t = t.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  t = t.trim().replace(/^["“'‘*_]+|["”'’*_]+$/g, "").trim();
+  return t.slice(0, lim.max);
+}

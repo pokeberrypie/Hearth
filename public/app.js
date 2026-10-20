@@ -11338,21 +11338,21 @@ function renderApocChapters() {
   $("#ap_chapters").innerHTML = editingApoc.chapters.map((ch, ci) =>
     `<section class="apocchapter">` +
     `<div class="apocchead">` +
-    `<input data-ci="${ci}" data-f="title" value="${esc(ch.title)}" placeholder="Chapter ${ci + 1}" aria-label="Chapter title">` +
+    randField(`<input data-ci="${ci}" data-f="title" value="${esc(ch.title)}" placeholder="Chapter ${ci + 1}" aria-label="Chapter title">`, "chapter.title", ci, "", "grow") +
     `<button class="ico" data-rmchapter="${ci}" title="Remove chapter" aria-label="Remove chapter">${ICON.del}</button>` +
     `</div>` +
-    `<textarea rows="2" data-ci="${ci}" data-f="summary" placeholder="What this chapter is about (optional)">${esc(ch.summary)}</textarea>` +
+    randField(`<textarea rows="2" data-ci="${ci}" data-f="summary" placeholder="What this chapter is about (optional)">${esc(ch.summary)}</textarea>`, "chapter.summary", ci) +
     ch.scenes.map((sc, si) =>
       `<details class="entry apocscene"${sc.title ? "" : " open"}>` +
       `<summary><span class="etitle">${esc(sc.title || "Untitled scene")}</span>` +
       `<span class="ekeys">${esc(sc.setting)}</span>` +
       `<button class="ico" data-rmscene="${ci}:${si}" title="Remove scene" aria-label="Remove scene">${ICON.del}</button></summary>` +
       `<div class="ebody">` +
-      SCENE_FIELDS.map(([f, label, kind, hint]) => kind === "input"
-        ? `<label>${label}<input data-ci="${ci}" data-si="${si}" data-f="${f}" value="${esc(sc[f])}" placeholder="${esc(hint)}"></label>`
-        : `<label>${label}<textarea rows="3" data-ci="${ci}" data-si="${si}" data-f="${f}" placeholder="${esc(hint)}">${esc(sc[f])}</textarea></label>`,
+      SCENE_FIELDS.map(([f, label, kind, hint]) => `<label>${label}${randField(kind === "input"
+        ? `<input data-ci="${ci}" data-si="${si}" data-f="${f}" value="${esc(sc[f])}" placeholder="${esc(hint)}">`
+        : `<textarea rows="3" data-ci="${ci}" data-si="${si}" data-f="${f}" placeholder="${esc(hint)}">${esc(sc[f])}</textarea>`,
+        `scene.${f}`, ci, si)}</label>`,
       ).join("") +
-      `<button type="button" class="linkish apwrite" data-fillscene="${ci}:${si}">✦ Fill in the rest with AI</button>` +
       `</div></details>`,
     ).join("") +
     `<button class="linkish" data-addscene="${ci}">Add a scene</button>` +
@@ -11376,18 +11376,6 @@ $("#ap_chapters").addEventListener("click", async (e) => {
   const add = e.target.closest("[data-addscene]");
   const rmScene = e.target.closest("[data-rmscene]");
   const rmChapter = e.target.closest("[data-rmchapter]");
-  const fill = e.target.closest("[data-fillscene]");
-  if (fill) {
-    const [ci, si] = fill.dataset.fillscene.split(":").map(Number);
-    const r = await apocWrite(fill, { what: "scene", chapter: ci, scene: si });
-    if (!r?.scene) return;
-    // Only the blanks: whatever the person already wrote stays as written.
-    const sc = editingApoc.chapters[ci].scenes[si];
-    for (const [f] of SCENE_FIELDS) if (!String(sc[f] ?? "").trim() && r.scene[f]) sc[f] = r.scene[f];
-    renderApocChapters();
-    $("#ap_chapters").querySelectorAll(".apocchapter")[ci]?.querySelectorAll("details")[si]?.setAttribute("open", "");
-    return;
-  }
   if (add) {
     editingApoc.chapters[+add.dataset.addscene].scenes.push(blankScene());
     renderApocChapters();
@@ -11413,56 +11401,61 @@ $("#ap_addChapter").onclick = () => {
 $("#ap_close").onclick = () => $("#apocDialog").close();
 
 /**
- * Asking the model to write part of the plan. Nothing is saved by this: what
- * comes back goes into the draft in front of the person, who keeps it with
- * Save or does not. The button says it is writing, since a long outline can
- * take a while on a slow model.
+ * A die in every field of the story editor: a fresh take on that one field,
+ * written by the model with the rest of the plan in view. It replaces what is
+ * there — that is what a randomize button is for — and the toast offers the
+ * old text back. Nothing is saved until Save.
  */
-async function apocWrite(button, body) {
-  const label = button.textContent;
-  button.disabled = true;
-  button.textContent = "Writing…";
+const DIE = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.1"/><circle cx="15" cy="15" r="1.1"/><circle cx="15" cy="9" r="1.1"/><circle cx="9" cy="15" r="1.1"/><circle cx="12" cy="12" r="1.1"/></svg>`;
+
+function randField(control, field, ci = "", si = "", extra = "") {
+  return `<span class="randwrap ${extra}">${control}<button type="button" class="randbtn" data-rand="${field}"` +
+    ` data-ci="${ci}" data-si="${si}" title="Randomize" aria-label="Randomize">${DIE}</button></span>`;
+}
+
+$("#apocDialog").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-rand]");
+  if (!b || b.disabled) return;
+  e.preventDefault();
+  const box = b.parentElement.querySelector("input, textarea");
+  const field = b.dataset.rand;
+  b.disabled = true;
+  b.classList.add("rolling");
   try {
     const r = await api("/apocrypha/write", {
       method: "POST", headers: JSON_HEADERS,
-      body: JSON.stringify({ ...body, book: { name: $("#ap_name").value, premise: $("#ap_premise").value, chapters: editingApoc.chapters } }),
+      body: JSON.stringify({
+        what: "field", field, chapter: b.dataset.ci, scene: b.dataset.si,
+        book: { name: $("#ap_name").value, premise: $("#ap_premise").value, chapters: editingApoc.chapters },
+      }),
     });
-    if (r?.error) { toast(r.error); return null; }
-    return r;
+    if (r?.error) return toast(r.error);
+    const before = box.value;
+    const put = (v) => {
+      box.value = v;
+      // Through the editor's own listener, so the draft and the folded heading follow.
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    put(r.value);
+    // The old text back, offered in the field itself: the editor is a modal
+    // dialog, and a toast sits underneath it where nobody can press it.
+    b.parentElement.querySelector(".randundo")?.remove();
+    if (before.trim()) {
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.className = "randundo linkish";
+      undo.textContent = "Undo";
+      undo.onclick = (ev) => { ev.preventDefault(); put(before); undo.remove(); };
+      b.after(undo);
+      setTimeout(() => undo.remove(), 10000);
+    }
   } catch {
     toast("The model could not be reached.");
-    return null;
   } finally {
-    button.disabled = false;
-    button.textContent = label;
+    b.disabled = false;
+    b.classList.remove("rolling");
   }
-}
-
-$("#ap_writePremise").onclick = async (e) => {
-  const had = $("#ap_premise").value.trim();
-  const idea = await askDialog({ title: had ? "Rewrite the premise around what?" : "What is the story about?",
-    text: "A few words is plenty — or leave it empty and the name is the idea.", confirmLabel: "Write", value: "" });
-  if (idea === null) return;
-  const r = await apocWrite(e.currentTarget, { what: "premise", idea });
-  if (r?.premise) $("#ap_premise").value = r.premise;
-};
-
-$("#ap_writeChapters").onclick = async (e) => {
-  const button = e.currentTarget;
-  const more = editingApoc.chapters.some((ch) => ch.scenes.length);
-  const idea = await askDialog({ title: more ? "Where should the next chapters go?" : "Draft the chapters",
-    text: "Optional: anything they should include. Three chapters, a few scenes each; you can change all of it.",
-    confirmLabel: "Write", value: "" });
-  if (idea === null) return;
-  const r = await apocWrite(button, { what: "outline", idea, chapters: 3 });
-  if (!r?.chapters?.length) return;
-  // A lone empty chapter from "Add a chapter" is replaced rather than left above the draft.
-  editingApoc.chapters = editingApoc.chapters.filter((ch) => ch.title.trim() || ch.summary.trim()
-    || ch.scenes.some((sc) => SCENE_FIELDS.some(([f]) => String(sc[f] ?? "").trim())));
-  editingApoc.chapters.push(...r.chapters);
-  renderApocChapters();
-  toast(`${r.chapters.length} chapter${r.chapters.length === 1 ? "" : "s"} drafted. Save to keep them.`);
-};
+});
 
 $("#ap_save").onclick = async () => {
   const r = await api("/apocrypha/" + editingApoc.id, {
