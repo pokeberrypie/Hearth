@@ -8165,7 +8165,8 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
   bottom: 0.3rem;
   margin: 0 auto;
   width: max-content;
-  max-width: none;
+  max-width: calc(100% - 1rem);
+  overflow: hidden;
 }
 .bar:has(#worldLine:not([hidden])) .title,
 .bar:has(#worldLine:not([hidden])) .barside { padding-bottom: 1.15rem; }

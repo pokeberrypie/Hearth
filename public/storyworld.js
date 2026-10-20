@@ -54,10 +54,27 @@ async function paintWorldLine() {
   note.hidden = !waiting;
   note.textContent = waiting ? String(waiting) : "";
   note.title = waiting ? `${waiting} waiting for you` : "";
+  fitWorldLine();
   if (!$("#worldDialog")?.open) return;
   paintWorld();
 }
 
+
+/**
+ * One line, always: a date too long for the bar has its type brought down
+ * until it fits, rather than running off the edges or being cut short.
+ */
+function fitWorldLine() {
+  const line = $("#worldLine");
+  if (!line || line.hidden) return;
+  line.style.fontSize = "";
+  let size = parseFloat(getComputedStyle(line).fontSize) || 12;
+  while (line.scrollWidth > line.clientWidth + 1 && size > 8) {
+    size -= 0.5;
+    line.style.fontSize = size + "px";
+  }
+}
+addEventListener("resize", fitWorldLine);
 
 /** A guest's line comes from the table's own state, and moves with the live feed. */
 function paintGuestWorldLine(summary) {
@@ -70,6 +87,7 @@ function paintGuestWorldLine(summary) {
   // event is in the window, a tap away.
   $("#worldNote").hidden = true;
   line.title = w.latest ? `Latest: ${w.latest}` : "";
+  fitWorldLine();
 }
 
 // ---- the window -------------------------------------------------------------
