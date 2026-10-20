@@ -8235,6 +8235,8 @@ function applyTheme() {
     r.setProperty("--lumiverse-border-hover", `rgba(${R},${G},${B},0.34)`);
     r.setProperty("--lumiverse-primary-muted", `rgba(${R},${G},${B},0.55)`);
   }
+  // The plates are the theme's colour at the chosen solidity; a new colour needs them redone.
+  if ($("#plate_opacity")) paintPlates();
 }
 
 const hexRgb = (h) => ({
@@ -8377,6 +8379,7 @@ function applyLook() {
   // the layer is what some GPUs misplace, and this is the way to be rid of it.
   document.body.classList.toggle("noglass", Number($("#plate_blur").value) === 0);
   r.setProperty("--plate-opacity", $("#plate_opacity").value);
+  paintPlates();
   const rad = $("#radius").value;
   r.setProperty("--lumiverse-radius", rad + "px");
   r.setProperty("--lumiverse-radius-sm", Math.round(rad * 0.6) + "px");
@@ -8415,6 +8418,40 @@ function applyLook() {
 matchMedia("(prefers-reduced-transparency: reduce)").addEventListener?.(
   "change", () => { try { applyLook(); } catch {} },
 );
+
+/**
+ * The plates' colour at the chosen solidity, as plain rgba().
+ *
+ * The stylesheet used to work it out with color-mix() and a calc() inside it,
+ * and some Android WebViews read that as invalid and drop the whole
+ * declaration, so the solidity slider moved and nothing changed. The theme's
+ * colour is resolved here instead, through a probe element so any way a theme
+ * writes it (hex, rgb, color-mix) comes back as numbers.
+ */
+function plateBackground(alpha, colour = "--lumiverse-bg-elevated") {
+  const probe = document.createElement("i");
+  probe.style.cssText = `position:absolute;visibility:hidden;color:var(${colour})`;
+  document.body.append(probe);
+  const c = getComputedStyle(probe).color;
+  probe.remove();
+  let rgb = c.match(/rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/)?.slice(1, 4).map(Number);
+  if (!rgb) {
+    const f = c.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+    rgb = f ? f.slice(1, 4).map((v) => Math.round(Number(v) * 255)) : [32, 24, 18];
+  }
+  // A floor of 15% keeps text off a bare bright wallpaper; the slider has the rest.
+  const chosen = Math.min(1, Math.max(0, Number.isFinite(alpha) ? alpha : 0.78));
+  const a = Math.round((0.15 + 0.85 * chosen) * 1000) / 1000;
+  return `rgba(${rgb.map((v) => Math.round(v)).join(", ")}, ${a})`;
+}
+
+/** Both kinds of plate, the character's and your own (a shade cooler), from the slider. */
+function paintPlates() {
+  const r = document.documentElement.style;
+  const op = Number($("#plate_opacity")?.value);
+  r.setProperty("--plate-bg", plateBackground(op));
+  r.setProperty("--plate-bg-mine", plateBackground(op, "--lumiverse-bg"));
+}
 
 let lookTimer;
 function saveLook() {

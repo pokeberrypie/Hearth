@@ -1506,7 +1506,7 @@ label.check input[type="checkbox"]:checked::after {
 
 body[data-msgstyle="banner"] .plate,
 body[data-msgstyle="portrait"] .plate {
-  background: color-mix(in srgb, var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%), transparent);
+  background: var(--plate-bg, color-mix(in srgb, var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%), transparent));
   -webkit-backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
           backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
   box-shadow:
@@ -2756,7 +2756,7 @@ body[data-msgstyle="page"].pagefaces .who .medallion.blank { font-size: 1rem; }
 
 body[data-msgstyle="page"] #thread {
   padding: 1.4rem 1.6rem 2.4rem;
-  background: color-mix(in srgb, var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%), transparent);
+  background: var(--plate-bg, color-mix(in srgb, var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%), transparent));
   -webkit-backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
           backdrop-filter: blur(var(--plate-blur)) saturate(1.15);
   border: 1px solid var(--lumiverse-border);
@@ -2967,9 +2967,9 @@ body[data-msgstyle="portrait"] .plate {
 body[data-msgstyle="banner"] .plate,
 body[data-msgstyle="portrait"] .plate,
 body[data-msgstyle="page"] #thread {
-  background-color: color-mix(in srgb,
+  background-color: var(--plate-bg, color-mix(in srgb,
     var(--lumiverse-bg-elevated) calc(var(--plate-opacity) * 100%),
-    color-mix(in srgb, var(--lumiverse-bg-deep) 15%, transparent));
+    color-mix(in srgb, var(--lumiverse-bg-deep) 15%, transparent)));
 }
 
 /* ---- chat options sheet -------------------------------------------------- */
@@ -3097,9 +3097,9 @@ dialog::backdrop {
    sliders entirely, because the extra .mine class outranked them. */
 body[data-msgstyle="banner"] .msg.mine .plate,
 body[data-msgstyle="portrait"] .msg.mine .plate {
-  background-color: color-mix(in srgb,
+  background-color: var(--plate-bg-mine, color-mix(in srgb,
     var(--lumiverse-bg) calc(var(--plate-opacity) * 100%),
-    color-mix(in srgb, var(--lumiverse-bg-deep) 60%, transparent));
+    color-mix(in srgb, var(--lumiverse-bg-deep) 60%, transparent)));
 }
 
 /* ---- folding sections ---------------------------------------------------- */
@@ -8181,7 +8181,9 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
   height: 1.4em;
   min-width: 1.4em;
   margin-left: 0.45em;
-  padding: 0 0.38em;
+  /* Cinzel's figures ride high in their line: measured, about 0.14em above
+     the middle of the badge. The extra top padding is what brings them down. */
+  padding: 0.27em 0.38em 0;
   border-radius: 0.7em;
   font-family: var(--lumiverse-font-display);
   font-size: 0.8em;
