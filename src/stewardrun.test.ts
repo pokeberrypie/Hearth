@@ -561,6 +561,26 @@ describe("finding where the story is", () => {
     expect(await sceneQ()).toBeUndefined();
   });
 
+  test("picked by hand: later catches up and answers the question; earlier reopens", async () => {
+    seed(3);
+    answers = ["NONE"];
+    await follow();
+    answers = ['SCENE | 2 | "the court gathered in the Great Hall"'];
+    await send("/api/chats/ch/apocrypha/locate", "POST");
+    expect(await sceneQ()).toBeTruthy();
+    const t = await tale();
+    const ids = Object.fromEntries(t.book.chapters.flatMap((c: any) => c.scenes).map((s: any) => [s.title, s.id]));
+    await send("/api/chats/ch/apocrypha", "PUT", { book: t.book.id, scene: ids["Tyrion Taken"] });
+    expect(await current()).toBe("Tyrion Taken");
+    expect(await sceneQ()).toBeUndefined();
+    let m = (await tale()).mark;
+    expect(m.done.sort()).toEqual([ids["The Arrival"], ids["The Feast"]].sort());
+    await send("/api/chats/ch/apocrypha", "PUT", { book: t.book.id, scene: ids["The Feast"] });
+    m = (await tale()).mark;
+    expect(await current()).toBe("The Feast");
+    expect(m.done).toEqual([ids["The Arrival"]]);
+  });
+
   test("the Steward, reading as usual, can say the story has moved on to a scene ahead", async () => {
     seed(3);
     answers = ["NONE"];

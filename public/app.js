@@ -11620,6 +11620,51 @@ const taleChanged = (r) => {
    the open chat follows a story, so a chat that does not is not asked to make
    room for two buttons it has no use for. */
 
+/**
+ * Putting the story where it actually is, by hand — for when the Steward's
+ * guess is wrong, or there was no guess. Every chapter and scene, the one now
+ * marked; a tap moves there. Later than now counts the scenes between as
+ * played; earlier reopens. Shown in full even when playing blind: this is
+ * asking to see the plan.
+ */
+async function openScenePicker() {
+  if (!S.chatId) return;
+  const r = await api(`/chats/${S.chatId}/apocrypha`);
+  if (!r?.book) return toast("This chat is not following a story.");
+  sceneTale = r;
+  let d = $("#scenePicker");
+  if (!d) {
+    d = document.createElement("dialog");
+    d.id = "scenePicker";
+    d.className = "scenepicker";
+    document.body.appendChild(d);
+    d.addEventListener("click", async (e) => {
+      if (e.target === d || e.target.closest("[data-close]")) return d.close();
+      const pick = e.target.closest("[data-pick]");
+      if (!pick || pick.classList.contains("now")) return;
+      const res = await api(`/chats/${S.chatId}/apocrypha`, {
+        method: "PUT", headers: JSON_HEADERS,
+        body: JSON.stringify({ book: sceneTale.book.id, scene: pick.dataset.pick }),
+      });
+      d.close();
+      taleChanged(res);
+      if (!res.error) toast(`Now: ${pick.dataset.title || "an untitled scene"}`);
+    });
+  }
+  const { book, mark } = sceneTale;
+  const state = (id) => mark?.scene === id ? "now" : mark?.done.includes(id) ? "done" : mark?.skipped.includes(id) ? "skipped" : "";
+  const WORD = { now: "Now", done: "Played", skipped: "Skipped", "": "" };
+  d.innerHTML = `<div class="sphead"><h2>Where is the story?</h2>
+      <button type="button" class="ico" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <p class="hint">Tap the scene the story is in. A later one counts the scenes before it as played; an earlier one is opened again.${$("#apocrypha_blind")?.checked ? " This shows the whole plan, even though you are playing blind." : ""}</p>
+    <div class="splist">${book.chapters.map((ch, ci) =>
+      `<div class="talechapter">${esc(ch.title || `Chapter ${ci + 1}`)}</div>` +
+      ch.scenes.map((sc) => { const st = state(sc.id); return `<button type="button" class="talescene ${st || "ahead"}" data-pick="${sc.id}" data-title="${esc(sc.title)}">` +
+        `<span>${esc(sc.title || "Untitled scene")}</span><em>${WORD[st]}</em></button>`; }).join("")).join("")}</div>`;
+  d.showModal();
+  d.querySelector(".talescene.now")?.scrollIntoView({ block: "center" });
+}
+
 const sceneList = (book) => book.chapters.flatMap((c) => c.scenes);
 const sceneName = (sc) => sc?.title?.trim() || "an untitled scene";
 
@@ -11694,6 +11739,7 @@ const advanceTale = async (how) => {
   }));
 };
 $("#sceneTaleDone").onclick = () => advanceTale("done");
+$("#sceneTalePick").onclick = () => { $("#sceneDialog")?.close(); openScenePicker(); };
 
 /**
  * Reading the latest messages for where the story is in its plan. Any answer

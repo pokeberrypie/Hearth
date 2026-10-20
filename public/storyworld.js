@@ -104,7 +104,8 @@ function paintScenePrompt(s) {
   box.innerHTML = `<span class="spstar" aria-hidden="true">✦</span>
     <div class="sptext">${text}${q.evidence ? `<div class="spwhy">“${txt(q.evidence)}”</div>` : ""}</div>
     <div class="spbtns"><button type="button" class="solid" data-yes>Yes</button>
-      <button type="button" class="linkish" data-no>Not yet</button></div>`;
+      <button type="button" class="linkish" data-no>Not yet</button>
+      <button type="button" class="linkish" data-pick-scene>Pick the scene…</button></div>`;
   box.hidden = false;
   box.querySelector("[data-yes]").onclick = async () => {
     box.hidden = true;
@@ -113,6 +114,8 @@ function paintScenePrompt(s) {
     toast(d.to ? `Now in: ${d.toTitle || "the later scene"}` : d.next ? `Now: ${d.next}` : "That was the last scene.");
   };
   box.querySelector("[data-no]").onclick = async () => { box.hidden = true; await act(`/chronicle/${q.id}/undo`); };
+  // The guess is wrong: say where the story really is. Choosing answers the question.
+  box.querySelector("[data-pick-scene]").onclick = () => { if (typeof openScenePicker === "function") openScenePicker(); };
 }
 
 /** A guest's line comes from the table's own state, and moves with the live feed. */

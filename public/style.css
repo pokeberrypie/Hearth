@@ -8294,3 +8294,12 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 .sceneprompt .spbtns .solid { padding: 0.3rem 0.9rem; }
 @keyframes sceneprompt-in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .sceneprompt { animation: none; } }
+
+/* Where is the story? Every scene, the one now marked. */
+.scenepicker { width: min(94vw, 26rem); max-height: 82dvh; display: flex; flex-direction: column; }
+.scenepicker[open] { display: flex; }
+.scenepicker .sphead { display: flex; align-items: center; justify-content: space-between; }
+.scenepicker .sphead h2 { margin: 0; font-family: var(--lumiverse-font-display); color: var(--lumiverse-primary); font-size: 1.15rem; }
+.scenepicker .splist { overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem; padding-bottom: 0.3rem; }
+.scenepicker .talescene { width: 100%; }
+.sceneprompt .spbtns .linkish { font-size: 0.78rem; white-space: nowrap; }

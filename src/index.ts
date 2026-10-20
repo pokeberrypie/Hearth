@@ -4160,7 +4160,17 @@ api.put("/chats/:id/apocrypha", async (c) => {
   const current = taleOf(chatId).mark;
   const fresh = current?.book !== book.id;
   let mark = fresh ? startBookmark(book) : current!;
-  if (b.scene) mark = jumpTo(book, mark, String(b.scene));
+  if (b.scene) {
+    // Chosen by a person. Later than where the story was: everything before
+    // it happened. Earlier: that scene is reopened and played again.
+    const ids = scenesOf(book).map(({ scene }) => scene.id);
+    const to = String(b.scene);
+    mark = ids.indexOf(to) > ids.indexOf(mark.scene) && mark.scene ? catchUpTo(book, mark, to)
+      : !mark.scene && ids.includes(to) ? catchUpTo(book, mark, to)
+      : jumpTo(book, mark, to);
+    // Whatever the plan was asking about its scenes is answered.
+    db.query("UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'scene' AND proposed = 1 AND undone_at IS NULL").run(now(), chatId);
+  }
   setTale(chatId, mark);
   // A chat already under way that starts following a book is probably not at
   // its first scene: find out where it is, and ask. Not awaited; a failure is
