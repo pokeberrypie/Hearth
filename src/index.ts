@@ -23,7 +23,7 @@ import { dirname, join } from "node:path";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { buildParts, buildMessages, buildPostHistory, estimateTokens, macros, stripSpeakerLabel, type Character } from "./prompt";
 import { namedIn, recall, recallBrief, related } from "./recall";
-import { GOSSIP_RATES, active as stillGoing, gossipDay, gossipOf, told as knowingTold, type Knowing } from "./whispers";
+import { active as stillGoing, gossipDay, gossipOf, told as knowingTold, willSpread, type Knowing } from "./whispers";
 import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNote, NOTE_SYSTEM, type Scope } from "./autolore";
 import { CARRY_SYSTEM, carryEntry, carryPrompt, carriedTitle, cleanSummary, recentFor, tailBudget } from "./carryon";
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
@@ -4184,7 +4184,8 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
       if (r.witness) {
         const g = gossipOf(s.gossip_level);
         add.push(knowingEntry({ holder: r.witness.who, version: r.witness.saw, of: hook, source: "saw", from: "", distortion: 0, blames: "",
-          spreads: g !== "off" && Math.random() >= GOSSIP_RATES[g].refuse, day: at.day, by: [person] }, base, t++));
+          spreads: willSpread(r.witness.who, [person], g, { rng: Math.random, closeness: (f, to) => bondsOf(entries).find((b) => b.from === f && b.to === to)?.score ?? 50 }),
+          day: at.day, by: [person] }, base, t++));
       }
     }
     if (r.fact && outcome === "succeeded") {
@@ -4210,7 +4211,10 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
       .map((e) => ({ id: e.id, text: e.title, by: Array.isArray(dataOf(e).by) ? dataOf(e).by : [], day: e.day ?? at.day }));
     const fresh = gossipDay({ level: g, distortion: Number(s.gossip_distortion) || 0, misinformation: s.gossip_misinfo !== "0",
       decayDays: Number(s.gossip_decay) > 0 ? Number(s.gossip_decay) : 10, day: at.day, knowings, traces,
-      people: peopleOfChat(chatId), player, rng: Math.random });
+      people: peopleOfChat(chatId), player, rng: Math.random,
+      // Along the story's own ties: how each feels about the other, and who stands together.
+      closeness: (() => { const b = new Map(bondsOf(entries).map((x) => [`${x.from}\u0000${x.to}`, x.score])); return (f: string, t: string) => b.get(`${f}\u0000${t}`) ?? 50; })(),
+      together: (() => { const fs = factionsOf(entries).map((f) => f.members); return (x: string, y: string) => fs.some((m) => m.includes(x) && m.includes(y)); })() });
     const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
     if (fresh.length) copyChronicle(fresh.map((k) => knowingEntry(k, base, t++)), chatId);
   }

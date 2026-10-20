@@ -76,9 +76,61 @@ export type GossipInput = {
   people: string[];
   player: string;
   rng: () => number;
+  /** How one person feels about another, 0 to 100, one way round; 50 when nothing is known. From the story's bonds. */
+  closeness?: (from: string, to: string) => number;
+  /** Whether two people are counted in the same faction. */
+  together?: (a: string, b: string) => boolean;
 };
 
 const pick = <T>(list: T[], rng: () => number): T | undefined => (list.length ? list[Math.min(list.length - 1, Math.floor(rng() * list.length))] : undefined);
+
+/** A pick where some are likelier than others: each in proportion to its weight. */
+function weighted<T>(list: { item: T; weight: number }[], rng: () => number): T | undefined {
+  const live = list.filter((x) => x.weight > 0);
+  const total = live.reduce((n, x) => n + x.weight, 0);
+  if (!total) return undefined;
+  let r = rng() * total;
+  for (const x of live) { r -= x.weight; if (r < 0) return x.item; }
+  return live[live.length - 1].item;
+}
+
+const isRole = (who: string) => ROLES.includes(who);
+
+/**
+ * Whom someone tells: gossip runs along the story's own ties. A friend
+ * before a stranger, a sworn brother before a rival, a servant to the other
+ * servants; and nobody confides in someone they loathe.
+ */
+export function listenerWeight(holder: string, to: string, o: Pick<GossipInput, "closeness" | "together">): number {
+  if (isRole(holder) && isRole(to)) return 4; // below stairs, everyone talks to everyone
+  if (isRole(holder) || isRole(to)) return 1.5;
+  const near = o.closeness?.(holder, to) ?? 50;
+  if (near < 30) return 0.2;
+  return 1 + Math.max(0, near - 50) / 10 + (o.together?.(holder, to) ? 2 : 0);
+}
+
+/** Whom someone would shield: a person they are devoted to, among those who did it. */
+export function loyalTo(holder: string, by: string[], o: Pick<GossipInput, "closeness">): string | undefined {
+  return by.find((a) => (o.closeness?.(holder, a) ?? 50) >= 70);
+}
+
+/**
+ * Whether they will pass it on. Those who did it never do. Someone devoted
+ * to whoever did it holds their tongue — except to warn them. Someone who
+ * cannot stand them is glad to.
+ */
+function willTell(who: string, by: string[], base: number, o: GossipInput): boolean {
+  if (by.includes(who)) return false;
+  if (loyalTo(who, by, o)) return true; // they will — but only to warn (see below)
+  const spite = by.some((a) => (o.closeness?.(who, a) ?? 50) <= 30);
+  return o.rng() >= Math.max(0, base - (spite ? 0.25 : 0));
+}
+
+/** Whether someone who has just seen or found something will pass it on, by the same rules as everyone else. */
+export function willSpread(who: string, by: string[], level: Gossip, o: Pick<GossipInput, "closeness" | "rng">): boolean {
+  if (level === "off") return false;
+  return willTell(who, by, GOSSIP_RATES[level].refuse, o as GossipInput);
+}
 
 /** Whether a rumour is still going around, or has faded to something people only remember. */
 export const active = (k: Pick<Knowing, "day">, day: number, decayDays: number) => day - k.day <= decayDays;
@@ -94,7 +146,7 @@ export function gossipDay(o: GossipInput): Knowing[] {
   const people = o.people.filter((p) => p && p.toLowerCase() !== player);
   const out: Knowing[] = [];
   const knowsAlready = (who: string, of: string) => [...o.knowings, ...out].some((k) => k.of === of && k.holder === who);
-  const refuses = (who: string, by: string[]) => by.includes(who) || o.rng() < rate.refuse;
+  const refuses = (who: string, by: string[]) => !willTell(who, by, rate.refuse, o);
 
   // Found: a trace lying unnoticed, come upon by someone — a person in the story, or one of the household.
   for (const t of o.traces) {
@@ -112,7 +164,10 @@ export function gossipDay(o: GossipInput): Knowing[] {
     if (out.length >= rate.perDay) break;
     if (!k.spreads || !active(k, o.day, o.decayDays) || k.by.includes(k.holder)) continue;
     if (o.rng() >= rate.spread) continue;
-    const to = pick([...people, ...ROLES].filter((p) => p !== k.holder && !knowsAlready(p, k.of)), o.rng);
+    // Someone devoted to whoever did it tells no one but them: a warning, not gossip.
+    const shield = loyalTo(k.holder, k.by, o);
+    const candidates = [...people, ...ROLES].filter((p) => p !== k.holder && !knowsAlready(p, k.of) && (!shield || p === shield));
+    const to = weighted(candidates.map((p) => ({ item: p, weight: listenerWeight(k.holder, p, o) })), o.rng);
     if (!to) continue;
     const drift = Math.max(0, Math.min(50, o.distortion));
     const distortion = Math.min(100, k.distortion + drift + Math.floor(o.rng() * (drift + 1)));
