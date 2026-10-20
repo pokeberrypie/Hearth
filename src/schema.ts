@@ -362,6 +362,9 @@ export const ALTER_TABLES: string[] = [
   "ALTER TABLE chats ADD COLUMN steward_at INTEGER NOT NULL DEFAULT 0",
   // How hard an apocryphon's plan pulls on the story — see src/apocrypha.ts.
   "ALTER TABLE apocrypha ADD COLUMN steering TEXT NOT NULL DEFAULT 'gentle'",
+  // The story day the Offstage last took its turn on, so it acts once a day and
+  // never per message. -1 until the Living World is first on in this chat.
+  "ALTER TABLE chats ADD COLUMN offstage_day INTEGER NOT NULL DEFAULT -1",
 ];
 
 /** Group chats. A chat keeps its `character_id` as the one it was started
@@ -582,6 +585,12 @@ export const DEFAULTS: Record<string, string> = {
   heraldry_style: "auto",
   // The Apocrypha played blind: a chat shows only the scenes already reached.
   apocrypha_blind: "0",
+  // The Living World (src/offstage.ts): off until asked for.
+  offstage_level: "off",
+  offstage_protection: "fair",
+  offstage_per_day: "2",
+  offstage_provider: "",
+  offstage_model: "",
   /** "since" the last note, or a "window" of the last `auto_lore_every`. */
   auto_lore_scope: "since",
   lore_budget: "8000",

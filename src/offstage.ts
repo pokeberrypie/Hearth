@@ -1,0 +1,249 @@
+/**
+ * The Offstage: what the people the player is not watching decide to do.
+ *
+ * Hearth has three roles, kept apart on purpose. The narrator writes the
+ * story. The Steward reads it and keeps the records. The Offstage decides,
+ * now and then, what someone does when nobody is looking — and it is the only
+ * one of the three that ever sees their plans.
+ *
+ * The whole design rests on one rule: a secret is kept by not being said. The
+ * narrator is never handed what an NPC is plotting, only what has become true
+ * in the world (a document is missing — not who took it) and what could be
+ * noticed (the septa seems nervous — not that anyone did notice). Telling a
+ * model "do not reveal this" does not hold; a model leaks what is in front of
+ * it. So the plan stays in the ledger, and the ledger stays out of the story.
+ *
+ * And the decisions are not a dice table of schemes. Every one is made by a
+ * person, from inside their own head: what they want, what they are afraid of
+ * losing, what they know — only what they know — and whether they believe
+ * they can get away with it. The model judges motive and choice, because it
+ * is good at that; this file judges permission, consistency and chance,
+ * because a model is not. Doing nothing is a choice, and usually the right
+ * one. Giving up is a choice too.
+ *
+ * Pure: storing all of this, and asking a model, is index.ts's business.
+ */
+
+export const LEVELS = ["off", "balanced", "dynamic"] as const;
+export type Level = (typeof LEVELS)[number];
+export const PROTECTIONS = ["sheltered", "fair", "grim"] as const;
+export type Protection = (typeof PROTECTIONS)[number];
+
+const pickOf = <T extends string>(v: unknown, from: readonly T[], fallback: T): T =>
+  from.includes(v as T) ? (v as T) : fallback;
+export const levelOf = (v: unknown): Level => pickOf(v, LEVELS, "off");
+export const protectionOf = (v: unknown): Protection => pickOf(v, PROTECTIONS, "fair");
+
+/** How many people may act in one run, by level. */
+export const ACTORS_PER_RUN: Record<Level, number> = { off: 0, balanced: 1, dynamic: 3 };
+
+/** One goal someone is pursuing. */
+export type Agenda = { id: string; who: string; goal: string; why: string };
+
+/** Everything one person is allowed to know when they decide. Nothing else goes in. */
+export type View = {
+  who: string;
+  /** From their character card, if they have one: who they are. */
+  card: string;
+  /** The player's character, by name: someone they may act on, never someone they may speak or act for. */
+  player: string;
+  today: string;
+  /** How they are now, from the tracker. */
+  state: string[];
+  /** How they feel about people, in their own direction only. */
+  feelings: string[];
+  goals: Agenda[];
+  /** Things they were there for, or did themselves, newest last. */
+  known: string[];
+  /** How their own recent attempts went. */
+  lately: string[];
+  /** Said plainly when things have been going badly: what pushes a careful person to a risk. */
+  pressure: string;
+};
+
+export const OFFSTAGE_SYSTEM = [
+  "You decide what one person in a story does next, offstage, while the player is not watching. You are not the narrator: you write no story, only a decision, as short lines in a fixed format.",
+  "",
+  "Decide as this person would, from inside their own head. They act on what they want and what they are afraid of losing, using only what they know — never anything else about the world. They protect what matters to them: their life and safety, their reputation and relationships, their power and position, the people they love, and who they believe themselves to be. A desperate person takes risks a secure one would not; someone who loves enough may risk everything; an ambitious one may retreat to keep what they have. Most days, most people simply live their lives — that is a good answer.",
+  "",
+  "Write these lines, exactly like this:",
+  "WANT | what they want most right now | what they are afraid of losing",
+  "CONSIDER | something they could do | what they believe would happen, and what could go wrong for them",
+  "(two or three CONSIDER lines, one of which may be doing nothing out of the ordinary)",
+  "CHOOSE | which one, in a few words, or NOTHING, or ABANDON | why, in their own terms",
+  "ACT | what they do, in one plain sentence | easy or uncertain or hard | none or social or physical or grave",
+  "SEEN | something another person might notice, without saying who did it or why",
+  "FACT | what is now true in the world because of it, without saying who did it",
+  "GOAL | a new goal, only if they take one up | why",
+  "",
+  "Rules:",
+  "- ACT is only what this person does themselves. Never what the player's character does, says, thinks or feels.",
+  "- easy: it simply happens (writing a letter, a walk, a word with a friend). uncertain or hard: it could fail (bribing a loyal servant, a theft, a lie to someone sharp).",
+  "- The last field of ACT is the harm it would do to the player's character: none, social (their name, standing, friendships), physical (their body or freedom), grave (death, maiming, imprisonment for good).",
+  "- SEEN and FACT never name the person acting and never say why. Leave them out when nothing would show or nothing changed.",
+  "- NOTHING when they simply live their day: then ACT is the ordinary thing they do, easy, none, and there is no SEEN or FACT.",
+  "- ABANDON when they give up a goal because it is costing them more than it is worth: then name the goal in the why.",
+].join("\n");
+
+/** The request: who they are and what they know, and nothing else. */
+export function offstagePrompt(v: View): string {
+  const part = (title: string, lines: string[]) => (lines.length ? `${title}\n${lines.map((l) => `- ${l}`).join("\n")}` : "");
+  return [
+    `You are deciding for: ${v.who}`,
+    v.card && `Who they are:\n${v.card}`,
+    `Today in the story: ${v.today}`,
+    part("How they are now:", v.state),
+    part("How they feel about people:", v.feelings),
+    part("What they want:", v.goals.map((g) => `${g.goal}${g.why ? ` — ${g.why}` : ""}`)),
+    part("What they know (and only this):", v.known),
+    part("How their own recent attempts went:", v.lately),
+    v.pressure && `Their situation: ${v.pressure}`,
+    `The player's character is ${v.player || "the player"}: someone ${v.who} may act toward, never someone they decide for.`,
+    "Write the lines now.",
+  ].filter(Boolean).join("\n\n");
+}
+
+export type Difficulty = "easy" | "uncertain" | "hard";
+export type Harm = "none" | "social" | "physical" | "grave";
+
+export type Decision = {
+  want: string;
+  fear: string;
+  considered: { option: string; stakes: string }[];
+  choice: string;
+  why: string;
+  kind: "act" | "nothing" | "abandon";
+  act: string;
+  difficulty: Difficulty;
+  harm: Harm;
+  seen: string;
+  fact: string;
+  goal: { goal: string; why: string } | null;
+};
+
+const unquote = (s: string) => String(s ?? "").replace(/^["'“”‘’*_\s]+|["'“”‘’*_\s]+$/g, "").trim();
+const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+
+/** A model's answer, read. Untidy answers are read as far as they go; nothing here is believed yet. */
+export function readDecision(raw: string): Decision {
+  const d: Decision = { want: "", fear: "", considered: [], choice: "", why: "", kind: "nothing", act: "", difficulty: "easy",
+    harm: "none", seen: "", fact: "", goal: null };
+  const text = String(raw ?? "")
+    .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
+    .replace(/```[a-z]*\n?/gi, "");
+  for (const line of text.split(/\r?\n/)) {
+    const parts = line.replace(/^[\s>*\-•\d.)]+/, "").split("|").map((p) => unquote(p));
+    const key = (parts[0] ?? "").toUpperCase().replace(/[^A-Z]/g, "");
+    if (key === "WANT") { d.want = parts[1] ?? ""; d.fear = parts[2] ?? ""; }
+    else if (key === "CONSIDER" && parts[1]) d.considered.push({ option: parts[1], stakes: parts.slice(2).join(" | ") });
+    else if (key === "CHOOSE" || key === "CHOICE") {
+      d.choice = parts[1] ?? "";
+      d.why = parts.slice(2).join(" | ");
+      d.kind = /^nothing\b/i.test(d.choice) ? "nothing" : /^abandon\b/i.test(d.choice) ? "abandon" : "act";
+    } else if (key === "ACT" || key === "ACTION") {
+      d.act = parts[1] ?? "";
+      const diff = (parts[2] ?? "").toLowerCase();
+      d.difficulty = /hard|difficult/.test(diff) ? "hard" : /uncertain|risky|could fail|chance/.test(diff) ? "uncertain" : "easy";
+      const harm = (parts[3] ?? "").toLowerCase();
+      d.harm = /grave|death|kill|maim|permanent/.test(harm) ? "grave" : /physical|body|bodily|freedom|injur/.test(harm) ? "physical"
+        : /social|name|reputation|standing/.test(harm) ? "social" : "none";
+    } else if (key === "SEEN" || key === "NOTICE" || key === "NOTICED") d.seen = parts[1] ?? "";
+    else if (key === "FACT" || key === "CONSEQUENCE") d.fact = parts[1] ?? "";
+    else if (key === "GOAL" && parts[1]) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
+  }
+  if (d.kind === "act" && !d.act) d.kind = "nothing";
+  return d;
+}
+
+/** What a run may do with a decision, once it has been checked. */
+export type Ruling = {
+  /** What is recorded in the private ledger. */
+  kind: "act" | "nothing" | "abandon" | "dropped";
+  act: string;
+  why: string;
+  difficulty: Difficulty;
+  harm: Harm;
+  /** True when it touches the player's character in a way that has to be played out, not decided offstage. */
+  threat: boolean;
+  seen: string;
+  fact: string;
+  goal: { goal: string; why: string } | null;
+  /** Which goal was given up, when one was. */
+  abandons: string;
+  /** Why anything was taken out. Shown in the author's ledger, so a dull run can be understood. */
+  notes: string[];
+};
+
+/** Names a line must not carry: the one acting, by any part of their name a reader would recognise. */
+function namesOf(who: string): string[] {
+  const all = words(who).filter((w) => w.length > 2 && !["the", "lord", "lady", "ser", "king", "queen", "prince", "princess", "of"].includes(w));
+  return all.length ? all : words(who);
+}
+
+/** Does this text give away who did it? */
+export function names(text: string, who: string): boolean {
+  const said = new Set(words(text));
+  return namesOf(who).some((n) => said.has(n) || said.has(`${n}s`));
+}
+
+/**
+ * The checks, all of them code: who may be harmed and how, what must become a
+ * scene instead, and what may reach the narrator — never anything that says
+ * who did it. Nothing the model said about the world is believed past this.
+ */
+export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[] }): Ruling {
+  const notes: string[] = [];
+  const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
+    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), goal: d.goal, abandons: "", notes };
+  if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.harm = "none"; r.difficulty = "easy"; }
+  if (d.kind === "abandon") {
+    const target = o.goals.find((g) => words(d.why + " " + d.choice).some((w) => w.length > 3 && words(g.goal).includes(w))) ?? (o.goals.length === 1 ? o.goals[0] : undefined);
+    if (target) r.abandons = target.id;
+    else { notes.push("gave up a goal it could not name"); r.kind = "nothing"; }
+  }
+  // Only ever their own actions: a line that puts words or deeds in the player's mouth is not a decision of theirs.
+  const playerWords = words(o.player).filter((w) => w.length > 2);
+  if (playerWords.length && d.act && playerWords.includes(words(d.act)[0] ?? "")) {
+    notes.push("acted for the player's character");
+    return { ...r, kind: "dropped", act: "", seen: "", fact: "", threat: false };
+  }
+  const atPlayer = !!o.player && names(d.act, o.player);
+  if (atPlayer && (d.harm === "physical" || d.harm === "grave")) {
+    if (o.protection === "sheltered") {
+      notes.push("would have harmed the player's character, which this story does not allow");
+      return { ...r, kind: "dropped", act: "", seen: "", fact: "", threat: false };
+    }
+    // Fair: anything to their body or freedom is played out. Grim: only the grave is.
+    if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; }
+  }
+  if (r.seen && names(r.seen, o.who)) { notes.push("what could be seen named who did it"); r.seen = ""; }
+  if (r.fact && names(r.fact, o.who)) { notes.push("what changed named who did it"); r.fact = ""; }
+  if (r.goal && r.kind !== "dropped") r.goal = { goal: r.goal.goal.slice(0, 200), why: r.goal.why.slice(0, 300) };
+  return r;
+}
+
+/** Only the uncertain is rolled. A letter is written; a loyal servant may or may not take the gold. */
+export const DIFFICULTY_DC: Record<Difficulty, number> = { easy: 0, uncertain: 11, hard: 16 };
+
+export type Outcome = { succeeded: boolean; roll: number | null; dc: number };
+
+export function resolve(difficulty: Difficulty, rng: () => number = Math.random): Outcome {
+  const dc = DIFFICULTY_DC[difficulty];
+  if (!dc) return { succeeded: true, roll: null, dc: 0 };
+  const roll = 1 + Math.floor(rng() * 20);
+  return { succeeded: roll >= dc, roll, dc };
+}
+
+/**
+ * Pressure, said in words: two failures running, or a goal held for a long
+ * time with nothing to show — what makes a careful person reckless. Computed,
+ * never stored, so it eases on its own when things go better.
+ */
+export function pressureOf(lately: { succeeded: boolean | null }[], goalAgeDays: number): string {
+  const recent = lately.slice(-3).filter((l) => l.succeeded !== null);
+  const failures = recent.filter((l) => l.succeeded === false).length;
+  const bits: string[] = [];
+  if (failures >= 2) bits.push(`their last ${failures === recent.length ? "attempts have all" : "attempts have mostly"} failed`);
+  if (goalAgeDays >= 14) bits.push(`they have wanted this for ${goalAgeDays} days with little to show for it`);
+  return bits.length ? `${bits.join(", and ")}. Time and patience are running out.` : "";
+}

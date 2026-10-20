@@ -25,7 +25,9 @@
 
 import { later, type Calendar, type Moment } from "./calendar";
 
-export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing", "thread", "scene"] as const;
+export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing", "thread", "scene",
+  // The Offstage (src/offstage.ts): goals, what people did, what could be noticed, what became true, and threats to be played out.
+  "agenda", "offstage", "hook", "consequence", "threat"] as const;
 
 /**
  * Bonds run from 0 to 100 and start in the middle: a stranger is neither
@@ -52,12 +54,16 @@ export type Kind = (typeof KINDS)[number];
  * reads it — the host included, who is a player too when the AI is running
  * the game. A chat nobody else is sitting at shows everything to its owner,
  * who is writing the story and is spoiled by nothing in it.
+ *
+ * `private` is the Offstage's ledger: what someone plans and does when nobody
+ * is watching. Not even the narrator reads it — a secret is kept by not being
+ * said — and the author reads it only by unsealing the ledger.
  */
-export const VISIBILITY = ["table", "hidden"] as const;
+export const VISIBILITY = ["table", "hidden", "private"] as const;
 export type Visibility = (typeof VISIBILITY)[number];
 
 /** Where an entry came from, so a bad run can be found and taken back as a whole. */
-export const SOURCES = ["user", "scene", "steward", "narrator"] as const;
+export const SOURCES = ["user", "scene", "steward", "narrator", "offstage"] as const;
 export type Source = (typeof SOURCES)[number];
 
 export type Entry = {

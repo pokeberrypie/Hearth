@@ -8303,3 +8303,16 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 .scenepicker .splist { overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem; padding-bottom: 0.3rem; }
 .scenepicker .talescene { width: 100%; }
 .sceneprompt .spbtns .linkish { font-size: 0.78rem; white-space: nowrap; }
+
+/* The Offstage ledger: sealed, then the author's own pages. */
+.wdsealedledger { text-align: center; padding: 1rem 0.5rem 0.4rem; }
+.wdsealedledger .wdseal { color: var(--lumiverse-primary); font-size: 1.4rem; }
+.wdoffadd { display: grid; gap: 0.45rem; margin: 0.4rem 0 1rem; }
+.wdledger { list-style: none; margin: 0 0 1rem; padding: 0; }
+.wdledger > li { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.55rem 0; border-bottom: 1px solid var(--lumiverse-border); flex-wrap: wrap; }
+.wdledger > li > div { flex: 1 1 auto; min-width: 0; }
+.wdledger > li.abandoned, .wdledger > li.achieved { opacity: 0.6; }
+.wdledger details { flex-basis: 100%; font-size: 0.88rem; }
+.wdledger details ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+.wdledgerbar { justify-content: space-between; align-items: center; }
+#wdRunDay { margin: 0.4rem 0 1rem; }

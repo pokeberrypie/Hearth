@@ -47,7 +47,7 @@ async function paintWorldLine() {
   paintScenePrompt(s);
   const dated = s.calendar?.kind !== "undated" || s.entries.some((e) => e.kind === "time" || e.kind === "set");
   // Questions about the plan are asked by the writing line, not counted here.
-  const waiting = (s.proposals ?? []).filter((p) => p.kind !== "scene").length;
+  const waiting = (s.proposals ?? []).filter((p) => p.kind !== "scene" && p.kind !== "threat").length;
   // Always there in a chat: it is the way into Story World, and a chat with
   // nothing recorded yet is exactly the one somebody needs to find it from.
   line.hidden = false;
@@ -86,7 +86,7 @@ addEventListener("resize", fitWorldLine);
  * reason to.
  */
 function paintScenePrompt(s) {
-  const q = GUEST.on ? null : (s?.proposals ?? []).find((p) => p.kind === "scene" && !p.sealed);
+  const q = GUEST.on ? null : (s?.proposals ?? []).find((p) => (p.kind === "scene" || p.kind === "threat") && !p.sealed);
   let box = $("#scenePrompt");
   if (!q) { if (box) box.hidden = true; return; }
   if (!box) {
@@ -98,24 +98,27 @@ function paintScenePrompt(s) {
   }
   let d = {};
   try { d = q.data ? JSON.parse(q.data) : {}; } catch {}
-  const text = d.to
+  const threat = q.kind === "threat";
+  const text = threat
+    ? `Something is stirring against <b>${txt(d.player || "you")}</b>. Let it come into the story?`
+    : d.to
     ? `The story seems to be at <b>${txt(d.toTitle || "a later scene")}</b>. Jump there?`
     : `<b>${txt(q.title)}</b> seems to be over.${d.next ? ` Move on to <b>${txt(d.next)}</b>?` : " Close it?"}`;
   box.innerHTML = `<span class="spstar" aria-hidden="true">✦</span>
     <div class="sptext">${text}${q.evidence ? `<div class="spwhy">“${txt(q.evidence)}”</div>` : ""}</div>
     <div class="spbtns"><button type="button" class="solid" data-yes>Yes</button>
       <button type="button" class="linkish" data-no>Not yet</button>
-      <button type="button" class="linkish" data-pick-scene>Pick the scene…</button></div>`;
+      ${threat ? "" : `<button type="button" class="linkish" data-pick-scene>Pick the scene…</button>`}</div>`;
   box.hidden = false;
   box.querySelector("[data-yes]").onclick = async () => {
     box.hidden = true;
     await act(`/chronicle/${q.id}/accept`);
     if (typeof refreshTaleNav === "function") refreshTaleNav();
-    toast(d.to ? `Now in: ${d.toTitle || "the later scene"}` : d.next ? `Now: ${d.next}` : "That was the last scene.");
+    toast(threat ? "It will come in the next reply." : d.to ? `Now in: ${d.toTitle || "the later scene"}` : d.next ? `Now: ${d.next}` : "That was the last scene.");
   };
   box.querySelector("[data-no]").onclick = async () => { box.hidden = true; await act(`/chronicle/${q.id}/undo`); };
   // The guess is wrong: say where the story really is. Choosing answers the question.
-  box.querySelector("[data-pick-scene]").onclick = () => { if (typeof openScenePicker === "function") openScenePicker(); };
+  box.querySelector("[data-pick-scene]")?.addEventListener("click", () => { if (typeof openScenePicker === "function") openScenePicker(); });
 }
 
 /** A guest's line comes from the table's own state, and moves with the live feed. */
@@ -143,6 +146,9 @@ const TABS = [
     icon: '<path d="M4 6c4 0 4 4 8 4s4-4 8-4"/><path d="M4 13c4 0 4 4 8 4s4-4 8-4"/><path d="M20 6v2M4 17v3"/>' },
   { id: "factions", label: "Factions",
     icon: '<path d="M5 4h14v7c0 5-3.5 8-7 9.5C8.5 19 5 16 5 11z"/><path d="M12 8v8M8.5 11.5h7"/>' },
+  // The author's only: what the people offstage are up to. Sealed until asked.
+  { id: "offstage", label: "Offstage", hostOnly: true,
+    icon: '<path d="M4 5c3 1.5 13 1.5 16 0v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9z"/><path d="M8 10.5c.8-.7 1.7-.7 2.4 0M13.6 10.5c.8-.7 1.7-.7 2.4 0M9 15c1.8 1.2 4.2 1.2 6 0"/>' },
 ];
 
 function worldDialog() {
@@ -164,7 +170,7 @@ function worldDialog() {
     </div>
     <div class="wdviewing" id="wdViewing" hidden></div>
     <div class="wdtabs" role="tablist" aria-label="Story World">
-      ${TABS.map((t) => `<button type="button" role="tab" class="wdtab" data-tab="${t.id}" aria-label="${t.label}">
+      ${TABS.map((t) => `<button type="button" role="tab" class="wdtab" data-tab="${t.id}" aria-label="${t.label}"${t.hostOnly ? " data-hostonly" : ""}>
         <svg viewBox="0 0 24 24" aria-hidden="true">${t.icon}</svg><span>${t.label}</span></button>`).join("")}
     </div>
     <div class="wdwaiting" id="wdWaiting" hidden></div>
@@ -224,18 +230,21 @@ function paintWorld() {
   });
   $("#wdAsHost")?.addEventListener("click", () => { W.asPlayers = false; paintWorld(); });
 
+  if (who !== "host" && W.tab === "offstage") W.tab = "time";
   for (const b of d.querySelectorAll(".wdtab")) {
+    b.hidden = b.hasAttribute("data-hostonly") && who !== "host";
     const on = b.dataset.tab === W.tab;
     b.classList.toggle("on", on);
     b.setAttribute("aria-selected", on ? "true" : "false");
   }
 
-  paintWaiting(who === "host" && W.tab === "time" ? (s.proposals ?? []).filter((p) => p.kind !== "scene") : []);
+  paintWaiting(who === "host" && W.tab === "time" ? (s.proposals ?? []).filter((p) => p.kind !== "scene" && p.kind !== "threat") : []);
   const view = who === "players" ? W.players : s;
   const body = $("#wdBody");
   if (W.tab === "time") body.innerHTML = timelineHtml(view, who);
   else if (W.tab === "bonds") body.innerHTML = bondsHtml(view);
   else if (W.tab === "threads") body.innerHTML = threadsHtml(view, who);
+  else if (W.tab === "offstage") { paintOffstage(); return; }
   else body.innerHTML = factionsHtml(view, who);
   wireBody(who);
 }
@@ -433,6 +442,92 @@ function threadsHtml(s, who) {
     ? `<p class="hint">No threads yet. The Steward opens one when the story leaves something hanging — a promise, a secret, a letter not answered — and settles it when the story does${host ? ", or you can add one" : ""}.</p>`
     : "";
   return `${empty}${mine.length ? `<ul class="wdthreads">${rows}</ul>` : ""}${add}${fromPreset}`;
+}
+
+// ---- offstage -----------------------------------------------------------------
+
+/**
+ * The Living World's ledger: who wants what, what they did, and what reached
+ * the narrator. Sealed by default — the point of an offstage is that you find
+ * out by playing — but goals can be given and a day run without unsealing it.
+ * Unsealing lasts until the window closes or you seal it again.
+ */
+async function paintOffstage() {
+  const body = $("#wdBody");
+  body.innerHTML = `<p class="hint">Reading the ledger…</p>`;
+  const l = await api(`/chats/${S.chatId}/offstage`).catch(() => null);
+  if (!l || l.error) { body.innerHTML = `<p class="hint">The ledger could not be read.</p>`; return; }
+  const level = $("#offstage_level")?.value ?? "off";
+  const active = l.goals.filter((g) => g.status === "active");
+  const off = level === "off"
+    ? `<p class="hint">The Living World is off, so nobody acts on their own. Turn it on in Behavior → Living World; until then, a day can still be run by hand.</p>` : "";
+  const people = l.people.map((p) => `<option value="${txt(p)}">`).join("");
+  const addGoal = `<div class="wdkicker">Give someone a goal</div>
+    <div class="wdoffadd">
+      <input id="wdGoalWho" list="wdGoalPeople" placeholder="Who — Cersei Lannister" autocomplete="off">
+      <datalist id="wdGoalPeople">${people}</datalist>
+      <input id="wdGoalWhat" placeholder="What they want — stop the Hightower wedding">
+      <input id="wdGoalWhy" placeholder="Why it matters to them (optional)">
+      <button type="button" class="ghost" id="wdGoalAdd">Add the goal</button>
+    </div>`;
+  const run = `<button type="button" class="solid wide" id="wdRunDay">Run a day offstage</button>`;
+  if (!W.ledgerOpen) {
+    const did = l.actions.filter((a) => a.outcome !== "dropped" && a.outcome !== "routine").length;
+    body.innerHTML = `${off}
+      <div class="wdsealedledger">
+        <div class="wdseal" aria-hidden="true">✦</div>
+        <p><b>The ledger is sealed.</b> ${active.length ? `${active.length} goal${active.length === 1 ? "" : "s"} in play` : "Nobody has a goal yet"}${did ? `, and ${did} thing${did === 1 ? "" : "s"} done offstage` : ""}.</p>
+        <p class="hint">What people plan and do when nobody is watching stays here. The story only learns what becomes true and what could be noticed — and you find the rest by playing.</p>
+        <button type="button" class="linkish" id="wdUnseal">Unseal the ledger (spoilers)</button>
+      </div>
+      ${run}${addGoal}`;
+  } else {
+    const OUT = { succeeded: "it worked", failed: "it failed", routine: "an ordinary day", threat: "held as a scene", dropped: "not allowed" };
+    const goals = l.goals.map((g) => `<li class="${g.status}"><div><b>${txt(g.who)}</b> — ${txt(g.goal)}${g.why ? `<div class="wdwhen">${txt(g.why)}</div>` : ""}
+        <div class="wdwhen">${g.status}${g.source === "offstage" ? " · their own idea" : ""}</div></div>
+        ${g.status === "active" ? `<button type="button" class="linkish" data-giveup="${g.id}">Give up</button>` : ""}</li>`).join("");
+    const acts = l.actions.map((a) => `<li><div class="wdwhen">${txt(a.when)} · ${txt(a.who)}</div>
+        <div>${txt(a.what)}</div>
+        <div class="wdwhen">${OUT[a.outcome] ?? ""}${a.roll ? ` · rolled ${a.roll} against ${a.dc}` : ""}</div>
+        ${a.why ? `<div class="wdwhy">“${txt(a.why)}”</div>` : ""}
+        ${a.considered?.length ? `<details><summary>What they weighed</summary><ul>${a.considered.map((c) => `<li>${txt(c.option)}${c.stakes ? ` — <i>${txt(c.stakes)}</i>` : ""}</li>`).join("")}</ul>${a.want ? `<p class="hint">Wanted: ${txt(a.want)}${a.fear ? `; afraid of: ${txt(a.fear)}` : ""}</p>` : ""}</details>` : ""}
+        ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("");
+    const told = [...l.told.facts.map((f) => `<li>True now: ${txt(f.text)}</li>`), ...l.told.hooks.map((h) => `<li>Could be noticed: ${txt(h.text)}</li>`)].join("");
+    body.innerHTML = `${off}
+      <div class="wdrow wdledgerbar"><span class="wdkicker">The ledger</span><button type="button" class="linkish" id="wdReseal">Seal it again</button></div>
+      ${run}
+      <div class="wdkicker">Goals</div>${goals ? `<ul class="wdledger">${goals}</ul>` : `<p class="hint">None yet.</p>`}
+      ${addGoal}
+      <div class="wdkicker">What the story has been told</div>${told ? `<ul class="wdledger">${told}</ul>` : `<p class="hint">Nothing yet.</p>`}
+      <div class="wdkicker">What they did</div>${acts ? `<ul class="wdledger">${acts}</ul>` : `<p class="hint">Nothing yet.</p>`}`;
+  }
+  $("#wdUnseal")?.addEventListener("click", () => { W.ledgerOpen = true; paintOffstage(); });
+  $("#wdReseal")?.addEventListener("click", () => { W.ledgerOpen = false; paintOffstage(); });
+  for (const b of body.querySelectorAll("[data-giveup]")) {
+    b.onclick = async () => { await api(`/chats/${S.chatId}/offstage/goal/${b.dataset.giveup}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "abandoned" }) }); paintOffstage(); };
+  }
+  $("#wdGoalAdd").onclick = async () => {
+    const who = $("#wdGoalWho").value.trim(), goal = $("#wdGoalWhat").value.trim();
+    if (!who || !goal) return toast("A goal needs someone, and what they want.");
+    const r = await api(`/chats/${S.chatId}/offstage/goal`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ who, goal, why: $("#wdGoalWhy").value.trim() }) });
+    if (r?.error) return toast(r.error);
+    toast(`${who} has a goal now.`);
+    paintOffstage();
+  };
+  $("#wdRunDay").onclick = async () => {
+    const b = $("#wdRunDay");
+    b.disabled = true;
+    b.textContent = "The day goes by offstage…";
+    const r = await api(`/chats/${S.chatId}/offstage/run`, { method: "POST" }).catch(() => ({ error: "That did not work." }));
+    // Said without spoiling: how many did something, not what.
+    if (r?.error) toast(r.error);
+    else if (r.note) toast(r.note);
+    else toast(r.acted || r.threats ? `${r.acted + r.threats} ${r.acted + r.threats === 1 ? "person" : "people"} did something offstage.${r.threats ? " Something may be coming." : ""}`
+      : "A quiet day: nobody did anything out of the ordinary.");
+    await paintWorldLine();
+    paintOffstage();
+  };
 }
 
 // ---- factions ----------------------------------------------------------------
@@ -692,7 +787,14 @@ async function paintWorldSettings() {
         ${Object.entries(s.providers ?? {}).map(([id, m]) => `<option value="${id}">${txt(m.label)}</option>`).join("")}</select></label>
       <label>Model <input id="steward_model" type="text" autocomplete="off" spellcheck="false"
         placeholder="The same as the story"></label>
-      <p class="hint">Uses the key saved for that provider above.</p>`;
+      <p class="hint">Uses the key saved for that provider above.</p>
+      <h3>The Offstage</h3>
+      <p class="hint">The model that decides what people do when the player is not watching, for the Living World.
+        A little more thought pays off here than for the Steward. Empty means the Steward's.</p>
+      <label>Provider <select id="offstage_provider"><option value="">The same as the Steward</option>
+        ${Object.entries(s.providers ?? {}).map(([id, m]) => `<option value="${id}">${txt(m.label)}</option>`).join("")}</select></label>
+      <label>Model <input id="offstage_model" type="text" autocomplete="off" spellcheck="false"
+        placeholder="The same as the Steward"></label>`;
     conn.insertBefore(box, anchor);
   }
   const beh = document.querySelector('[data-panel="behavior"]');
@@ -711,6 +813,20 @@ async function paintWorldSettings() {
       <label>Who keeps track of how everyone is
         <select id="tracker_source"><option value="hearth">Hearth</option><option value="preset">My preset's trackers</option></select></label>
       <p class="hint">Only one ever does. With your preset's, Hearth's own tracker is neither kept nor sent to the model.</p>
+      <h3>Living World</h3>
+      <p class="hint">People with goals act on their own, offstage, once a story day: from what they want, what they fear
+        losing and only what they know. The story learns what becomes true and what could be noticed — never who did it
+        or why. Give someone a goal in Story World → Offstage.</p>
+      <label>How alive
+        <select id="offstage_level"><option value="off">Off — nobody acts on their own</option>
+          <option value="balanced">Balanced — one person a day, now and then</option>
+          <option value="dynamic">Dynamic — up to three a day</option></select></label>
+      <label>Protecting your character
+        <select id="offstage_protection"><option value="sheltered">Sheltered — only their name and standing can be harmed</option>
+          <option value="fair">Fair — anything, but harm to body or freedom is always played out as a scene</option>
+          <option value="grim">Grim — injury can happen offstage; death and maiming are always scenes</option></select></label>
+      <label>Most things done offstage in a day <span class="v" id="v_offstage_per_day"></span>
+        <input type="range" id="offstage_per_day" min="1" max="6" step="1"></label>
       <h3>Apocrypha</h3>
       <label class="check"><input type="checkbox" id="apocrypha_blind"> Play blind</label>
       <p class="hint">A chat following one of your stories shows only the scenes already reached; the rest stay
@@ -723,24 +839,28 @@ async function paintWorldSettings() {
     beh.appendChild(box);
   }
   const set = (id, v) => { const el = $("#" + id); if (!el) return; if (el.type === "checkbox") el.checked = v === "1"; else el.value = v ?? ""; };
-  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind"]) set(k, s[k]);
-  const every = () => { const n = Number($("#steward_every").value); $("#v_steward_every").textContent = `${n} new messages`; };
+  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day", "offstage_provider", "offstage_model"]) set(k, s[k]);
+  const every = () => {
+    const n = Number($("#steward_every").value); $("#v_steward_every").textContent = `${n} new messages`;
+    const d = Number($("#offstage_per_day")?.value || 2); if ($("#v_offstage_per_day")) $("#v_offstage_per_day").textContent = `${d}`;
+  };
   every();
   let timer;
   const save = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       const patch = {};
-      for (const k of ["steward_provider", "steward_model", "steward_every", "steward_ask_days", "tracker_source", "heraldry_style"]) patch[k] = $("#" + k).value.trim();
+      for (const k of ["steward_provider", "steward_model", "steward_every", "steward_ask_days", "tracker_source", "heraldry_style",
+        "offstage_level", "offstage_protection", "offstage_per_day", "offstage_provider", "offstage_model"]) patch[k] = $("#" + k).value.trim();
       for (const k of ["steward_on", "heraldry_contrast", "apocrypha_blind"]) patch[k] = $("#" + k).checked ? "1" : "0";
       api("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
     }, 400);
   };
-  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind"]) {
+  for (const k of ["steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source", "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day", "offstage_provider", "offstage_model"]) {
     const el = $("#" + k);
     if (!el) continue;
     el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => {
-      if (k === "steward_every") every();
+      if (k === "steward_every" || k === "offstage_per_day") every();
       if (k === "apocrypha_blind" && typeof drawTaleScenes === "function") drawTaleScenes();
       save();
     });

@@ -49,6 +49,8 @@ import { WRITE_APOC_SYSTEM, catchUpTo, steeringOf, advance, apocFieldPrompt, apo
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
+import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
+         resolve as resolveAttempt, rule as ruleOn, type Agenda, type View } from "./offstage";
 import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
@@ -1289,6 +1291,13 @@ api.post("/chats/:id/generate", async (c) => {
         // And the Steward, on the same terms: a failed reading is a gap in the
         // records, never a broken reply.
         if (!failed && !ac.signal.aborted) stewardTurn(chatId).catch(() => {});
+        // A threat that was let in has had its reply; it was a scene to start, not a standing order.
+        if (!failed && !ac.signal.aborted) {
+          db.query("UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'threat' AND proposed = 0 AND undone_at IS NULL AND created_at < ?")
+            .run(now(), chatId, t0);
+        }
+        // And the Offstage, when a day has turned: what the people nobody is watching do.
+        if (!failed && !ac.signal.aborted) offstageTurn(chatId).catch(() => {});
       }
     },
     // Same reasoning as the dropped connection above: the reader going away
@@ -3523,6 +3532,7 @@ function worldBrief(chat: any, s: Record<string, string>): string | null {
   // newest first; each a possibility to return to, not something to force.
   const open = threadsOf(entries).filter((t) => t.open).slice(0, 8);
   if (open.length) lines.push(`Threads still open, to pick up when it fits: ${open.map((t) => t.title).join("; ")}.`);
+  lines.push(...offstageBrief(chat.id, entries));
   return lines.length ? lines.join("\n") : null;
 }
 
@@ -3540,7 +3550,9 @@ function chronicleState(chatId: string) {
     // Whether anyone else is sitting at this chat: when secrets, the players'
     // view and hiding things start to mean something.
     shared: isShared(chatId),
-    entries: chronicleView(entries, { shared: isShared(chatId), host: true }),
+    // The Offstage's ledger and what it hands the narrator are not part of
+    // these pages: the ledger has its own, sealed one (GET /chats/:id/offstage).
+    entries: chronicleView(entries.filter(onStage), { shared: isShared(chatId), host: true }),
     // How everyone is now, by the tracker — whichever field has a word on it.
     status: Object.fromEntries(Object.entries(statusOf(entries)).map(([who, fields]) => [who,
       Object.fromEntries(Object.entries(fields).map(([f, e]) => [f, { value: e!.title, evidence: e!.evidence, source: e!.source, id: e!.id }]))])),
@@ -3553,9 +3565,17 @@ function chronicleState(chatId: string) {
     threads: threadsOf(entries),
     // Waiting on the host. A hidden one is still hidden here: accepting it is
     // not the same as reading it.
-    proposals: chronicleView(pending(entries).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
+    proposals: [
+      ...chronicleView(pending(entries).filter(onStage).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
+      // A threat is asked about without being told: who is coming, and how, stays in the ledger.
+      ...pending(entries).filter((e) => e.kind === "threat").map((e) => ({ id: e.id, kind: "threat", title: "", data: e.data })),
+    ],
   };
 }
+
+/** Not the Offstage's: its ledger is private, and what it hands the narrator is the narrator's alone. */
+const OFFSTAGE_KINDS = new Set(["agenda", "offstage", "hook", "consequence", "threat"]);
+const onStage = (e: ChronicleEntry) => e.visibility !== "private" && !OFFSTAGE_KINDS.has(e.kind);
 
 api.get("/calendars", (c) => c.json(BUILTINS));
 
@@ -3852,6 +3872,249 @@ api.get("/chats/:id/factions/:key/arms.svg", async (c) => {
   return new Response(svg, { headers: { "content-type": "image/svg+xml", "cache-control": "no-cache" } });
 });
 
+// ---- the Offstage -----------------------------------------------------------
+//
+// What the people the player is not watching decide to do. See src/offstage.ts
+// for why the narrator is only ever handed what became true and what could be
+// noticed, never who did it or why.
+
+
+/** The Offstage's own connection: its own if set, then the Steward's, then the story's. */
+function offstageConnection(s: Record<string, string>) {
+  const provider = s.offstage_provider || s.steward_provider || s.provider;
+  return { ...connectionFrom(s, provider), model: s.offstage_model || s.steward_model || s.model };
+}
+
+const dataOf = (e: { data: string }): any => { try { return e.data ? JSON.parse(e.data) : {}; } catch { return {}; } };
+
+/** Goals, with how each stands now: a goal is its entry, and any later entry about it (`data.of`) changes its status. */
+function agendasOf(entries: ChronicleEntry[]) {
+  const out = new Map<string, Agenda & { status: string; since: number; source: string }>();
+  for (const e of liveEntries(entries)) {
+    if (e.kind !== "agenda") continue;
+    const d = dataOf(e);
+    if (d.of) { const g = out.get(d.of); if (g) g.status = String(d.status || g.status); continue; }
+    out.set(e.id, { id: e.id, who: e.subject ?? "", goal: e.title, why: e.body, status: "active", since: e.day ?? 0, source: e.source });
+  }
+  return [...out.values()];
+}
+
+/** Someone who cannot act today: dead, or held. Read from the tracker; anything unclear may act. */
+const cannotAct = (fields: Record<string, { title: string } | undefined> | undefined) =>
+  /\b(dead|died|slain|killed|executed|imprisoned|in chains|in a cell|dungeon|captive|unconscious)\b/i
+    .test(`${fields?.physical?.title ?? ""} ${fields?.location?.title ?? ""}`);
+
+/**
+ * What one person may know when they decide, and nothing more: what they were
+ * there for, what they did themselves and how it went, how they are, how they
+ * feel. Never the ledger's other entries, never anything hidden they had no
+ * part in. A secret they could not have does not reach the prompt.
+ */
+function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calendar, goals: Agenda[]): View & { lately: string[] } {
+  const live = liveEntries(entries);
+  const at = clockOf(cal, entries);
+  const status = statusOf(entries)[who] ?? {};
+  const card = db.query("SELECT description, personality FROM characters WHERE name = ? LIMIT 1").get(who) as any;
+  const mine = live.filter((e) => e.kind === "offstage" && e.subject === who);
+  const known = live.filter((e) => e.kind === "event" && e.visibility !== "private" && namesIn(`${e.title} ${e.body}`, who))
+    .slice(-12).map((e) => `${e.day !== null ? `${formatDate(cal, { day: e.day, minute: e.minute ?? 0 })}: ` : ""}${e.title}${e.body ? ` (${e.body})` : ""}`);
+  const lately = mine.slice(-5).map((e) => {
+    const d = dataOf(e);
+    return `${e.title}${d.outcome === "failed" ? " — it failed" : d.outcome === "succeeded" ? " — it worked" : ""}`;
+  });
+  const oldest = Math.min(...goals.map((g) => (g as any).since ?? at.day), at.day);
+  return {
+    who,
+    card: card ? `${card.description ?? ""}\n${card.personality ?? ""}`.trim().slice(0, 1500) : "",
+    player: whoAmI(chat.persona_id)?.name ?? "",
+    today: formatDate(cal, at),
+    state: STATUS_FIELDS.filter((f) => status[f]).map((f) => `${f}: ${status[f]!.title}`),
+    feelings: bondsOf(entries).filter((b) => b.from === who).map((b) => `${b.to}: ${b.label || "no particular word for it"} (${b.score}/100)`),
+    goals,
+    known,
+    lately,
+    pressure: pressureOf(mine.slice(-3).map((e) => { const o = dataOf(e).outcome; return { succeeded: o === "succeeded" ? true : o === "failed" ? false : null }; }), at.day - oldest),
+  };
+}
+
+/**
+ * One run: a few people, each deciding from inside their own head, checked in
+ * code, rolled where the outcome is in doubt, and written to the ledger. The
+ * narrator gets only what became true and what could be noticed; a threat to
+ * the player's character becomes a question, then a scene — never an outcome.
+ */
+async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
+  const s = getSettings();
+  const level = levelOf(s.offstage_level);
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return { error: "No such chat." };
+  const cal = calendarOf(chatId);
+  let entries = chronicleOf(chatId);
+  const at = clockOf(cal, entries);
+  const goals = agendasOf(entries).filter((g) => g.status === "active" && g.who);
+  if (!goals.length) return { acted: 0, quiet: 0, threats: 0, note: "Nobody has a goal yet." };
+  const status = statusOf(entries);
+  const lastActed = new Map<string, number>();
+  for (const e of liveEntries(entries)) if (e.kind === "offstage" && e.subject) lastActed.set(e.subject, e.created_at);
+  const perDay = Math.max(1, Number(s.offstage_per_day) || 2);
+  const today = liveEntries(entries).filter((e) => e.kind === "offstage" && dataOf(e).day === at.day && dataOf(e).outcome !== "dropped").length;
+  const room = Math.max(0, perDay - today);
+  if (!room) return { acted: 0, quiet: 0, threats: 0, note: "Everyone who could act today already has." };
+  // Who goes: those with a goal, longest idle first, and able to act at all.
+  const who = [...new Set(goals.map((g) => g.who))]
+    .filter((w) => !cannotAct(status[w] as any))
+    .sort((a, b) => (lastActed.get(a) ?? 0) - (lastActed.get(b) ?? 0))
+    .slice(0, Math.min(room, Math.max(1, ACTORS_PER_RUN[level] || (o.manual ? 1 : 0))));
+  const trigger = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  const conn = offstageConnection(s);
+  const fold = needsFoldedSystem(conn.model);
+  const protection = protectionOf(s.offstage_protection);
+  let acted = 0, quiet = 0, threats = 0;
+  let t = now();
+  for (const person of who) {
+    const theirs = goals.filter((g) => g.who === person);
+    const view = viewFor(chat, person, entries, cal, theirs);
+    const prompt = offstagePrompt(view);
+    let said = "";
+    try {
+      for await (const chunk of generate({
+        ...conn, system: fold ? "" : OFFSTAGE_SYSTEM,
+        messages: [{ role: "user", content: fold ? `${OFFSTAGE_SYSTEM}\n\n---\n\n${prompt}` : prompt }],
+        sampling: { temperature: 0.8, maxTokens: 700, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+      })) {
+        if (chunk.kind === "text") said += chunk.text;
+        if (said.length > 6000) break;
+      }
+    } catch (e: any) {
+      return { acted, quiet, threats, error: e?.message || "The Offstage could not be reached." };
+    }
+    const d = readDecision(withoutThinking(said));
+    const r = ruleOn(d, { who: person, player, protection, goals: theirs });
+    const out = r.kind === "act" && !r.threat ? resolveAttempt(r.difficulty) : { succeeded: r.kind !== "dropped", roll: null, dc: 0 };
+    const outcome = r.kind === "dropped" ? "dropped" : r.threat ? "threat" : r.kind !== "act" ? "routine"
+      : out.roll === null ? "succeeded" : out.succeeded ? "succeeded" : "failed";
+    const add: ChronicleEntry[] = [];
+    const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
+    add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "offstage", subject: person,
+      title: r.act || (r.kind === "abandon" ? "Gave something up" : "An ordinary day"), body: r.why, created_at: t++,
+      data: { day: at.day, want: d.want, fear: d.fear, considered: d.considered.slice(0, 4), choice: d.choice, kind: r.kind,
+              difficulty: r.difficulty, harm: r.harm, roll: out.roll, dc: out.dc, outcome, notes: r.notes } }));
+    // What the narrator may have: what could be seen — even of a failure — and what is now true, only on success.
+    if (r.seen && outcome !== "dropped" && !r.threat) {
+      add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "hook", title: r.seen, created_at: t++, data: { until: at.day + 3 } }));
+    }
+    if (r.fact && outcome === "succeeded") {
+      add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "consequence", title: r.fact, created_at: t++ }));
+    }
+    if (r.threat) {
+      add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "threat", subject: person, title: r.act, body: r.why,
+        created_at: t++, proposed: true, data: { player, harm: r.harm } }));
+      threats++;
+    }
+    if (r.abandons) add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.abandons, status: "abandoned" } }));
+    if (r.goal && outcome !== "dropped") add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: r.goal.goal, body: r.goal.why, created_at: t++ }));
+    copyChronicle(add, chatId);
+    entries = chronicleOf(chatId);
+    if (outcome === "routine") quiet++; else if (outcome !== "dropped") acted++;
+  }
+  return { acted, quiet, threats };
+}
+
+/** After a reply: when the story's day has turned, the Offstage takes its turn — once per day, never per message. */
+export async function offstageTurn(chatId: string) {
+  const s = getSettings();
+  if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop") return;
+  const chat = db.query("SELECT offstage_day FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return;
+  const day = clockOf(calendarOf(chatId), chronicleOf(chatId)).day;
+  // The first time, the day is only noted: turning this on does not set the world moving behind a scene already under way.
+  if (chat.offstage_day < 0 || day <= chat.offstage_day) {
+    if (chat.offstage_day < 0) db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
+    return;
+  }
+  db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
+  await offstageRun(chatId);
+}
+
+/**
+ * What the narrator is told of it all: what has become true, what could be
+ * noticed, and a threat let in as a scene. Never a name with a secret, never
+ * a plan — those are in the ledger, and the ledger is not in the prompt.
+ */
+function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
+  const live = liveEntries(entries);
+  const day = clockOf(calendarOf(chatId), entries).day;
+  const facts = live.filter((e) => e.kind === "consequence").slice(-6).map((e) => e.title);
+  const hooks = live.filter((e) => e.kind === "hook" && (dataOf(e).until ?? day) >= day).slice(-4).map((e) => e.title);
+  const threat = live.filter((e) => e.kind === "threat").at(-1);
+  const out: string[] = [];
+  if (facts.length) {
+    out.push(`True in the world now, whether or not the player's character knows it — let it show only through what they could actually see or hear: ${facts.join("; ")}.`);
+  }
+  if (hooks.length) {
+    out.push(`Things that could be noticed, if the player's character is somewhere to notice them. Never decide that they noticed, or what they make of it — that is the player's: ${hooks.join("; ")}.`);
+  }
+  if (threat) {
+    out.push(`Bring this into the story now, as something happening in the scene: ${threat.title}. Play out the attempt, but do not decide whether it succeeds — the player's character may resist, escape or be helped. Never decide what they do, say or feel.`);
+  }
+  return out;
+}
+
+/** The ledger: goals, what people did, what reached the narrator. For the author, who sees it only when they unseal it. */
+api.get("/chats/:id/offstage", (c) => {
+  const chatId = c.req.param("id");
+  const entries = chronicleOf(chatId);
+  const live = liveEntries(entries);
+  const cal = calendarOf(chatId);
+  const when = (e: ChronicleEntry) => (e.day !== null ? formatDate(cal, { day: e.day, minute: e.minute ?? 0 }) : "");
+  return c.json({
+    goals: agendasOf(entries).map(({ id, who, goal, why, status, source }) => ({ id, who, goal, why, status, source })),
+    actions: live.filter((e) => e.kind === "offstage").reverse().slice(0, 60)
+      .map((e) => ({ id: e.id, who: e.subject, what: e.title, why: e.body, when: when(e), ...dataOf(e) })),
+    told: {
+      facts: live.filter((e) => e.kind === "consequence").reverse().slice(0, 20).map((e) => ({ id: e.id, text: e.title, when: when(e) })),
+      hooks: live.filter((e) => e.kind === "hook").reverse().slice(0, 20).map((e) => ({ id: e.id, text: e.title, when: when(e) })),
+    },
+    people: [...new Set([...peopleOfChat(chatId), ...agendasOf(entries).map((g) => g.who)])].filter(Boolean),
+  });
+});
+
+/** People who could be given a goal: the chat's own cast first, then everyone the story's records name. */
+function peopleOfChat(chatId: string): string[] {
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return [];
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  const entries = chronicleOf(chatId);
+  const named = [...Object.keys(statusOf(entries)), ...bondsOf(entries).flatMap((b) => [b.from, b.to])];
+  return [...new Set([...peopleOf(chat).map((p: any) => p.name), ...named])].filter((n) => n && n !== player);
+}
+
+api.post("/chats/:id/offstage/goal", async (c) => {
+  const chatId = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const who = String(b.who ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const goal = String(b.goal ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+  if (!who || !goal) return c.json({ error: "A goal needs someone, and what they want." }, 400);
+  const at = clockOf(calendarOf(chatId), chronicleOf(chatId));
+  copyChronicle([normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: who, title: goal, body: String(b.why ?? "").slice(0, 300),
+    visibility: "private", source: "user", day: at.day, minute: at.minute, created_at: now() })], chatId);
+  return c.json({ ok: true });
+});
+
+api.post("/chats/:id/offstage/goal/:goal", async (c) => {
+  const chatId = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const status = ["active", "abandoned", "achieved"].includes(b.status) ? b.status : "abandoned";
+  if (!agendasOf(chronicleOf(chatId)).some((g) => g.id === c.req.param("goal"))) return c.json({ error: "No such goal." }, 404);
+  copyChronicle([normaliseChronicleEntry({ id: uid(), kind: "agenda", title: "", visibility: "private", source: "user",
+    created_at: now(), data: { of: c.req.param("goal"), status } })], chatId);
+  return c.json({ ok: true });
+});
+
+/** A day offstage, now: for trying it, and for when the story wants the world to move. */
+api.post("/chats/:id/offstage/run", async (c) => c.json(await offstageRun(c.req.param("id"), { manual: true })));
+
 // ---- the Steward -----------------------------------------------------------
 //
 // The background model that keeps the chronicle. See src/steward.ts for why
@@ -3891,7 +4154,7 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
   const t = now();
   // The narrator's own marks go with the words they were written in, as the Steward's readings do —
   // when the words change. The Steward reading the same words again replaces only its own.
-  const undo = db.query(`UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN (${narrator ? "'steward', 'narrator'" : "'steward'"}) AND undone_at IS NULL`);
+  const undo = db.query(`UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN (${narrator ? "'steward', 'narrator', 'offstage'" : "'steward'"}) AND undone_at IS NULL`);
   const rewind = db.query("UPDATE chats SET steward_at = MIN(steward_at, ?) WHERE id = ?");
   const chats = new Set<string>();
   db.transaction(() => {
