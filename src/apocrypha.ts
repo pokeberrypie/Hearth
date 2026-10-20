@@ -45,9 +45,19 @@ export type Scene = {
 
 export type Chapter = { id: string; title: string; summary: string; scenes: Scene[] };
 
+/**
+ * How hard the plan pulls. Gentle leans toward it and never pushes; Guided
+ * treats the scene's purpose as what the scene should achieve; Firm drives
+ * toward its ending. Moving on to the next scene is always the person's.
+ */
+export const STEERING = ["gentle", "guided", "firm"] as const;
+export type Steering = (typeof STEERING)[number];
+export const steeringOf = (v: unknown): Steering => (STEERING.includes(v as Steering) ? (v as Steering) : "gentle");
+
 export type Apocryphon = {
   id: string;
   name: string;
+  steering?: Steering;
   /** The story in a paragraph: where it starts and where it is meant to go. */
   premise: string;
   chapters: Chapter[];
@@ -176,13 +186,36 @@ export function briefFor(book: Apocryphon, mark: Bookmark | null): string | null
   lines.push(`The scene now${where ? ` (${where})` : ""}: ${scene.title.trim() || "untitled"}`);
   if (scene.setting.trim()) lines.push(`Setting: ${scene.setting.trim()}`);
   if (scene.cast.trim()) lines.push(`Who is meant to be here: ${scene.cast.trim()}`);
-  if (scene.purpose.trim()) lines.push(`What this scene is for: ${scene.purpose.trim()}`);
-  if (scene.beats.trim()) lines.push(`Things that could happen — possibilities, not obligations:\n${scene.beats.trim()}`);
-  if (scene.ending.trim()) lines.push(`Roughly where the scene ends: ${scene.ending.trim()}`);
-  lines.push(
-    "Let it unfold at the player's pace. Do not hurry toward the end of the scene, " +
-      "do not announce that it is over, and do not mention this plan.",
-  );
+  const steer = steeringOf(book.steering);
+  const purpose = scene.purpose.trim();
+  const beats = scene.beats.trim();
+  const ending = scene.ending.trim();
+  if (steer === "gentle") {
+    if (purpose) lines.push(`What this scene is for: ${purpose}`);
+    if (beats) lines.push(`Things that could happen — possibilities, not obligations:\n${beats}`);
+    if (ending) lines.push(`Roughly where the scene ends: ${ending}`);
+    lines.push(
+      "Let it unfold at the player's pace. Do not hurry toward the end of the scene, " +
+        "do not announce that it is over, and do not mention this plan.",
+    );
+  } else if (steer === "guided") {
+    if (purpose) lines.push(`This scene should accomplish: ${purpose}`);
+    if (beats) lines.push(`Work these in as the scene goes, where they fit what the player does:\n${beats}`);
+    if (ending) lines.push(`The scene is heading for: ${ending}`);
+    lines.push(
+      "Keep the scene moving toward that, a step at a time, through what the characters and the world do — " +
+        "never by taking the player's choices from them. Do not mention this plan.",
+    );
+  } else {
+    if (purpose) lines.push(`This scene must accomplish: ${purpose}`);
+    if (beats) lines.push(`Bring these about:\n${beats}`);
+    if (ending) lines.push(`Drive the scene to its ending: ${ending}`);
+    lines.push(
+      "Actively push toward that ending in every reply — through events, other characters and the world — " +
+        "and reach it within the next few replies. The player still decides what their own character does; " +
+        "everything else should be moving the scene toward its end. Do not mention this plan.",
+    );
+  }
   if (next?.title.trim()) {
     lines.push(`Later, not yet — do not bring it about in this scene: ${next.title.trim()}`);
   }
@@ -215,7 +248,7 @@ export function briefFor(book: Apocryphon, mark: Bookmark | null): string | null
 // a line that is not a field is added to whatever field came last, so prose
 // wrapped over several lines is not lost.
 
-type Draft = { name: string; premise: string; chapters: Chapter[] };
+type Draft = { name: string; premise: string; chapters: Chapter[]; steering?: Steering };
 
 const FIELD_NAMES: [keyof Scene, RegExp][] = [
   ["setting", /^(?:setting|where(?: and when)?|location|place|when)$/],
@@ -315,6 +348,7 @@ export function readImport(text: string): Draft[] {
           name: String(b.name ?? "").trim().slice(0, 200),
           premise: String(b.premise ?? "").slice(0, 20000),
           chapters: normaliseChapters(b.chapters),
+          steering: steeringOf(b.steering),
         }));
     } catch {
       return [];

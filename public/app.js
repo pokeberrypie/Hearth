@@ -11366,6 +11366,8 @@ function openApoc(a) {
   editingApoc = JSON.parse(JSON.stringify(a));
   $("#ap_name").value = a.name;
   $("#ap_premise").value = a.premise;
+  $("#ap_steering").value = a.steering || "gentle";
+  paintSteeringHint();
   renderApocChapters();
   $("#apocDialog").showModal();
 }
@@ -11437,6 +11439,17 @@ $("#ap_addChapter").onclick = () => {
 
 $("#ap_close").onclick = () => $("#apocDialog").close();
 
+/** What each strength of steering does, said under the choice. */
+const STEERING_HINTS = {
+  gentle: "The story leans toward the plan and never pushes. Scenes take as long as they take.",
+  guided: "Each scene's purpose is something the story works toward, a step at a time, through the world and the other characters.",
+  firm: "The story drives each scene to its ending within a few replies. Your character's choices stay yours.",
+};
+function paintSteeringHint() {
+  $("#ap_steeringHint").textContent = STEERING_HINTS[$("#ap_steering").value] ?? "";
+}
+$("#ap_steering").onchange = paintSteeringHint;
+
 /**
  * A die in every field of the story editor: a fresh take on that one field,
  * written by the model with the rest of the plan in view. It replaces what is
@@ -11497,7 +11510,8 @@ $("#apocDialog").addEventListener("click", async (e) => {
 $("#ap_save").onclick = async () => {
   const r = await api("/apocrypha/" + editingApoc.id, {
     method: "PUT", headers: JSON_HEADERS,
-    body: JSON.stringify({ name: $("#ap_name").value, premise: $("#ap_premise").value, chapters: editingApoc.chapters }),
+    body: JSON.stringify({ name: $("#ap_name").value, premise: $("#ap_premise").value, chapters: editingApoc.chapters,
+      steering: $("#ap_steering").value }),
   });
   if (r.error) return toast(r.error);
   $("#apocDialog").close();
@@ -11596,6 +11610,8 @@ const taleChanged = (r) => {
   followedApoc = r.book?.id ?? null;
   drawTaleScenes();
   paintTaleNav();
+  // Moving on answers any "move to the next scene?" waiting in Story World.
+  if (typeof paintWorldLine === "function") paintWorldLine();
 };
 
 /* In the composer tray: back a scene, and on to the next. Only there while

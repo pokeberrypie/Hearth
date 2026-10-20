@@ -126,3 +126,21 @@ describe("the routes", () => {
     expect((await send("/api/apocrypha/write", "POST", { what: "outline", book })).status).toBe(502);
   });
 });
+
+describe("steering", () => {
+  const book = (steering: string) => ({ ...readOutline(OUTLINE)!, id: "b", steering } as any);
+  const mark = (b: any) => ({ book: "b", scene: b.chapters[0].scenes[0].id, done: [], skipped: [] });
+  test("gentle leans, guided works toward the purpose, firm drives to the ending", async () => {
+    const { briefFor } = await import("./apocrypha");
+    const g = book("gentle"), u = book("guided"), f = book("firm");
+    expect(briefFor(g, mark(g))).toContain("possibilities, not obligations");
+    expect(briefFor(g, mark(g))).toContain("Do not hurry toward the end of the scene");
+    expect(briefFor(u, mark(u))).toContain("This scene should accomplish: Cersei learns of the betrothal");
+    expect(briefFor(u, mark(u))).not.toContain("Do not hurry");
+    expect(briefFor(f, mark(f))).toContain("Drive the scene to its ending: Jaime leaves without answering");
+    expect(briefFor(f, mark(f))).toContain("reach it within the next few replies");
+    // Anything unknown is gentle.
+    const w = book("whatever");
+    expect(briefFor(w, mark(w))).toContain("possibilities, not obligations");
+  });
+});

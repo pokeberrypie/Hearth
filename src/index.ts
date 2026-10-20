@@ -45,7 +45,7 @@ import { FIGHT_BRIEF, describeInitiative, fightForPrompt, foesDown, hurt, normal
          startFight, stateOf, type Fight } from "./fight";
 import { VERB_BRIEF, resolveVerbs, type Intent } from "./verbs";
 import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
-import { WRITE_APOC_SYSTEM, advance, apocFieldPrompt, apocWritePrompt, cleanField, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
+import { WRITE_APOC_SYSTEM, steeringOf, advance, apocFieldPrompt, apocWritePrompt, cleanField, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
@@ -3216,7 +3216,7 @@ const apocryphonFrom = (r: any): Apocryphon & { created_at: number; updated_at: 
   let chapters: unknown = [];
   try { chapters = JSON.parse(r.chapters || "[]"); } catch {}
   return { id: r.id, name: r.name, premise: r.premise, chapters: normaliseChapters(chapters),
-           created_at: r.created_at, updated_at: r.updated_at };
+           steering: steeringOf(r.steering), created_at: r.created_at, updated_at: r.updated_at };
 };
 
 const apocryphon = (id: string) => {
@@ -3275,10 +3275,10 @@ api.post("/apocrypha", async (c) => {
 
 api.put("/apocrypha/:id", async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  const r = db.query("UPDATE apocrypha SET name = ?, premise = ?, chapters = ?, updated_at = ? WHERE id = ?").run(
+  const r = db.query("UPDATE apocrypha SET name = ?, premise = ?, chapters = ?, steering = ?, updated_at = ? WHERE id = ?").run(
     String(b.name ?? "").trim().slice(0, 200) || "An untold story",
     String(b.premise ?? "").slice(0, 20000),
-    JSON.stringify(normaliseChapters(b.chapters)), now(), c.req.param("id"));
+    JSON.stringify(normaliseChapters(b.chapters)), steeringOf(b.steering), now(), c.req.param("id"));
   if (!r.changes) return c.json({ error: "That book is not on the shelf any more." }, 404);
   return c.json({ ok: true });
 });
@@ -3300,14 +3300,14 @@ api.post("/apocrypha/import", async (c) => {
     return c.json({ error: "Nothing in that file reads as a story. Hearth takes its own export, or an outline: \"# Name\", then \"## Chapter\" and \"### Scene\" headings." }, 400);
   }
   const fallback = String(b.filename ?? "").replace(/\.[a-z0-9]+$/i, "").trim();
-  const ins = db.query("INSERT INTO apocrypha (id, name, premise, chapters, created_at, updated_at) VALUES (?,?,?,?,?,?)");
+  const ins = db.query("INSERT INTO apocrypha (id, name, premise, chapters, steering, created_at, updated_at) VALUES (?,?,?,?,?,?,?)");
   const made: { id: string; name: string }[] = [];
   db.transaction(() => {
     for (const book of books) {
       const id = uid();
       const t = now();
       const name = book.name || fallback || "An untold story";
-      ins.run(id, name.slice(0, 200), book.premise, JSON.stringify(book.chapters), t, t);
+      ins.run(id, name.slice(0, 200), book.premise, JSON.stringify(book.chapters), book.steering ?? "gentle", t, t);
       made.push({ id, name });
     }
   })();
@@ -3685,8 +3685,16 @@ api.post("/chronicle/:id/restore", (c) => markUndone(c, null));
 
 /** Saying yes to something the Steward proposed: it counts from now on. Saying no is undo. */
 api.post("/chronicle/:id/accept", (c) => {
-  const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
+  const row = db.query("SELECT chat_id, kind, scene_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
   if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
+  if (row.kind === "scene") {
+    // "Move on": the scene is done, exactly as the tray's button does it — if
+    // the chat is still in that scene. The question itself is then closed.
+    if (taleOf(row.chat_id).mark?.scene === row.scene_id) advanceTale(row.chat_id, "done");
+    db.query("UPDATE chronicle SET proposed = 0, undone_at = ? WHERE id = ?").run(now(), c.req.param("id"));
+    worldChanged(row.chat_id);
+    return c.json(chronicleState(row.chat_id));
+  }
   db.query("UPDATE chronicle SET proposed = 0 WHERE id = ?").run(c.req.param("id"));
   worldChanged(row.chat_id);
   return c.json(chronicleState(row.chat_id));
@@ -3930,9 +3938,16 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     ...pending(before).filter((e) => e.kind === "faction").map((e) => e.title)];
   // Threads already open, by name, so it settles them rather than opening them again.
   const threads = threadsOf(before).filter((t) => t.open).map((t) => t.title);
+  // The planned scene, if the chat follows a story and nobody has been asked about this one yet.
+  const { book: taleBook, mark: taleMark } = taleOf(chat.id);
+  const planned = taleBook && taleMark?.scene ? scenesOf(taleBook).find(({ scene }) => scene.id === taleMark.scene)?.scene : undefined;
+  const askedAlready = planned && pending(before).some((e) => e.kind === "scene" && e.scene_id === planned.id);
+  const scene = planned && !askedAlready
+    ? { title: planned.title, ending: planned.ending.trim() || planned.purpose.trim() || "its purpose is fulfilled" }
+    : undefined;
   const conn = stewardConnection(s);
   const start = clockOf(cal, before);
-  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups, threads });
+  const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups, threads, scene });
 
   let said = "";
   let problem = "";
@@ -3965,7 +3980,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   };
   const checked = problem
     ? { claims: [] as Claim[], dropped: [], none: false, noise: 0 }
-    : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups, threads });
+    : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups, threads, scene });
   if (!problem && !checked.claims.length && !checked.none) problem = "Nothing in the answer could be used.";
 
   if (!problem) {
@@ -3977,7 +3992,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     const timed = new Set(liveEntries(chronicleOf(chat.id))
       .filter((e) => e.kind === "time" && e.source !== "steward" && e.message_id).map((e) => e.message_id));
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
-    const rank = { time: 0, event: 1, status: 2, bond: 3, faction: 4, thread: 5 } as const;
+    const rank = { time: 0, event: 1, status: 2, bond: 3, faction: 4, thread: 5, scene: 6 } as const;
     const set = await charges();
     const story = [...checked.claims].filter((c) => !(c.kind === "time" && timed.has(c.message_id))).sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
@@ -4014,6 +4029,13 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           subject: uid(), title: claim.name, body: claim.description, data: { arms: withContrast(arms), members: [] },
           evidence: claim.evidence, source: "steward", created_at: t++, proposed: true,
         }));
+      } else if (claim.kind === "scene") {
+        // Proposed, never done here: moving on is the person's, with one tap.
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "scene", message_id: claim.message_id, day: at.day, minute: at.minute,
+          scene_id: planned!.id, title: planned!.title || "This scene",
+          evidence: claim.evidence, source: "steward", created_at: t++, proposed: true,
+        }));
       } else if (claim.kind === "thread") {
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "thread", message_id: claim.message_id, day: at.day, minute: at.minute,
@@ -4031,7 +4053,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     copyChronicle(entries, chat.id);
   }
 
-  const proposed = checked.claims.filter((c) => (c.kind === "time" && c.proposed) || c.kind === "faction").length;
+  const proposed = checked.claims.filter((c) => (c.kind === "time" && c.proposed) || c.kind === "faction" || c.kind === "scene").length;
   db.query(
     `INSERT INTO steward_runs (id, chat_id, model, kept, proposed, dropped, problem, answer, created_at)
      VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -4141,10 +4163,18 @@ api.put("/chats/:id/apocrypha", async (c) => {
 /** The scene is over, one way or the other; on to the next. */
 api.post("/chats/:id/apocrypha/advance", async (c) => {
   const chatId = c.req.param("id");
-  const { book, mark } = taleOf(chatId);
-  if (!book || !mark) return c.json({ error: "This chat is not following a story." }, 400);
+  if (!taleOf(chatId).book) return c.json({ error: "This chat is not following a story." }, 400);
   const b = await c.req.json().catch(() => ({}));
-  const how = b.how === "skipped" ? "skipped" : "done";
+  return c.json(advanceTale(chatId, b.how === "skipped" ? "skipped" : "done"));
+});
+
+/** The scene is over, one way or the other: on to the next, and a scene played goes in the chronicle. */
+function advanceTale(chatId: string, how: "done" | "skipped") {
+  const { book, mark } = taleOf(chatId);
+  if (!book || !mark) return { book: null, mark: null };
+  // Any open question about this scene is answered by moving on, either way.
+  db.query("UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'scene' AND proposed = 1 AND undone_at IS NULL")
+    .run(now(), chatId);
   const moved = advance(book, mark, how);
   setTale(chatId, moved);
   // A scene played is something that happened, so the chronicle says so. A
@@ -4158,8 +4188,8 @@ api.post("/chats/:id/apocrypha/advance", async (c) => {
       scene_id: played.scene.id,
     });
   }
-  return c.json({ book, mark: moved });
-});
+  return { book, mark: moved };
+}
 
 // ---- lorebooks ------------------------------------------------------------
 

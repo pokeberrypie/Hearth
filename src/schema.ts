@@ -360,6 +360,8 @@ export const ALTER_TABLES: string[] = [
   // auto_lore_at is for the note-taker. Wound back when a message it read is
   // edited, swiped or deleted, so the new words are read in their turn.
   "ALTER TABLE chats ADD COLUMN steward_at INTEGER NOT NULL DEFAULT 0",
+  // How hard an apocryphon's plan pulls on the story — see src/apocrypha.ts.
+  "ALTER TABLE apocrypha ADD COLUMN steering TEXT NOT NULL DEFAULT 'gentle'",
 ];
 
 /** Group chats. A chat keeps its `character_id` as the one it was started

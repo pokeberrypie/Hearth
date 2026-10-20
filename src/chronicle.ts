@@ -25,7 +25,7 @@
 
 import { later, type Calendar, type Moment } from "./calendar";
 
-export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing", "thread"] as const;
+export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing", "thread", "scene"] as const;
 
 /**
  * Bonds run from 0 to 100 and start in the middle: a stranger is neither

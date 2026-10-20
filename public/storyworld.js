@@ -220,6 +220,7 @@ function paintWaiting(list) {
     const what = p.sealed ? "Something sealed"
       : p.kind === "faction" ? `A new faction: <b>${txt(p.title)}</b>${p.body ? ` — ${txt(p.body)}` : ""}`
       : p.kind === "time" ? `Time passing: <b>${txt(p.title)}</b>`
+      : p.kind === "scene" ? `Move to the next scene? <b>${txt(p.title)}</b> seems to have reached its end.`
       : txt(p.title);
     const why = p.evidence ? `<div class="wdwhy">“${txt(p.evidence)}”</div>` : "";
     return `<div class="wdprop"><div>${what}${why}</div>
@@ -228,7 +229,13 @@ function paintWaiting(list) {
         <button type="button" class="linkish" data-dismiss="${p.id}">No</button>
       </div></div>`;
   }).join("");
-  for (const b of box.querySelectorAll("[data-accept]")) b.onclick = () => act(`/chronicle/${b.dataset.accept}/accept`);
+  for (const b of box.querySelectorAll("[data-accept]")) {
+    b.onclick = async () => {
+      await act(`/chronicle/${b.dataset.accept}/accept`);
+      // A scene moved on: the tray's scene buttons and Chat settings follow.
+      if (typeof refreshTaleNav === "function") refreshTaleNav();
+    };
+  }
   for (const b of box.querySelectorAll("[data-dismiss]")) b.onclick = () => act(`/chronicle/${b.dataset.dismiss}/undo`);
 }
 

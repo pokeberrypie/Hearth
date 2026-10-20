@@ -1734,6 +1734,14 @@
   <label>The story, in a paragraph
     <span class="randwrap"><textarea id="ap_premise" rows="3" placeholder="Where it starts, and roughly where it is meant to go."></textarea><button type="button" class="randbtn" data-rand="premise" title="Randomize" aria-label="Randomize the premise"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.1"/><circle cx="15" cy="15" r="1.1"/><circle cx="15" cy="9" r="1.1"/><circle cx="9" cy="15" r="1.1"/><circle cx="12" cy="12" r="1.1"/></svg></button></span>
   </label>
+  <label>How hard the plan steers
+    <select id="ap_steering">
+      <option value="gentle">Gentle</option>
+      <option value="guided">Guided</option>
+      <option value="firm">Firm</option>
+    </select>
+  </label>
+  <p class="hint" id="ap_steeringHint"></p>
   <p class="hint" id="ap_omen">With no scenes yet this is an omen — an idea on the shelf. Give it a
     chapter and a scene and it becomes something a chat can follow.</p>
   <div id="ap_chapters"></div>

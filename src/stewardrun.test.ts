@@ -464,3 +464,58 @@ describe("threads", () => {
     expect((await send("/api/chats/ch/chronicle", "POST", { kind: "thread", name: "" })).status).toBe(400);
   });
 });
+
+describe("a planned scene, over", () => {
+  const BOOK = "# The Hand\nA betrothal.\n## The Court\n### The Affirmation\nSetting: the Great Hall\nPurpose: Jaime makes it public\nEnding: Jaime affirms the betrothal before the king\n### The Feast\nSetting: the gardens";
+  async function follow() {
+    const imp = await (await send("/api/apocrypha/import", "POST", { text: BOOK })).json();
+    await send("/api/chats/ch/apocrypha", "PUT", { book: imp.books[0].id });
+    return imp.books[0].id;
+  }
+  const tale = async () => (await (await ask("/api/chats/ch/apocrypha")).json());
+  const sceneTitle = async () => { const t = await tale(); return t.book.chapters[0].scenes.find((s: any) => s.id === t.mark.scene)?.title; };
+
+  test("the Steward is told the scene; its \"done\" waits for a yes, and yes moves the story on", async () => {
+    seed(3);
+    db.query("DELETE FROM apocrypha").run();
+    await follow();
+    answers = ['SCENE | done | "Jaime publicly affirmed his betrothal to Yvenna before the king"'];
+    await stewardTurn("ch");
+    expect(JSON.stringify(sent.at(-1))).toContain("The planned scene now: The Affirmation — it ends when: Jaime affirms the betrothal before the king");
+    let s = await chronicle();
+    const ask1 = s.proposals.find((p: any) => p.kind === "scene");
+    expect(ask1).toMatchObject({ title: "The Affirmation" });
+    expect(await sceneTitle()).toBe("The Affirmation");
+    s = await (await send(`/api/chronicle/${ask1.id}/accept`, "POST")).json();
+    expect(s.proposals.filter((p: any) => p.kind === "scene")).toEqual([]);
+    expect(await sceneTitle()).toBe("The Feast");
+    expect(s.entries.some((e: any) => e.kind === "event" && e.title === "The Affirmation")).toBe(true);
+  });
+
+  test("no leaves the story where it is; a quote not in the story asks nothing; the tray's button answers it", async () => {
+    seed(3);
+    db.query("DELETE FROM apocrypha").run();
+    await follow();
+    answers = ['SCENE | done | "and so the scene was over at last"'];
+    await stewardTurn("ch");
+    expect((await chronicle()).proposals).toEqual([]);
+
+    seed(3);
+    db.query("DELETE FROM apocrypha").run();
+    await follow();
+    answers = ['SCENE | done | "Jaime publicly affirmed his betrothal to Yvenna before the king"'];
+    await stewardTurn("ch");
+    const q = (await chronicle()).proposals.find((p: any) => p.kind === "scene");
+    await send(`/api/chronicle/${q.id}/undo`, "POST");
+    expect(await sceneTitle()).toBe("The Affirmation");
+
+    seed(3);
+    db.query("DELETE FROM apocrypha").run();
+    await follow();
+    answers = ['SCENE | done | "Jaime publicly affirmed his betrothal to Yvenna before the king"'];
+    await stewardTurn("ch");
+    await send("/api/chats/ch/apocrypha/advance", "POST", { how: "done" });
+    expect((await chronicle()).proposals).toEqual([]);
+    expect(await sceneTitle()).toBe("The Feast");
+  });
+});

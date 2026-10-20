@@ -53,7 +53,8 @@ export type Claim =
   | { kind: "status"; subject: string; field: StatusField; value: string; evidence: string; message_id: string }
   | { kind: "bond"; from: string; to: string; amount: number; label: string; evidence: string; message_id: string }
   | { kind: "faction"; name: string; description: string; symbol: string; evidence: string; message_id: string }
-  | { kind: "thread"; name: string; open: boolean; evidence: string; message_id: string };
+  | { kind: "thread"; name: string; open: boolean; evidence: string; message_id: string }
+  | { kind: "scene"; evidence: string; message_id: string };
 
 export type Dropped = { line: string; why: string };
 
@@ -66,7 +67,13 @@ export const DEFAULT_LIMITS: Limits = { askAboveMinutes: 7 * 1440, maxEvents: 5,
  * Whether the Steward keeps the tracker, or a preset does and it should stay
  * out of it; and the factions already known, so it does not propose them again.
  */
-export type Options = { tracking: boolean; factions?: string[]; threads?: string[] };
+export type Options = {
+  tracking: boolean;
+  factions?: string[];
+  threads?: string[];
+  /** The planned scene a followed apocryphon is in, so the Steward can say when it has ended. */
+  scene?: { title: string; ending: string };
+};
 
 /**
  * Blocks a preset has the story model write its working-out into. They are
@@ -98,6 +105,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     'BOND | person number | person number | + or - | what they are to each other now | "the exact words from the story that show it"',
     'FACTION | its name | what it is, in a few words | one word for its emblem, if the story gives one | "the exact words from the story that show it"',
     'THREAD | open or settled | a short name for it | "the exact words from the story that show it"',
+    ...(o.scene ? ['SCENE | done | "the exact words from the story that show the planned scene has reached its end"'] : []),
     "",
     "Rules:",
     "- The quote must be copied exactly from the story: four to twenty-five words, in the story's own language.",
@@ -110,6 +118,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     "- BOND when how the first person feels about the second changes: + warmer, - colder. It goes one way: write it twice if both change.",
     "- FACTION only for a group the story names — a house, guild, order, company — that is not already listed. Leave the emblem empty if the story gives none.",
     "- THREAD open for something the story leaves hanging that should come back: a promise, a secret, a debt, a question, a letter not yet answered. THREAD settled when one of the open threads listed is resolved here — use its name exactly as listed.",
+    ...(o.scene ? ["- SCENE done only when this part of the story actually reaches the end of the planned scene given below. Not when it is merely heading there."] : []),
     "- At most one TIME line and five EVENT lines.",
     "- If nothing worth recording happened, write only: NONE",
   ].join("\n");
@@ -138,7 +147,8 @@ export function stewardPrompt(people: Person[], nowText: string, passages: Passa
   const already = known.length ? `\n\nAlready known about them (report only what changes):\n${known.join("\n")}` : "";
   const groups = o.factions?.length ? `\n\nFactions already known: ${o.factions.join(", ")}` : "";
   const threads = o.threads?.length ? `\n\nOpen threads: ${o.threads.join("; ")}` : "";
-  return `People in this story:\n${roster}${already}${groups}${threads}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
+  const scene = o.scene ? `\n\nThe planned scene now: ${o.scene.title || "untitled"} — it ends when: ${o.scene.ending}` : "";
+  return `People in this story:\n${roster}${already}${groups}${threads}${scene}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
 }
 
 /**
@@ -161,7 +171,8 @@ export function stewardRequest(model: string, people: Person[], nowText: string,
 
 // ---- reading the answer ---------------------------------------------------
 
-const KIND_WORDS: Record<string, "time" | "event" | "status" | "bond" | "faction" | "thread" | "none"> = {
+const KIND_WORDS: Record<string, "time" | "event" | "status" | "bond" | "faction" | "thread" | "scene" | "none"> = {
+  SCENE: "scene", SCENEDONE: "scene",
   THREAD: "thread", THREADS: "thread", PLOTTHREAD: "thread", HOOK: "thread", LOOSEEND: "thread",
   BOND: "bond", RELATIONSHIP: "bond", RELATION: "bond", FEELING: "bond",
   FACTION: "faction", GROUP: "faction", HOUSE: "faction", ORGANISATION: "faction", ORGANIZATION: "faction",
@@ -208,6 +219,7 @@ export type Parsed = {
   bonds: { from: string; to: string; way: string; label: string; evidence: string }[];
   factions: { name: string; description: string; symbol: string; evidence: string }[];
   threads: { state: string; name: string; evidence: string }[];
+  scene: { state: string; evidence: string }[];
   none: boolean;
   dropped: Dropped[];
   /** Lines that were not findings at all — chatter, headings — counted, not judged. */
@@ -216,7 +228,7 @@ export type Parsed = {
 
 /** The answer as lines, before anything is checked against the story. */
 export function parseAnswer(raw: string): Parsed {
-  const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], threads: [], none: false, dropped: [], noise: 0 };
+  const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], threads: [], scene: [], none: false, dropped: [], noise: 0 };
   const text = withoutThinking(raw).replace(/```[a-z]*\n?/gi, "");
   for (const original of text.split(/\r?\n/)) {
     const line = tidyLine(original);
@@ -237,6 +249,8 @@ export function parseAnswer(raw: string): Parsed {
     if (kind === "bond") {
       if (parts.length < 5) { out.dropped.push({ line: original.trim(), why: "a BOND line needs two people, which way, and a quote" }); continue; }
       out.bonds.push({ from: first, to: unquote(parts[2]), way: unquote(parts[3]), label: parts.length > 5 ? unquote(parts.slice(4, -1).join(" ")) : "", evidence });
+    } else if (kind === "scene") {
+      out.scene.push({ state: first, evidence });
     } else if (kind === "thread") {
       if (parts.length < 4) { out.dropped.push({ line: original.trim(), why: "a THREAD line needs open or settled, a name, and a quote" }); continue; }
       out.threads.push({ state: first, name: unquote(parts.slice(2, -1).join(" ")), evidence });
@@ -467,6 +481,17 @@ export function checkAnswer(
     if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
     touched.add(key);
     claims.push({ kind: "thread", name: state === "settled" ? open.get(key)! : name, open: state === "open", evidence: t.evidence, message_id: at });
+  }
+
+  // The planned scene, over: only if there is one, only "done", once, and quoted.
+  for (const sc of p.scene) {
+    const line = `SCENE | ${sc.state} | "${sc.evidence}"`;
+    if (!o.scene) { dropped.push({ line, why: "no planned scene to end" }); continue; }
+    if (!/^(done|over|ended?|ends|finished|complete[sd]?|reached)\b/i.test(sc.state)) { dropped.push({ line, why: "not done" }); continue; }
+    if (claims.some((c) => c.kind === "scene")) { dropped.push({ line, why: "the scene ended twice" }); continue; }
+    const at = findEvidence(sc.evidence, passages);
+    if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
+    claims.push({ kind: "scene", evidence: sc.evidence, message_id: at });
   }
 
   return { claims, dropped, none: p.none && !claims.length, noise: p.noise };
