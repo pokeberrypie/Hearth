@@ -1,88 +1,377 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  A stone hearth: a mantel over a block surround with an arched opening, a fire
-  burning in it, and a slab underneath.
+  A stone tavern hearth.
 
-  Everything is inside a circle of radius ~36 about the centre, which is the
-  adaptive-icon safe zone — a launcher may mask this to a circle, a squircle or
-  a rounded square, and only the mantel ends and the floor slab come near that
-  edge, so both are tapered rather than square.
+  Generated art — see mobile/android/icon/gen_icon.py. The shape is built for 48px as
+  much as for 192: a dark arch, one bright flame in the middle of it and a
+  heavy horizontal beam across the top carry the silhouette, and the stone
+  courses, soot and grain average into warm texture rather than disappearing.
 
-  Two things it is drawn around. The first is that a hearth is wider than it is
-  tall, and an opening that is taller than it is wide reads as a doorway. The
-  second is that this is looked at mostly at 48px, where mortar lines and stone
-  tones all average into one grey — so the shape has to carry it: a broad dark
-  arch, a bright flame in the middle of it, a heavy lintel across the top.
+  Everything is inside a circle of radius 36 about the centre — the adaptive
+  icon safe zone — so a circle, squircle or rounded-square mask all keep the
+  candle and the tankard. That is why the hearthstone tapers at the bottom
+  and the flue narrows at the top.
+
+  VectorDrawable has no gradients without an extracted <aapt:attr> resource,
+  and the background layer uses the only one this icon can afford, so depth
+  here is layered flat fills and fillAlpha instead.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
 
-    <!-- Firelight thrown onto the wall behind, before anything solid. -->
-    <path
-        android:fillColor="@color/icon_flame_deep"
-        android:fillAlpha="0.22"
-        android:pathData="M54,66 m-24,0 a24,16 0 1 0 48,0 a24,16 0 1 0 -48,0" />
-
-    <!-- The surround: one mass of stone with the arch cut out of it. -->
-    <path
-        android:fillColor="@color/icon_stone"
-        android:fillType="evenOdd"
-        android:pathData="M27,42 L81,42 L81,79 L27,79 Z
-                          M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z" />
-
-    <!-- Courses. The two sides are offset from each other so the blocks read as
-         laid rather than as a grid, and the arch gets its own voussoirs. -->
+    <!-- The breast, in mortar colour. The stones are laid on top of it,
+         so what shows between them is the mortar itself. -->
     <path
         android:fillColor="@color/icon_mortar"
-        android:pathData="M27,53 L41,53 L41,55 L27,55 Z
-                          M27,66 L41,66 L41,68 L27,68 Z
-                          M67,48 L81,48 L81,50 L67,50 Z
-                          M67,61 L81,61 L81,63 L67,63 Z
-                          M67,73 L81,73 L81,75 L67,75 Z" />
-    <!-- No joints struck across the arch: at 48px four short radial marks
-         stop reading as masonry and start reading as scratches. The arch is
-         legible from its own curve. -->
-    <!-- The inner faces of the surround catch the fire. -->
+        android:pathData="M40,22 L68,22 L72,32 L80,42 L80,74 L77,80 L31,80 L28,74 L28,42 L36,32 Z" />
+    <!-- 45 laid stones in five tones, clipped to the breast. -->
+    <group>
+        <clip-path android:pathData="M40,22 L68,22 L72,32 L80,42 L80,74 L77,80 L31,80 L28,74 L28,42 L36,32 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M26.4,23 L34.6,23 A1.4,1.4 0 0 1 36,24.4 L36,27.6 A1.4,1.4 0 0 1 34.6,29 L26.4,29 A1.4,1.4 0 0 1 25,27.6 L25,24.4 A1.4,1.4 0 0 1 26.4,23 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M38.4,23 L46.6,23 A1.4,1.4 0 0 1 48,24.4 L48,27.6 A1.4,1.4 0 0 1 46.6,29 L38.4,29 A1.4,1.4 0 0 1 37,27.6 L37,24.4 A1.4,1.4 0 0 1 38.4,23 Z" />
+        <path
+            android:fillColor="@color/icon_stone_light"
+            android:pathData="M50.4,23 L58.6,23 A1.4,1.4 0 0 1 60,24.4 L60,27.6 A1.4,1.4 0 0 1 58.6,29 L50.4,29 A1.4,1.4 0 0 1 49,27.6 L49,24.4 A1.4,1.4 0 0 1 50.4,23 Z" />
+        <path
+            android:fillColor="@color/icon_stone_dark"
+            android:pathData="M62.4,23 L70.6,23 A1.4,1.4 0 0 1 72,24.4 L72,27.6 A1.4,1.4 0 0 1 70.6,29 L62.4,29 A1.4,1.4 0 0 1 61,27.6 L61,24.4 A1.4,1.4 0 0 1 62.4,23 Z" />
+        <path
+            android:fillColor="@color/icon_stone_cool"
+            android:pathData="M74.4,23 L82.6,23 A1.4,1.4 0 0 1 84,24.4 L84,27.6 A1.4,1.4 0 0 1 82.6,29 L74.4,29 A1.4,1.4 0 0 1 73,27.6 L73,24.4 A1.4,1.4 0 0 1 74.4,23 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M20.4,30 L28.6,30 A1.4,1.4 0 0 1 30,31.4 L30,34.6 A1.4,1.4 0 0 1 28.6,36 L20.4,36 A1.4,1.4 0 0 1 19,34.6 L19,31.4 A1.4,1.4 0 0 1 20.4,30 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M32.4,30 L40.6,30 A1.4,1.4 0 0 1 42,31.4 L42,34.6 A1.4,1.4 0 0 1 40.6,36 L32.4,36 A1.4,1.4 0 0 1 31,34.6 L31,31.4 A1.4,1.4 0 0 1 32.4,30 Z" />
+        <path
+            android:fillColor="@color/icon_stone_light"
+            android:pathData="M44.4,30 L52.6,30 A1.4,1.4 0 0 1 54,31.4 L54,34.6 A1.4,1.4 0 0 1 52.6,36 L44.4,36 A1.4,1.4 0 0 1 43,34.6 L43,31.4 A1.4,1.4 0 0 1 44.4,30 Z" />
+        <path
+            android:fillColor="@color/icon_stone_dark"
+            android:pathData="M56.4,30 L64.6,30 A1.4,1.4 0 0 1 66,31.4 L66,34.6 A1.4,1.4 0 0 1 64.6,36 L56.4,36 A1.4,1.4 0 0 1 55,34.6 L55,31.4 A1.4,1.4 0 0 1 56.4,30 Z" />
+        <path
+            android:fillColor="@color/icon_stone_cool"
+            android:pathData="M68.4,30 L76.6,30 A1.4,1.4 0 0 1 78,31.4 L78,34.6 A1.4,1.4 0 0 1 76.6,36 L68.4,36 A1.4,1.4 0 0 1 67,34.6 L67,31.4 A1.4,1.4 0 0 1 68.4,30 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M80.4,30 L88.6,30 A1.4,1.4 0 0 1 90,31.4 L90,34.6 A1.4,1.4 0 0 1 88.6,36 L80.4,36 A1.4,1.4 0 0 1 79,34.6 L79,31.4 A1.4,1.4 0 0 1 80.4,30 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M26.4,37 L34.6,37 A1.4,1.4 0 0 1 36,38.4 L36,41.6 A1.4,1.4 0 0 1 34.6,43 L26.4,43 A1.4,1.4 0 0 1 25,41.6 L25,38.4 A1.4,1.4 0 0 1 26.4,37 Z" />
+        <path
+            android:fillColor="@color/icon_stone_light"
+            android:pathData="M38.4,37 L46.6,37 A1.4,1.4 0 0 1 48,38.4 L48,41.6 A1.4,1.4 0 0 1 46.6,43 L38.4,43 A1.4,1.4 0 0 1 37,41.6 L37,38.4 A1.4,1.4 0 0 1 38.4,37 Z" />
+        <path
+            android:fillColor="@color/icon_stone_dark"
+            android:pathData="M50.4,37 L58.6,37 A1.4,1.4 0 0 1 60,38.4 L60,41.6 A1.4,1.4 0 0 1 58.6,43 L50.4,43 A1.4,1.4 0 0 1 49,41.6 L49,38.4 A1.4,1.4 0 0 1 50.4,37 Z" />
+        <path
+            android:fillColor="@color/icon_stone_cool"
+            android:pathData="M62.4,37 L70.6,37 A1.4,1.4 0 0 1 72,38.4 L72,41.6 A1.4,1.4 0 0 1 70.6,43 L62.4,43 A1.4,1.4 0 0 1 61,41.6 L61,38.4 A1.4,1.4 0 0 1 62.4,37 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M74.4,37 L82.6,37 A1.4,1.4 0 0 1 84,38.4 L84,41.6 A1.4,1.4 0 0 1 82.6,43 L74.4,43 A1.4,1.4 0 0 1 73,41.6 L73,38.4 A1.4,1.4 0 0 1 74.4,37 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M20.4,44 L28.6,44 A1.4,1.4 0 0 1 30,45.4 L30,48.6 A1.4,1.4 0 0 1 28.6,50 L20.4,50 A1.4,1.4 0 0 1 19,48.6 L19,45.4 A1.4,1.4 0 0 1 20.4,44 Z" />
+        <path
+            android:fillColor="@color/icon_stone_light"
+            android:pathData="M32.4,44 L40.6,44 A1.4,1.4 0 0 1 42,45.4 L42,48.6 A1.4,1.4 0 0 1 40.6,50 L32.4,50 A1.4,1.4 0 0 1 31,48.6 L31,45.4 A1.4,1.4 0 0 1 32.4,44 Z" />
+        <path
+            android:fillColor="@color/icon_stone_dark"
+            android:pathData="M44.4,44 L52.6,44 A1.4,1.4 0 0 1 54,45.4 L54,48.6 A1.4,1.4 0 0 1 52.6,50 L44.4,50 A1.4,1.4 0 0 1 43,48.6 L43,45.4 A1.4,1.4 0 0 1 44.4,44 Z" />
+        <path
+            android:fillColor="@color/icon_stone_cool"
+            android:pathData="M56.4,44 L64.6,44 A1.4,1.4 0 0 1 66,45.4 L66,48.6 A1.4,1.4 0 0 1 64.6,50 L56.4,50 A1.4,1.4 0 0 1 55,48.6 L55,45.4 A1.4,1.4 0 0 1 56.4,44 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M68.4,44 L76.6,44 A1.4,1.4 0 0 1 78,45.4 L78,48.6 A1.4,1.4 0 0 1 76.6,50 L68.4,50 A1.4,1.4 0 0 1 67,48.6 L67,45.4 A1.4,1.4 0 0 1 68.4,44 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M80.4,44 L88.6,44 A1.4,1.4 0 0 1 90,45.4 L90,48.6 A1.4,1.4 0 0 1 88.6,50 L80.4,50 A1.4,1.4 0 0 1 79,48.6 L79,45.4 A1.4,1.4 0 0 1 80.4,44 Z" />
+        <path
+            android:fillColor="@color/icon_stone_light"
+            android:pathData="M26.4,51 L34.6,51 A1.4,1.4 0 0 1 36,52.4 L36,55.6 A1.4,1.4 0 0 1 34.6,57 L26.4,57 A1.4,1.4 0 0 1 25,55.6 L25,52.4 A1.4,1.4 0 0 1 26.4,51 Z" />
+        <path
+            android:fillColor="@color/icon_stone_dark"
+            android:pathData="M38.4,51 L46.6,51 A1.4,1.4 0 0 1 48,52.4 L48,55.6 A1.4,1.4 0 0 1 46.6,57 L38.4,57 A1.4,1.4 0 0 1 37,55.6 L37,52.4 A1.4,1.4 0 0 1 38.4,51 Z" />
+        <path
+            android:fillColor="@color/icon_stone_cool"
+            android:pathData="M50.4,51 L58.6,51 A1.4,1.4 0 0 1 60,52.4 L60,55.6 A1.4,1.4 0 0 1 58.6,57 L50.4,57 A1.4,1.4 0 0 1 49,55.6 L49,52.4 A1.4,1.4 0 0 1 50.4,51 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M62.4,51 L70.6,51 A1.4,1.4 0 0 1 72,52.4 L72,55.6 A1.4,1.4 0 0 1 70.6,57 L62.4,57 A1.4,1.4 0 0 1 61,55.6 L61,52.4 A1.4,1.4 0 0 1 62.4,51 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M74.4,51 L82.6,51 A1.4,1.4 0 0 1 84,52.4 L84,55.6 A1.4,1.4 0 0 1 82.6,57 L74.4,57 A1.4,1.4 0 0 1 73,55.6 L73,52.4 A1.4,1.4 0 0 1 74.4,51 Z" />
+        <path
+            android:fillColor="@color/icon_stone_light"
+            android:pathData="M20.4,58 L28.6,58 A1.4,1.4 0 0 1 30,59.4 L30,62.6 A1.4,1.4 0 0 1 28.6,64 L20.4,64 A1.4,1.4 0 0 1 19,62.6 L19,59.4 A1.4,1.4 0 0 1 20.4,58 Z" />
+        <path
+            android:fillColor="@color/icon_stone_dark"
+            android:pathData="M32.4,58 L40.6,58 A1.4,1.4 0 0 1 42,59.4 L42,62.6 A1.4,1.4 0 0 1 40.6,64 L32.4,64 A1.4,1.4 0 0 1 31,62.6 L31,59.4 A1.4,1.4 0 0 1 32.4,58 Z" />
+        <path
+            android:fillColor="@color/icon_stone_cool"
+            android:pathData="M68.4,58 L76.6,58 A1.4,1.4 0 0 1 78,59.4 L78,62.6 A1.4,1.4 0 0 1 76.6,64 L68.4,64 A1.4,1.4 0 0 1 67,62.6 L67,59.4 A1.4,1.4 0 0 1 68.4,58 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M80.4,58 L88.6,58 A1.4,1.4 0 0 1 90,59.4 L90,62.6 A1.4,1.4 0 0 1 88.6,64 L80.4,64 A1.4,1.4 0 0 1 79,62.6 L79,59.4 A1.4,1.4 0 0 1 80.4,58 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M26.4,65 L34.6,65 A1.4,1.4 0 0 1 36,66.4 L36,69.6 A1.4,1.4 0 0 1 34.6,71 L26.4,71 A1.4,1.4 0 0 1 25,69.6 L25,66.4 A1.4,1.4 0 0 1 26.4,65 Z" />
+        <path
+            android:fillColor="@color/icon_stone_light"
+            android:pathData="M74.4,65 L82.6,65 A1.4,1.4 0 0 1 84,66.4 L84,69.6 A1.4,1.4 0 0 1 82.6,71 L74.4,71 A1.4,1.4 0 0 1 73,69.6 L73,66.4 A1.4,1.4 0 0 1 74.4,65 Z" />
+        <path
+            android:fillColor="@color/icon_stone_dark"
+            android:pathData="M20.4,72 L28.6,72 A1.4,1.4 0 0 1 30,73.4 L30,76.6 A1.4,1.4 0 0 1 28.6,78 L20.4,78 A1.4,1.4 0 0 1 19,76.6 L19,73.4 A1.4,1.4 0 0 1 20.4,72 Z" />
+        <path
+            android:fillColor="@color/icon_stone_cool"
+            android:pathData="M32.4,72 L40.6,72 A1.4,1.4 0 0 1 42,73.4 L42,76.6 A1.4,1.4 0 0 1 40.6,78 L32.4,78 A1.4,1.4 0 0 1 31,76.6 L31,73.4 A1.4,1.4 0 0 1 32.4,72 Z" />
+        <path
+            android:fillColor="@color/icon_stone_warm"
+            android:pathData="M68.4,72 L76.6,72 A1.4,1.4 0 0 1 78,73.4 L78,76.6 A1.4,1.4 0 0 1 76.6,78 L68.4,78 A1.4,1.4 0 0 1 67,76.6 L67,73.4 A1.4,1.4 0 0 1 68.4,72 Z" />
+        <path
+            android:fillColor="@color/icon_stone"
+            android:pathData="M80.4,72 L88.6,72 A1.4,1.4 0 0 1 90,73.4 L90,76.6 A1.4,1.4 0 0 1 88.6,78 L80.4,78 A1.4,1.4 0 0 1 79,76.6 L79,73.4 A1.4,1.4 0 0 1 80.4,72 Z" />
+        <!-- Daylight falls off towards the flue; firelight catches the
+             stones nearest the opening. -->
+        <path
+            android:fillColor="@color/icon_soot"
+            android:fillAlpha="0.3"
+            android:pathData="M28,22 L80,22 L80,44 L28,44 Z" />
+        <path
+            android:fillColor="@color/icon_firelight"
+            android:fillAlpha="0.14"
+            android:pathData="M28,62 L80,62 L80,82 L28,82 Z" />
+        <!-- Soot, fanning up the breast from the opening. A clean
+             chimney reads as a drawing of a fireplace. Two broad
+             passes, not three tight ones, or the ellipse edge shows. -->
+        <path
+            android:fillColor="@color/icon_soot"
+            android:fillAlpha="0.22"
+            android:pathData="M30,56 A24,19 0 1 0 78,56 A24,19 0 1 0 30,56 Z" />
+        <path
+            android:fillColor="@color/icon_soot"
+            android:fillAlpha="0.2"
+            android:pathData="M37,52 A17,14 0 1 0 71,52 A17,14 0 1 0 37,52 Z" />
+    </group>
+    <!-- The firebox. -->
     <path
-        android:fillColor="@color/icon_stone_light"
-        android:pathData="M41,60 L41,79 L38.5,79 L38.5,60 Z
-                          M67,60 L67,79 L69.5,79 L69.5,60 Z" />
-
-    <!-- Mantel: a heavy lintel, tapered at the ends so a circular mask meets a
-         slope instead of a corner. -->
+        android:fillColor="@color/icon_hollow"
+        android:pathData="M40,80 L40,58 Q40,50 54,50 Q68,50 68,58 L68,80 Z" />
     <path
-        android:fillColor="@color/icon_stone_light"
-        android:pathData="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z" />
+        android:fillColor="@color/icon_backwall"
+        android:fillAlpha="0.6"
+        android:pathData="M40,72 A14,10 0 1 0 68,72 A14,10 0 1 0 40,72 Z" />
+    <!-- The inner face of the opening catches the fire. -->
+    <path
+        android:fillColor="@color/icon_rim"
+        android:fillAlpha="0.5"
+        android:pathData="M40,80 L40,58 Q40,50 54,50 Q68,50 68,58 L68,80 L66,80 L66,58.4 Q66,52 54,52 Q42,52 42,58.4 L42,80 Z" />
+    <!-- The hearthstone, tapered so a circular mask meets a slope. Laid
+         before the fire, not after, so the embers and the logs sit on
+         it instead of being buried under it. -->
     <path
         android:fillColor="@color/icon_stone_dark"
-        android:pathData="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z" />
-
-    <!-- The slab the fire sits on, tapered the same way. -->
+        android:pathData="M30,78 L78,78 L73,85 L35,85 Z" />
     <path
-        android:fillColor="@color/icon_stone"
-        android:pathData="M29,79 L79,79 L76,85 L32,85 Z" />
+        android:fillColor="@color/icon_stone_top"
+        android:pathData="M30,78 L78,78 L76.6,80 L31.4,80 Z" />
     <path
-        android:fillColor="@color/icon_stone_dark"
-        android:pathData="M29,79 L79,79 L78,81 L30,81 Z" />
-
-    <!-- Embers in the grate, then two logs across them. -->
+        android:fillColor="@color/icon_firelight"
+        android:fillAlpha="0.26"
+        android:pathData="M32,82 A22,4.2 0 1 0 76,82 A22,4.2 0 1 0 32,82 Z" />
+    <!-- Glow off the fire itself, onto the firebox. -->
+    <path
+        android:fillColor="@color/icon_glow"
+        android:fillAlpha="0.22"
+        android:pathData="M39,70 A16,14 0 1 0 71,70 A16,14 0 1 0 39,70 Z" />
+    <path
+        android:fillColor="@color/icon_glow"
+        android:fillAlpha="0.26"
+        android:pathData="M44,71 A11,9 0 1 0 66,71 A11,9 0 1 0 44,71 Z" />
+    <!-- The ember bed, and four bright coals in it. -->
+    <path
+        android:fillColor="@color/icon_ember"
+        android:pathData="M45.2,75.2 L62.8,75.2 A2.2,2.2 0 0 1 65,77.4 L65,77.4 A2.2,2.2 0 0 1 62.8,79.6 L45.2,79.6 A2.2,2.2 0 0 1 43,77.4 L43,77.4 A2.2,2.2 0 0 1 45.2,75.2 Z" />
+    <path
+        android:fillColor="@color/icon_ember_light"
+        android:pathData="M45.1,77.4 A0.9,0.9 0 1 0 46.9,77.4 A0.9,0.9 0 1 0 45.1,77.4 Z" />
+    <path
+        android:fillColor="@color/icon_ember_light"
+        android:pathData="M50.3,78.2 A0.7,0.7 0 1 0 51.7,78.2 A0.7,0.7 0 1 0 50.3,78.2 Z" />
+    <path
+        android:fillColor="@color/icon_ember_light"
+        android:pathData="M56.2,77.2 A0.8,0.8 0 1 0 57.8,77.2 A0.8,0.8 0 1 0 56.2,77.2 Z" />
+    <path
+        android:fillColor="@color/icon_ember_light"
+        android:pathData="M61.3,78 A0.7,0.7 0 1 0 62.7,78 A0.7,0.7 0 1 0 61.3,78 Z" />
+    <!-- Two logs across the embers, end grain showing. -->
+    <group android:rotation="-8" android:pivotX="54" android:pivotY="73.7">
+        <path
+            android:fillColor="@color/icon_log"
+            android:pathData="M43.2,71 L64.8,71 A2.7,2.7 0 0 1 67.5,73.7 L67.5,73.7 A2.7,2.7 0 0 1 64.8,76.4 L43.2,76.4 A2.7,2.7 0 0 1 40.5,73.7 L40.5,73.7 A2.7,2.7 0 0 1 43.2,71 Z" />
+        <path
+            android:fillColor="@color/icon_log_end"
+            android:pathData="M39.4,74.4 A1.8,2.7 0 1 0 43,74.4 A1.8,2.7 0 1 0 39.4,74.4 Z" />
+    </group>
+    <group android:rotation="7" android:pivotX="54" android:pivotY="76">
+        <path
+            android:fillColor="@color/icon_log_dark"
+            android:pathData="M44.1,73.4 L64.9,73.4 A2.6,2.6 0 0 1 67.5,76 L67.5,76 A2.6,2.6 0 0 1 64.9,78.6 L44.1,78.6 A2.6,2.6 0 0 1 41.5,76 L41.5,76 A2.6,2.6 0 0 1 44.1,73.4 Z" />
+        <path
+            android:fillColor="@color/icon_log_end_dark"
+            android:pathData="M64.7,76 A1.7,2.6 0 1 0 68.1,76 A1.7,2.6 0 1 0 64.7,76 Z" />
+    </group>
+    <!-- A crack along the top log, lit from inside. -->
+    <path
+        android:strokeColor="@color/icon_ember"
+        android:strokeWidth="0.8"
+        android:strokeLineCap="round"
+        android:pathData="M46,74.6 C50,74.2 54,74.6 58,74.2" />
+    <!-- The fire. Four nested shapes instead of a gradient: deep orange
+         through amber to a white core, plus a lick either side so the
+         silhouette is not symmetrical. -->
     <path
         android:fillColor="@color/icon_flame_deep"
-        android:pathData="M43,76 L65,76 L65,79 L43,79 Z" />
+        android:pathData="M55,55.5 C52,61.5 46.8,64.6 46.8,70.8 C46.8,76.4 50.4,79.6 55,79.6 C59.6,79.6 63.2,76.4 63.2,70.8 C63.2,66.8 61.2,63.8 58.8,60.8 C58.4,63.8 57,65.4 55.6,65.4 C57.2,61.8 56.8,58.2 55,55.5 Z" />
     <path
-        android:fillColor="@color/icon_log"
-        android:pathData="M45,74 L61,69 L63,73 L47,78 Z
-                          M47,69 L63,74 L61,78 L45,73 Z" />
-
-    <!-- The fire. Wide enough at the base to sit on the logs, and tall enough
-         to be the brightest thing in the icon at any size. -->
+        android:fillColor="@color/icon_flame_mid"
+        android:pathData="M47.1,66.4 C45.7,69 44.7,70.6 44.7,72.6 C44.7,75.6 46.3,77.6 48.3,77.6 C49.9,77.6 50.9,76.4 50.9,74.4 C50.9,71.6 48.9,69.8 47.1,66.4 Z" />
+    <path
+        android:fillColor="@color/icon_flame_mid"
+        android:pathData="M62.1,64.4 C60.7,67.4 59.5,69.2 59.5,71.6 C59.5,74.8 61.1,76.8 62.9,76.8 C64.5,76.8 65.5,75.4 65.5,73.4 C65.5,70.4 63.9,68.2 62.1,64.4 Z" />
     <path
         android:fillColor="@color/icon_flame"
-        android:pathData="M54,50 C48,58 45,63 45,68 C45,74 49,78 54,78 C59,78 63,74 63,68
-                          C63,63 60,58 57,55 C57,60 55,62 53,62 C54,58 54,54 54,50 Z" />
+        android:pathData="M55,58.8 C52.6,63.6 48.8,66.2 48.8,71.2 C48.8,76 51.6,78.8 55,78.8 C58.4,78.8 61.2,76 61.2,71.2 C61.2,67.8 59.6,65.2 57.6,62.6 C57.3,65.2 56.2,66.6 55,66.6 C56.4,63.6 56,61 55,58.8 Z" />
     <path
         android:fillColor="@color/icon_flame_hot"
-        android:pathData="M54,60 C51,64 50,66 50,69 C50,74 52,76 54,76 C56,76 58,74 58,69
-                          C58,66 57,64 54,60 Z" />
+        android:pathData="M55,64.2 C53.2,67.4 51.9,69.4 51.9,71.8 C51.9,74.8 53.3,76.6 55,76.6 C56.7,76.6 58.1,74.8 58.1,71.8 C58.1,69.4 56.8,67.4 55,64.2 Z" />
+    <path
+        android:fillColor="@color/icon_flame_core"
+        android:pathData="M55,69.4 C54.1,71.2 53.5,72.2 53.5,73.4 C53.5,74.9 54.2,75.8 55,75.8 C55.8,75.8 56.5,74.9 56.5,73.4 C56.5,72.2 55.9,71.2 55,69.4 Z" />
+    <path
+        android:fillColor="@color/icon_spark"
+        android:fillAlpha="0.85"
+        android:pathData="M47.3,58.6 A0.9,0.9 0 1 0 49.1,58.6 A0.9,0.9 0 1 0 47.3,58.6 Z" />
+    <path
+        android:fillColor="@color/icon_spark"
+        android:fillAlpha="0.7"
+        android:pathData="M60.65,56.4 A0.75,0.75 0 1 0 62.15,56.4 A0.75,0.75 0 1 0 60.65,56.4 Z" />
+    <path
+        android:fillColor="@color/icon_spark"
+        android:fillAlpha="0.5"
+        android:pathData="M57,52.6 A0.6,0.6 0 1 0 58.2,52.6 A0.6,0.6 0 1 0 57,52.6 Z" />
+    <!-- An iron crane with a pot on it, silhouetted against the flames
+         rather than drawn in front of them. -->
+    <path
+        android:strokeColor="@color/icon_iron"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M41.6,78 L41.6,55.4 L50,55.4" />
+    <path
+        android:strokeColor="@color/icon_iron"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M50,55.4 L50,58.2" />
+    <path
+        android:strokeColor="@color/icon_iron"
+        android:strokeWidth="1.1"
+        android:pathData="M44.4,59.6 A6,5.2 0 0 1 55.6,59.6" />
+    <path
+        android:fillColor="@color/icon_pot_rim"
+        android:pathData="M44.4,58.8 L55.6,58.8 A1.1,1.1 0 0 1 56.7,59.9 L56.7,59.9 A1.1,1.1 0 0 1 55.6,61 L44.4,61 A1.1,1.1 0 0 1 43.3,59.9 L43.3,59.9 A1.1,1.1 0 0 1 44.4,58.8 Z" />
+    <path
+        android:fillColor="@color/icon_pot"
+        android:pathData="M44,61 L56,61 A6,6.6 0 0 1 44,61 Z" />
+    <path
+        android:strokeColor="@color/icon_pot_light"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:pathData="M46.2,64.6 A4.4,4.2 0 0 0 48.8,67.4" />
+    <!-- A timber lintel, not a stone slab: the tavern cue. Grain, two iron
+         straps and four bolts. -->
+    <path
+        android:fillColor="@color/icon_beam"
+        android:pathData="M24,36 L84,36 L84,43.6 L81.6,46 L26.4,46 L24,43.6 Z" />
+    <path
+        android:fillColor="@color/icon_beam_light"
+        android:pathData="M24,36 L84,36 L84,38.2 L24,38.2 Z" />
+    <path
+        android:strokeColor="@color/icon_beam_grain"
+        android:strokeWidth="0.6"
+        android:strokeLineCap="round"
+        android:pathData="M28,41 L46,41" />
+    <path
+        android:strokeColor="@color/icon_beam_grain"
+        android:strokeWidth="0.6"
+        android:strokeLineCap="round"
+        android:pathData="M50,43.2 L72,43.2" />
+    <path
+        android:strokeColor="@color/icon_beam_grain"
+        android:strokeWidth="0.6"
+        android:strokeLineCap="round"
+        android:pathData="M58,40.2 L80,40.2" />
+    <path
+        android:fillColor="@color/icon_iron"
+        android:pathData="M33.2,36 L35,36 A0.6,0.6 0 0 1 35.6,36.6 L35.6,45.4 A0.6,0.6 0 0 1 35,46 L33.2,46 A0.6,0.6 0 0 1 32.6,45.4 L32.6,36.6 A0.6,0.6 0 0 1 33.2,36 Z" />
+    <path
+        android:fillColor="@color/icon_iron"
+        android:pathData="M73,36 L74.8,36 A0.6,0.6 0 0 1 75.4,36.6 L75.4,45.4 A0.6,0.6 0 0 1 74.8,46 L73,46 A0.6,0.6 0 0 1 72.4,45.4 L72.4,36.6 A0.6,0.6 0 0 1 73,36 Z" />
+    <path
+        android:fillColor="@color/icon_iron_light"
+        android:pathData="M33.3,38.6 A0.8,0.8 0 1 0 34.9,38.6 A0.8,0.8 0 1 0 33.3,38.6 Z" />
+    <path
+        android:fillColor="@color/icon_iron_light"
+        android:pathData="M33.3,43.4 A0.8,0.8 0 1 0 34.9,43.4 A0.8,0.8 0 1 0 33.3,43.4 Z" />
+    <path
+        android:fillColor="@color/icon_iron_light"
+        android:pathData="M73.1,38.6 A0.8,0.8 0 1 0 74.7,38.6 A0.8,0.8 0 1 0 73.1,38.6 Z" />
+    <path
+        android:fillColor="@color/icon_iron_light"
+        android:pathData="M73.1,43.4 A0.8,0.8 0 1 0 74.7,43.4 A0.8,0.8 0 1 0 73.1,43.4 Z" />
+    <!-- A lit candle on the mantel: the icon's second light source. -->
+    <path
+        android:fillColor="@color/icon_pot_light"
+        android:pathData="M29.8,35.2 A4.2,1.5 0 1 0 38.2,35.2 A4.2,1.5 0 1 0 29.8,35.2 Z" />
+    <path
+        android:fillColor="@color/icon_iron_light"
+        android:pathData="M31.8,35.2 A2.2,1.8 0 0 1 36.2,35.2 Z" />
+    <path
+        android:fillColor="@color/icon_candle"
+        android:pathData="M33.7,27.6 L34.3,27.6 A1,1 0 0 1 35.3,28.6 L35.3,34.6 A1,1 0 0 1 34.3,35.6 L33.7,35.6 A1,1 0 0 1 32.7,34.6 L32.7,28.6 A1,1 0 0 1 33.7,27.6 Z" />
+    <path
+        android:fillColor="@color/icon_candle_dim"
+        android:pathData="M32.7,31 C33.5,32.4 32.9,33.6 32.7,34.6 L31.6,34.6 C31.6,33.2 31.9,32 32.7,31 Z" />
+    <path
+        android:fillColor="@color/icon_candle_flame"
+        android:pathData="M34,23.6 C35.5,25.6 35.9,26.4 35.9,27.4 C35.9,28.8 35.1,29.7 34,29.7 C32.9,29.7 32.1,28.8 32.1,27.4 C32.1,26.4 32.5,25.6 34,23.6 Z" />
+    <path
+        android:fillColor="@color/icon_candle_core"
+        android:pathData="M34,26.4 C34.7,27.4 34.9,27.9 34.9,28.4 C34.9,29.1 34.5,29.5 34,29.5 C33.5,29.5 33.1,29.1 33.1,28.4 C33.1,27.9 33.3,27.4 34,26.4 Z" />
+    <!-- And a tankard beside it. -->
+    <path
+        android:strokeColor="@color/icon_pewter"
+        android:strokeWidth="1.7"
+        android:pathData="M78.4,30.2 A2.5,2.5 0 0 1 78.4,34.6" />
+    <path
+        android:fillColor="@color/icon_pewter"
+        android:pathData="M71.1,28.2 L77.3,28.2 A1.3,1.3 0 0 1 78.6,29.5 L78.6,34.7 A1.3,1.3 0 0 1 77.3,36 L71.1,36 A1.3,1.3 0 0 1 69.8,34.7 L69.8,29.5 A1.3,1.3 0 0 1 71.1,28.2 Z" />
+    <path
+        android:fillColor="@color/icon_pewter_light"
+        android:fillAlpha="0.7"
+        android:pathData="M69.8,30.4 L78.6,30.4 L78.6,31.5 L69.8,31.5 Z" />
+    <path
+        android:fillColor="@color/icon_pewter_light"
+        android:fillAlpha="0.55"
+        android:pathData="M69.8,33.6 L78.6,33.6 L78.6,34.7 L69.8,34.7 Z" />
+    <path
+        android:fillColor="@color/icon_foam"
+        android:pathData="M69.6,28.2 A4.6,1.8 0 1 0 78.8,28.2 A4.6,1.8 0 1 0 69.6,28.2 Z" />
 </vector>

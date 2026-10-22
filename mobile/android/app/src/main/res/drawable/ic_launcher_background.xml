@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Firelight on the wall behind the hearth. A flat colour left the stone sitting
-  on nothing; this is the same deep ground, warmed where the opening is, so the
-  icon reads as a lit fireplace rather than a drawing of one.
+  The lit wall behind the hearth. The foreground draws the fire's own glow;
+  this is the room it is burning in — warm where the opening is, falling away
+  to near black at the corners so the flame stays the brightest point under
+  any mask.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -13,10 +14,10 @@
             <gradient
                 android:type="radial"
                 android:centerX="54" android:centerY="64"
-                android:gradientRadius="54"
-                android:startColor="#3c2415"
-                android:centerColor="#241711"
-                android:endColor="#16110e" />
+                android:gradientRadius="58"
+                android:startColor="#FF5E3217"
+                android:centerColor="#FF3C2418"
+                android:endColor="#FF150D09" />
         </aapt:attr>
     </path>
 </vector>
