@@ -1,18 +1,82 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The hearth icon's palette. Nothing else in the app reads these.
+
+  Generated — see mobile/android/icon/gen_icon.py, which writes
+  this file and both launcher drawables from one table.
+-->
 <resources>
-    <color name="icon_background">#16110e</color>
 
-    <!-- Stone, lit from the fire below: the faces nearer the opening are
-         warmer and lighter than the outer ones. -->
-    <color name="icon_stone">#7d7062</color>
-    <color name="icon_stone_dark">#544a40</color>
-    <color name="icon_stone_light">#9a8c7c</color>
-    <color name="icon_mortar">#3b332c</color>
-    <color name="icon_hollow">#120d0a</color>
+    <!-- The room the fire is burning in. The background
+         layer interpolates between the lit and deep
+         values across a radial gradient. -->
+    <color name="icon_background">#FF1C100B</color>
+    <color name="icon_wall_warm">#FF3C2418</color>
+    <color name="icon_wall_deep">#FF150D09</color>
+    <color name="icon_wall_lit">#FF5E3217</color>
 
-    <!-- The fire itself, in the same ember colour as the desktop app's accent. -->
-    <color name="icon_flame">#d8a25f</color>
-    <color name="icon_flame_hot">#f6c877</color>
-    <color name="icon_flame_deep">#c2661f</color>
-    <color name="icon_log">#4a352a</color>
+    <!-- Rubble stone, laid in staggered courses over the
+         mortar ground, so what shows between the blocks is
+         the mortar itself. Five tones, cycled, so no two
+         neighbouring stones match. -->
+    <color name="icon_mortar">#FF3F3124</color>
+    <color name="icon_stone">#FF8A6E52</color>
+    <color name="icon_stone_light">#FFA88B69</color>
+    <color name="icon_stone_dark">#FF7E6448</color>
+    <color name="icon_stone_warm">#FF9A7E60</color>
+    <color name="icon_stone_cool">#FF937A5C</color>
+    <color name="icon_stone_top">#FFAD8E6A</color>
+    <color name="icon_soot">#FF120A06</color>
+
+    <!-- A timber lintel strapped in iron, not a stone slab:
+         the difference between a tavern and a manor house. -->
+    <color name="icon_beam">#FF5A3A24</color>
+    <color name="icon_beam_light">#FF8A5F3C</color>
+    <color name="icon_beam_grain">#FF3A2214</color>
+    <color name="icon_iron">#FF241D18</color>
+    <color name="icon_iron_light">#FF5E544B</color>
+
+    <!-- Inside the firebox — near black, with the inner
+         faces of the opening catching the fire. -->
+    <color name="icon_hollow">#FF190C07</color>
+    <color name="icon_backwall">#FF7A2F10</color>
+    <color name="icon_rim">#FFD6A96F</color>
+
+    <!-- Two logs across the embers, end grain showing. -->
+    <color name="icon_log">#FF5B3B26</color>
+    <color name="icon_log_dark">#FF47301F</color>
+    <color name="icon_log_end">#FF8A6442</color>
+    <color name="icon_log_end_dark">#FF79573A</color>
+
+    <!-- The fire, banded from deep orange through amber to
+         a white core. Four nested shapes stand in for the
+         gradient the foreground layer cannot afford. -->
+    <color name="icon_ember">#FFFF7A2E</color>
+    <color name="icon_ember_light">#FFFFC46A</color>
+    <color name="icon_flame_deep">#FFC9471A</color>
+    <color name="icon_flame_mid">#FFF0862B</color>
+    <color name="icon_flame">#FFFFC14C</color>
+    <color name="icon_flame_hot">#FFFFF0BE</color>
+    <color name="icon_flame_core">#FFFFFBEE</color>
+    <color name="icon_glow">#FFFFA23A</color>
+    <color name="icon_firelight">#FFFFB861</color>
+    <color name="icon_spark">#FFFFCB7A</color>
+
+    <!-- A pot on an iron crane, silhouetted against the flames. -->
+    <color name="icon_pot">#FF2A2420</color>
+    <color name="icon_pot_rim">#FF3A332D</color>
+    <color name="icon_pot_light">#FF6E6159</color>
+
+    <!-- A lit candle on the mantel: the icon's second light
+         source, and the reason the stone reads as lit
+         rather than painted. -->
+    <color name="icon_candle">#FFF0E2C2</color>
+    <color name="icon_candle_dim">#FFD8C8A4</color>
+    <color name="icon_candle_flame">#FFFFD276</color>
+    <color name="icon_candle_core">#FFFFF6DC</color>
+
+    <!-- And a tankard beside it. -->
+    <color name="icon_pewter">#FF8C8475</color>
+    <color name="icon_pewter_light">#FFB9B2A2</color>
+    <color name="icon_foam">#FFEFE7D4</color>
 </resources>
