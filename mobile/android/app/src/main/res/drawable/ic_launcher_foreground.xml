@@ -12,9 +12,14 @@
   candle and the tankard. That is why the hearthstone tapers at the bottom
   and the flue narrows at the top.
 
-  VectorDrawable has no gradients without an extracted <aapt:attr> resource,
-  and the background layer uses the only one this icon can afford, so depth
-  here is layered flat fills and fillAlpha instead.
+  Depth here is layered flat fills and fillAlpha rather than gradients, for
+  two reasons. One is that stacked flat ellipses stood in for a glow and
+  banded into visible concentric rings above about 96px, so the firelight on
+  the wall is left to the background layer's radial and the foreground only
+  lights what it touches. The other is that the same art has to compile into
+  an already-built APK, which cannot gain the extra resource entries a
+  <aapt:attr> gradient needs — see --literal below. A from-source build has
+  no such limit, so refinements here may use gradients freely.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
