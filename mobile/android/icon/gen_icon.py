@@ -377,7 +377,8 @@ FOREGROUND_HEAD = '''<?xml version="1.0" encoding="utf-8"?>
   the wall is left to the background layer's radial and the foreground only
   lights what it touches. The other is that the same art has to compile into
   an already-built APK, which cannot gain the extra resource entries a
-  <aapt:attr> gradient needs — see --literal below. A from-source build has
+  <aapt:attr> gradient needs; that is what this generator's literal
+  mode is for. A from-source build has
   no such limit, so refinements here may use gradients freely.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -471,9 +472,9 @@ def main():
         f.write(FOREGROUND_HEAD + foreground() + "\n</vector>\n")
 
     with open(os.path.join(args.out, "ic_launcher_background.xml"), "w") as f:
-        f.write(BACKGROUND.format(lit=PALETTE["icon_wall_lit"],
-                                  warm=PALETTE["icon_wall_warm"],
-                                  deep=PALETTE["icon_wall_deep"]))
+        f.write(BACKGROUND.format(lit=col("icon_wall_lit"),
+                                  warm=col("icon_wall_warm"),
+                                  deep=col("icon_wall_deep")))
 
     with open(os.path.join(args.out, "colors.xml"), "w") as f:
         f.write(colors_xml())

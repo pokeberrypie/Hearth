@@ -15,9 +15,9 @@
                 android:type="radial"
                 android:centerX="54" android:centerY="64"
                 android:gradientRadius="58"
-                android:startColor="#FF5E3217"
-                android:centerColor="#FF3C2418"
-                android:endColor="#FF150D09" />
+                android:startColor="@color/icon_wall_lit"
+                android:centerColor="@color/icon_wall_warm"
+                android:endColor="@color/icon_wall_deep" />
         </aapt:attr>
     </path>
 </vector>
