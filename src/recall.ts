@@ -119,8 +119,15 @@ export type RecallInput = {
   maxBonds?: number;
 };
 
+/**
+ * A line from the story, shortened. Ours are the outer quotation marks, so
+ * the story's own dialogue inside becomes single quotes, the way a book nests
+ * them; a line that is nothing but one quotation loses its marks to ours.
+ */
 const quote = (s: string, n = 200) => {
-  const t = s.replace(/\s+/g, " ").trim();
+  let t = s.replace(/\s+/g, " ").trim();
+  const whole = /^["“]([^"“”]*)["”]$/.exec(t);
+  t = whole ? whole[1] : t.replace(/["“]([^"“”]*)["”]/g, "‘$1’");
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 
@@ -129,7 +136,11 @@ const quote = (s: string, n = 200) => {
  * a crisis at court never pushes out why two people here feel as they do —
  * the history of the bonds between the people present.
  */
-export function recall(o: RecallInput): { events: Recalled[]; bonds: Recalled[] } {
+export type Recall = { events: Recalled[]; bonds: Recalled[];
+  /** For the prompt inspector: how many events there were to choose from, and how many were left out because the conversation already has them. */
+  looked: { events: number; inConversation: number } };
+
+export function recall(o: RecallInput): Recall {
   const nameWords = new Set(o.everyone.flatMap((n) => plain(n).trim().split(" ")).filter((w) => w.length > 2));
   const presentLower = o.present.map((p) => p.toLowerCase());
   const recentPlain = plain(o.recent);
@@ -140,9 +151,11 @@ export function recall(o: RecallInput): { events: Recalled[]; bonds: Recalled[] 
 
   const scored: (Recalled & { at: number; key: string })[] = [];
   const seenTitles = new Set<string>();
+  const looked = { events: 0, inConversation: 0 };
   for (const e of o.entries) {
     if (e.kind !== "event" || e.undone_at || e.proposed || e.visibility === "private") continue;
-    if (e.message_id && o.inContext.has(e.message_id)) continue;
+    looked.events++;
+    if (e.message_id && o.inContext.has(e.message_id)) { looked.inConversation++; continue; }
     const text = `${e.title} ${e.evidence}`;
     const key = plain(e.title).trim();
     if (!key) continue;
@@ -169,7 +182,7 @@ export function recall(o: RecallInput): { events: Recalled[]; bonds: Recalled[] 
     const tested = promise && concepts.length ? " What is happening now may test it." : "";
     const evidence = e.evidence && plain(e.evidence) !== plain(e.title) ? ` — “${quote(e.evidence)}”` : "";
     scored.push({ id: e.id, score, why, at: e.created_at, key,
-      line: `${when ? `${when}: ` : ""}${quote(e.title, 160)}${evidence}.${tested}${who}${secret}` });
+      line: `${when ? `${when}: ` : ""}${quote(e.title, 160)}${evidence || "."}${tested}${who}${secret}` });
   }
   scored.sort((a, b) => b.score - a.score || a.at - b.at || a.id.localeCompare(b.id));
   const events: Recalled[] = [];
@@ -197,12 +210,12 @@ export function recall(o: RecallInput): { events: Recalled[]; bonds: Recalled[] 
   for (const { b, moments } of here) {
     if (bonds.length >= (o.maxBonds ?? 3)) break;
     const made = moments.map((h) => `${o.when(h) ? `${o.when(h)}: ` : ""}“${quote(h.body || h.evidence, 160)}”`).join("; ");
-    const line = `${b.from} toward ${b.to}: ${b.label || "no word for it yet"} (${b.score}/100)${made ? `. What made it so: ${made}` : ""}.`;
+    const line = `${b.from} toward ${b.to}: ${b.label || "no word for it yet"} (${b.score}/100)${made ? `. What made it so: ${made}` : "."}`;
     if (line.length > bondRoom) continue;
     bondRoom -= line.length;
-    bonds.push({ id: `${b.from}\u0000${b.to}`, line, score: 0, why: [] });
+    bonds.push({ id: `${b.from}\u0000${b.to}`, line, score: 0, why: ["both are here"] });
   }
-  return { events, bonds };
+  return { events, bonds, looked };
 }
 
 /** As the narrator reads it. */

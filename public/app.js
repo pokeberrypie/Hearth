@@ -4751,6 +4751,19 @@ async function openInspect() {
         `<em>${a.via === "constant" ? "always" : a.via}</em> ${esc(a.comment || a.keys[0] || "entry")}</span>`).join("")
     : `<div class="activehead dim">No lore firing</div>`;
 
+  // What Story World reminded the narrator of from earlier, and why each one — to check, not take on trust.
+  const mem = r.remembered;
+  if (mem) {
+    const row = (m) => `<li><div>${esc(m.line)}</div>${m.why?.length ? `<div class="memwhy">${esc(m.why.join(" · "))}</div>` : ""}</li>`;
+    const looked = mem.looked ? `${mem.looked.events} event${mem.looked.events === 1 ? "" : "s"} in the Chronicle` +
+      (mem.looked.inConversation ? `, ${mem.looked.inConversation} already in the conversation` : "") : "";
+    $("#i_lore").insertAdjacentHTML("beforeend",
+      `<div class="activehead${mem.events.length || mem.bonds.length ? "" : " dim"}">Remembered${looked ? ` <span class="memlooked">— ${esc(looked)}</span>` : ""}</div>` +
+      (mem.events.length ? `<ul class="memlist">${mem.events.map(row).join("")}</ul>`
+        : `<div class="memnone">Nothing from earlier touches this scene.</div>`) +
+      (mem.bonds.length ? `<div class="memsub">Between the people here</div><ul class="memlist">${mem.bonds.map(row).join("")}</ul>` : ""));
+  }
+
   // Biggest contributors first — that is what you came to find out.
   const sorted = [...r.sections].sort((a, b) => b.chars - a.chars);
   $("#i_sections").innerHTML = sorted.map((sec) =>

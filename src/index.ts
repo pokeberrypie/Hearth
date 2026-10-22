@@ -2407,6 +2407,7 @@ export type Assembled = {
   prefill?: string;
   sections: { label: string; content: string; chars: number }[];
   lore: { id: string; comment: string; keys: string[]; via: string; position: string; chars: number }[];
+  remembered: ReturnType<typeof recall> | null;
   sampling: ReturnType<typeof sampling>;
   model: string;
   provider: string;
@@ -2793,7 +2794,8 @@ ${DICE_BRIEF}` : DICE_BRIEF;
   // The plan this chat follows, if any: only ever the scene being played.
   const tale = taleBrief(chat.id);
   // And the record of what is so: the date, and how everyone is.
-  const storyWorld = worldBrief(chat, s, history);
+  const remembered: { value?: ReturnType<typeof recall> } = {};
+  const storyWorld = worldBrief(chat, s, history, remembered);
 
   if (s.mode === "tabletop") {
     const table: string[] = [];
@@ -2981,6 +2983,8 @@ ${DICE_BRIEF}` : DICE_BRIEF;
       id: a.entry.id, comment: a.entry.comment, keys: a.entry.keys,
       via: a.via, position: a.entry.position, chars: a.entry.content.length,
     })),
+    // What the narrator was reminded of from earlier, and why — so it can be checked, not assumed.
+    remembered: remembered.value ?? null,
     sampling: sampling(s), model: s.model, provider: s.provider,
   };
 }
@@ -3044,7 +3048,7 @@ api.post("/chats/:id/inspect", async (c) => {
   return c.json({
     provider: a.provider, model: a.model, sampling: a.sampling,
     speaker: speaker ? { id: speaker.id, name: speaker.name } : null,
-    sections: a.sections, lore: a.lore,
+    sections: a.sections, lore: a.lore, remembered: a.remembered,
     turns: a.messages.length,
     chars,
     estTokens: Math.round(chars / 4),
@@ -3553,7 +3557,9 @@ function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEnt
   });
 }
 
-function worldBrief(chat: any, s: Record<string, string>, history?: { id: string; content: string }[]): string | null {
+function worldBrief(chat: any, s: Record<string, string>, history?: { id: string; content: string }[],
+  /** Filled with what was remembered and why, for the prompt inspector. */
+  remembered?: { value?: ReturnType<typeof recall> }): string | null {
   // Story World off: a plain story, with nothing of it in the prompt.
   if (s.story_world === "0") return null;
   const cal = calendarOf(chat.id);
@@ -3579,7 +3585,9 @@ function worldBrief(chat: any, s: Record<string, string>, history?: { id: string
   // newest first; each a possibility to return to, not something to force.
   const open = threadsOf(entries).filter((t) => t.open).slice(0, 8);
   if (open.length) lines.push(`Threads still open, to pick up when it fits: ${open.map((t) => t.title).join("; ")}.`);
-  lines.push(...recallBrief(rememberFor(chat, s, entries, cal, open.map((t) => t.title), history)));
+  const memory = rememberFor(chat, s, entries, cal, open.map((t) => t.title), history);
+  if (remembered) remembered.value = memory;
+  lines.push(...recallBrief(memory));
   lines.push(...offstageBrief(chat.id, entries));
   return lines.length ? lines.join("\n") : null;
 }

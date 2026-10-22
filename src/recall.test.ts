@@ -60,7 +60,7 @@ describe("in code: what something is about, in other words", () => {
   test("tested by the scene: comes back, quoted, marked as a promise and with who was there", () => {
     const r = recall({ ...base, entries, recent: "Jaime folded Cersei's letter and slipped it into his doublet, saying nothing." });
     expect(r.events.map((e) => e.id)).toEqual(["p"]);
-    expect(r.events[0].line).toContain("“\"I will never keep anything from you again,\" Jaime swore");
+    expect(r.events[0].line).toContain("— “‘I will never keep anything from you again,’ Jaime swore, rain running off the eaves.”");
     expect(r.events[0].line).toContain("may test it");
     expect(r.events[0].line).toContain("Only Jaime Lannister, Yvenna Hightower were there");
   });
@@ -84,7 +84,7 @@ describe("in code: what something is about, in other words", () => {
         evidence: "He took her hand in front of the whole court.", created_at: 3, day: 2 })] };
     const r = recall({ ...base, entries: crowd, bonds: [bond], recent: "The council argued about the crown and the succession." });
     expect(r.events.length).toBe(5);
-    expect(r.bonds.map((b) => b.line)).toEqual(["Jaime Lannister toward Yvenna Hightower: devoted (82/100). What made it so: Day 3: “He took her hand in front of the whole court.”."]);
+    expect(r.bonds.map((b) => b.line)).toEqual(["Jaime Lannister toward Yvenna Hightower: devoted (82/100). What made it so: Day 3: “He took her hand in front of the whole court.”"]);
     // And only between people who are both here.
     expect(recall({ ...base, present: ["Jaime Lannister"], entries: [], bonds: [bond], recent: "" }).bonds).toEqual([]);
   });
@@ -183,5 +183,27 @@ describe("in the story: 150 messages on", () => {
     setSettings({ story_world: "0" });
     say("Jaime folded Cersei's letter and slipped it into his doublet, saying nothing to Yvenna.");
     expect(await narrator()).not.toContain("From earlier in the story");
+  });
+});
+
+describe("the prompt inspector shows what was remembered, and why", () => {
+  test("each memory with its reasons; and how many there were to choose from", async () => {
+    wipe();
+    setSettings({ mode: "story", provider: "openrouter", key_openrouter: "sk", model: "story/model", steward_on: "0", context_tokens: "200" });
+    db.query("INSERT INTO characters (id, name, created_at) VALUES ('j', 'Jaime Lannister', 1)").run();
+    db.query("INSERT INTO personas (id, name, created_at) VALUES ('y', 'Yvenna Hightower', 1)").run();
+    db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at, persona_id) VALUES ('ch', 'j', 'The Hand', 1, 1, 'y')").run();
+    const msg = db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', ?, 'x', ?, ?)");
+    msg.run("old", "assistant", PROMISE_QUOTE, 1);
+    for (let i = 0; i < 60; i++) msg.run(`f${i}`, "assistant", `An ordinary day at court, number ${i}, and nothing in it.`, 10 + i);
+    msg.run("now", "user", "Jaime slipped the letter into his doublet, saying nothing.", 100);
+    db.query("INSERT INTO chronicle (id, chat_id, kind, message_id, title, body, evidence, visibility, source, day, created_at) VALUES ('e1', 'ch', 'event', 'old', ?, 'With Jaime Lannister, Yvenna Hightower.', ?, 'table', 'steward', 3, 1)").run(PROMISE, PROMISE_QUOTE);
+    db.query("INSERT INTO chronicle (id, chat_id, kind, message_id, title, visibility, source, day, created_at) VALUES ('e2', 'ch', 'event', 'now', 'Jaime hid the letter', 'table', 'steward', 9, 2)").run();
+    const r = await (await send("/api/chats/ch/inspect", "POST", {})).json();
+    expect(r.remembered.looked).toEqual({ events: 2, inConversation: 1 });
+    expect(r.remembered.events).toHaveLength(1);
+    expect(r.remembered.events[0].line).toContain(PROMISE);
+    expect(r.remembered.events[0].why).toEqual(expect.arrayContaining(["someone here was there", "a promise"]));
+    expect(r.remembered.events[0].why.join(" ")).toContain("about honesty");
   });
 });
