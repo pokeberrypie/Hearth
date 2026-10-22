@@ -83,13 +83,28 @@ await Bun.write("src/version.generated.ts", [
 console.log("  Compiling Hearth.exe ...");
 // An argv array rather than Bun's shell: the flag list is long enough to want
 // wrapping, and the shell reads a wrapped line as several commands.
-const build = Bun.spawnSync(["bun", "build", "--compile", "src/desktop.ts",
-  "--outfile", join(OUT, "Hearth.exe"),
+/*
+ * Built on Windows, Bun compiles for the machine it is on. Anywhere else, say
+ * so: HEARTH_TARGET=bun-windows-x64 cross-compiles the same executable from
+ * Linux or macOS, which is how it is built where there is no Windows to hand.
+ */
+const target = process.env.HEARTH_TARGET ? ["--target", process.env.HEARTH_TARGET] : [];
+/*
+ * Bun sets the icon, the version and "no console window" only when it is
+ * compiling on Windows. Cross-compiled, they are left off here and added to
+ * the finished file afterwards — see scripts/brand-exe.cjs, which rewrites
+ * only the resource section, in place, so Bun's own section after it never
+ * moves.
+ */
+const branding = process.platform === "win32" ? [
   "--windows-icon", "installer/hearth.ico",
   "--windows-hide-console",
   "--windows-title", "Hearth",
   "--windows-description", "Hearth — local-first roleplay",
   "--windows-version", `${VERSION}.0`,
+] : [];
+const build = Bun.spawnSync(["bun", "build", "--compile", ...target, "src/desktop.ts",
+  "--outfile", join(OUT, "Hearth.exe"), ...branding,
 ], { stdout: "pipe", stderr: "pipe" });
 
 if (build.exitCode !== 0) {
@@ -100,4 +115,5 @@ if (build.exitCode !== 0) {
 const size = (await stat(join(OUT, "Hearth.exe"))).size;
 console.log(`${NL}  dist/desktop  —  Hearth.exe is ${(size / 1024 / 1024).toFixed(1)} MB`);
 console.log("  That one file is the whole app: no folder, nothing beside it.");
+if (!branding.length) console.log("  Not built on Windows: run scripts/brand-exe.cjs on it for the icon, version and no console.");
 console.log(`  scripts/build-installer.ts wraps it into a setup wizard.${NL}`);
