@@ -908,6 +908,22 @@ describe("a death, and the world stirred", () => {
     expect(dead.map((d) => d.subject)).toEqual(["Robert Baratheon"]);
   });
 
+  test("a stir reads where the news happened, not whatever scene the story has moved on to", async () => {
+    court();
+    // The death, early; then a run of other business, the latest of it a confession far away.
+    for (let i = 0; i < 6; i++) {
+      db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', 'assistant', 'Jaime Lannister', ?, ?)")
+        .run(`c${i}`, `At the Gates of the Moon, Jaime confessed before Lord Royce, part ${i}.`, 10 + i);
+    }
+    answers = ["GOAL | Cersei Lannister | crown Joffrey | the king is dead"];
+    await send("/api/chats/ch/offstage/stir", "POST", { what: "King Robert is dead" });
+    const asked = JSON.stringify(sent.filter((b) => !b.stream).pop().messages);
+    const told = asked.slice(asked.indexOf("Where the story tells of it"), asked.indexOf("Where the story is now"));
+    expect(told).toContain("Robert Baratheon is dead before the sun is down");
+    expect(told).not.toContain("confessed");
+    expect(asked).toContain("Answer only what has happened");
+  });
+
   test("the dead never act, and those who knew hear of it", async () => {
     court();
     db.query("INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, day, created_at) VALUES ('d1', 'ch', 'status', 'Robert Baratheon', 'physical', 'dead', 'steward', 0, 5)").run();

@@ -4365,9 +4365,14 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
   const active = agendasOf(entries).filter((g) => g.status === "active");
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
-  const rows = (db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 8").all(chatId) as any[]).reverse();
+  const all = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at, rowid").all(chatId) as any[];
+  // Where the story tells of it — found by its words, wherever in the chat that was — and, apart, only a glimpse
+  // of where the story is now: the latest scene is for knowing when this is, not something to answer.
+  const now3 = all.slice(-3);
+  const told = aboutNews(all.slice(0, -3), news);
+  const rows = [...told, ...now3];
   const recap = latestRecap(chat);
-  const system = "You read a story and say how the people in it would answer what has just happened: what each of them now wants. You never continue the story and never explain yourself.";
+  const system = "You read a story and say how the people in it would answer one thing that has happened: what each of them now wants because of it. You never continue the story and never explain yourself.";
   const prompt = [
     `What has just happened:\n${news.map((n) => `- ${n}`).join("\n")}`,
     `People already in the story: ${[...new Set([...peopleOfChat(chatId), ...active.map((g) => g.who)])].filter((p) => p && !dead.has(p)).join("; ") || "(none listed)"}`,
@@ -4375,10 +4380,12 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
     dead.size ? `Dead, and wanting nothing: ${[...dead].join("; ")}` : "",
     active.length ? `What some already want:\n${active.slice(0, 12).map((g) => `- ${g.who}: ${g.goal}`).join("\n")}` : "",
     recap ? `How things stood, from the story's latest recap:\n${recap.content.replace(/\s+/g, " ").slice(0, 1500)}` : "",
-    `The story, latest part:\n\n${rows.map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content))}`).join("\n\n")}`,
-    "Name up to six people who would know of this by now and whose wants it changes — those at court, in the household, in the city, the rivals and the heirs; anyone the story or its people would name, not only those listed. For each, one line:",
+    told.length ? `Where the story tells of it:\n\n${told.map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content))}`).join("\n\n")}` : "",
+    `Where the story is now — only so you know when this is; it is not what you are answering:\n\n${now3.map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content), 500)}`).join("\n\n")}`,
+    `Answer only what has happened, as listed at the top: ${news.join("; ").slice(0, 400)}`,
+    "Name up to six people who would know of it by now and whose wants it changes — those at court, in the household, in the city, the rivals and the heirs; anyone the story or its people would name, not only those listed. For each, one line:",
     "GOAL | their name | what they now want, in a few words | why, from where they stand",
-    "Each goal is something they can work toward over days: not a feeling, not a single act. Never the player's character, never the dead.",
+    "Each goal must come from what has happened above — not from anything else going on in the story. Something they can work toward over days: not a feeling, not a single act. Never the player's character, never the dead.",
     "And if what happened, or the story, shows that someone has died who is not listed as dead, one line for each: DEAD | their name. Nothing else.",
   ].filter(Boolean).join("\n\n");
   let said = "", thought = "";
@@ -4412,6 +4419,38 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
   copyChronicle(goals.map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: g.goal, body: g.why,
     source: "offstage", visibility: "private", day: at.day, minute: at.minute, created_at: t++, data: { stirred: news[0]?.slice(0, 200) ?? "" } })), chatId);
   return { goals: goals.length };
+}
+
+/**
+ * The messages that tell of the news, wherever they are in the chat: scored by how many of its own words they
+ * carry (a name counting double), the best few, back in the story's order. A king's death read about where it
+ * happened, not guessed at from whatever scene the story has since moved on to.
+ */
+export function aboutNews<T extends { content: string }>(rows: T[], news: string[], n = 6): T[] {
+  const STOP = new Set(["that", "this", "with", "from", "into", "have", "been", "were", "they", "their", "there", "what", "when",
+    "where", "which", "while", "would", "could", "should", "about", "after", "before", "just", "then", "than", "them", "some",
+    "courtesy", "nothing", "particular", "story", "read", "said"]);
+  const texts = rows.map((r) => ` ${storyOnly(r.content).toLowerCase().replace(/[^a-z\s'-]/g, " ").replace(/\s+/g, " ")} `);
+  const has = (i: number, k: string) => texts[i].includes(` ${k}`);
+  // A word in nearly every message says nothing about which one this is: weighted by how rare it is.
+  const weight = new Map<string, number>();
+  const rarity = (k: string) => {
+    if (!weight.has(k)) { let df = 0; for (let i = 0; i < texts.length; i++) if (has(i, k)) df++; weight.set(k, df ? Math.log((texts.length + 1) / df) : 0); }
+    return weight.get(k)!;
+  };
+  // Each thing that happened, apart: a note that lists three finds the best scenes for each.
+  const parts = news.flatMap((x) => x.split(/[;,.]|\band\b/i)).map((x) => x.trim()).filter(Boolean);
+  const picked = new Map<number, number>();
+  for (const part of parts) {
+    const keys = [...new Set(part.toLowerCase().replace(/[^a-z\s'-]/g, " ").split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w)))];
+    if (!keys.length) continue;
+    const scored = rows.map((_, i) => {
+      const hits = keys.filter((k) => has(i, k));
+      return { i, score: hits.reduce((x, k) => x + rarity(k), 0), distinct: hits.length };
+    }).filter((x) => x.score > 0 && (x.distinct >= 2 || keys.length === 1)).sort((a, b) => b.score - a.score || b.i - a.i);
+    for (const x of scored.slice(0, Math.max(2, Math.ceil(n / parts.length)))) picked.set(x.i, Math.max(picked.get(x.i) ?? 0, x.score));
+  }
+  return [...picked.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]).slice(0, n).sort((a, b) => a[0] - b[0]).map(([i]) => rows[i]);
 }
 
 /** A message, cut to fit beside others: its opening and the most of its end, where it has got to. */
