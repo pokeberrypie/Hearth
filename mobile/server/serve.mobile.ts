@@ -96,6 +96,7 @@ async function main() {
 
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, (info) => {
     diagnostics.__hearthStage?.("LISTENING");
+    (globalThis as any).__hearthServing = true;
     console.log(`Hearth (on-device) listening on http://127.0.0.1:${info.port}`);
     // rn-bridge's channel is how MainActivity finds out the server is actually
     // up before it points the WebView anywhere — see MainActivity.java. Not a

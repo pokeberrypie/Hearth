@@ -143,7 +143,6 @@ export type Recall = { events: Recalled[]; bonds: Recalled[];
 export function recall(o: RecallInput): Recall {
   const nameWords = new Set(o.everyone.flatMap((n) => plain(n).trim().split(" ")).filter((w) => w.length > 2));
   const presentLower = o.present.map((p) => p.toLowerCase());
-  const recentPlain = plain(o.recent);
   const nowConcepts = conceptsIn(o.recent);
   const nowWords = topicWords(o.recent, nameWords);
   const liveThreads = o.threads.filter((t) => [...topicWords(t, nameWords)].some((w) => nowWords.has(w)));

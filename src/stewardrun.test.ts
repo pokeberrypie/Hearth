@@ -592,3 +592,23 @@ describe("finding where the story is", () => {
     expect(JSON.parse((await sceneQ()).data).toTitle).toBe("Tyrion Taken");
   });
 });
+
+describe("after a failed reading", () => {
+  test("it waits the usual count before trying again, rather than asking after every reply", async () => {
+    seed(3);
+    provider();
+    setSettings({ steward_every: "3" });
+    answers = [""];                      // an empty answer: a failed reading
+    await stewardTurn("ch");
+    expect(sent.length).toBe(1);
+    // One more message: the three it failed on are still unread, but it does not ask again yet.
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('m9', 'ch', 'assistant', 'Later.', ?)").run(Date.now() + 10);
+    await stewardTurn("ch");
+    expect(sent.length).toBe(1);
+    // Three after the failure: it tries again, and reads all of them.
+    for (const n of [10, 11]) db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, 'ch', 'assistant', 'Later still.', ?)").run(`m${n}`, Date.now() + 20 + n);
+    answers = ["NONE"];
+    await stewardTurn("ch");
+    expect(sent.length).toBe(2);
+  });
+});

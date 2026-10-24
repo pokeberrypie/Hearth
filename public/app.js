@@ -72,8 +72,8 @@ function askDialog({ title, text = "", confirmLabel = "Delete", value = null }) 
 }
 
 /** Confirmation is a preference, so route every destructive prompt through here. */
-const ask = async (message) =>
-  !askBeforeDelete || askDialog({ title: message, text: "This cannot be undone." });
+const ask = async (message, detail = "This cannot be undone.") =>
+  !askBeforeDelete || askDialog({ title: message, text: detail });
 
 /** Asks for a line of text. Resolves to null when cancelled, like prompt(). */
 const askFor = (message, value = "") =>
@@ -124,7 +124,10 @@ const S = { chatId: null, charName: "", charAvatar: "", personaAvatar: "", perso
 
 // ---- prose --------------------------------------------------------------
 
-const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Quotes too: this goes into attributes (value="…", title="…") as often as between tags, and an unescaped
+// quote there cut a name off at it — and let whatever followed it out of the attribute.
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 /*
  * Reading something we left for ourselves last time.
@@ -3693,6 +3696,9 @@ async function run(mode, content = "", forcedGuide = "") {
         } else if (evt.delta) {
           queued += evt.delta;
           if (!frame) frame = requestAnimationFrame(pump);
+        } else if (evt.warning) {
+          // Cut off partway, and kept: the reply is saved as far as it got, and the done frame follows.
+          toast(evt.warning);
         } else if (evt.error) {
           flush();
           abandon();
@@ -4648,7 +4654,7 @@ function entryWhen(e) {
   const stamped = Math.max(e.changed_at || 0, e.added_at || 0);
   if (stamped) return stamped;
   const id = String(e.id ?? "");
-  const t = /^e[0-9a-z]{8}/.test(id) ? parseInt(id.slice(1, 9), 36) : /^new\d{13}$/.test(id) ? Number(id.slice(3)) : 0;
+  const t = /^e[0-9a-z]{8}/.test(id) ? parseInt(id.slice(1, 9), 36) : /^new\d{13}/.test(id) ? Number(id.slice(3, 16)) : 0;
   return t > Date.UTC(2020, 0, 1) && t < Date.now() + 86400000 ? t : 0;
 }
 
@@ -4671,7 +4677,8 @@ function renderEntries() {
   const all = editingBook.entries.map((e, i) => [e, i]);
   const recaps = all.filter(([e]) => e.recap).sort(([a], [b]) => entryWhen(b) - entryWhen(a));
   const facts = all.filter(([e]) => !e.recap);
-  const newest = recaps[0]?.[1];
+  // The one that is read: the newest that is in use and says something — as the server chooses it.
+  const newest = recaps.find(([e]) => e.enabled && String(e.content ?? "").trim())?.[1];
   const SCROLL = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8"/><path d="M7 4a2 2 0 0 0-2 2v1h4V6a2 2 0 0 0-2-2z"/><path d="M8 20a2 2 0 0 1-2-2V7M10 9h6M10 12h6M10 15h4"/></svg>`;
   const SPARK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z"/></svg>`;
   const heading = (icon, text, hint) => {
@@ -4744,7 +4751,7 @@ $("#b_entries").addEventListener("input", (e) => {
   if (el.dataset.i === undefined) return;
   const entry = editingBook.entries[+el.dataset.i];
   const f = el.dataset.f;
-  if (el.type === "checkbox") { entry[f] = el.checked; if (f === "recap") renderEntries(); }
+  if (el.type === "checkbox") { entry[f] = el.checked; if (f === "recap" || (f === "enabled" && entry.recap)) renderEntries(); }
   else if (f === "keys" || f === "secondary") entry[f] = el.value.split(",").map((x) => x.trim()).filter(Boolean);
   else if (["depth", "order", "probability"].includes(f)) entry[f] = +el.value || 0;
   else if (f === "scanDepth") entry[f] = el.value === "" ? null : +el.value;
@@ -4767,7 +4774,8 @@ $("#b_addRecap").onclick = () => addEntry(true);
 
 function addEntry(recap) {
   editingBook.entries.unshift({
-    id: "new" + Date.now(), keys: [], secondary: [], logic: "and_any", content: "", recap, added_at: Date.now(),
+    // The time, for when it was made, and a few letters, so two added in the same moment are still two.
+    id: `new${Date.now()}${Math.random().toString(36).slice(2, 6)}`, keys: [], secondary: [], logic: "and_any", content: "", recap, added_at: Date.now(),
     // A recap is always in the prompt: it is where the story is, not something a keyword brings up.
     comment: recap ? "Recap" : "", constant: recap, enabled: true, order: 100, position: "after_char",
     depth: 4, probability: 100, caseSensitive: false, wholeWords: true, scanDepth: null,

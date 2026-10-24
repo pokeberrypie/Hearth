@@ -51,11 +51,13 @@ const nextId = () => `e${Date.now().toString(36)}${(seq++).toString(36)}`;
 
 /**
  * Whether an entry nobody has marked either way is a recap: Hearth's own carry-over summaries, and entries
- * named as one — "Current state", "Recap", "The story so far", "Previously", "Summary". Marking it in the
+ * named as one — "Current state", "Recap", "The story so far", "Previously on". Marking it in the
  * editor settles it for good.
  */
 export function looksLikeRecap(comment: string, content: string): boolean {
-  return /^\s*(carried on from|current state|recap|(the )?story so far|previously|summary|where (things|we) stand)\b/i.test(comment)
+  // Not "Summary": books name their facts that way too ("Summary: House Stark"), and taking those for recaps
+  // would leave all but the newest of them unread.
+  return /^\s*(carried on from|current state|recap|(the )?story so far|previously on|where (things|we) stand)\b/i.test(comment)
     || /^\s*what has happened so far in\b/i.test(content);
 }
 
@@ -111,7 +113,7 @@ export function stampEntries(before: LoreEntry[], after: LoreEntry[], t: number)
  */
 export function bornOf(id: string): number {
   const own = id.slice(id.lastIndexOf(":") + 1);
-  const t = /^e([0-9a-z]{8})/.exec(own) ? parseInt(own.slice(1, 9), 36) : /^new(\d{13})$/.exec(own) ? Number(own.slice(3)) : 0;
+  const t = /^e([0-9a-z]{8})/.exec(own) ? parseInt(own.slice(1, 9), 36) : /^new(\d{13})/.exec(own) ? Number(own.slice(3, 16)) : 0;
   return t > Date.UTC(2020, 0, 1) && t < Date.now() + 86_400_000 ? t : 0;
 }
 

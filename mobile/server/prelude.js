@@ -117,7 +117,17 @@
     process.exit(1);
   });
 
+  // Before the server is up, a rejection is a failed start: stop, and say why. Once it is serving, one is
+  // a background job that went wrong — a Steward reading timing out, an Offstage turn failing — and taking
+  // the whole app down for it, in the middle of someone's evening, is far worse than the job not happening.
+  // It is written down either way. (An uncaught exception still stops it: that can leave things half-done.)
+  // Written to its own file once serving: node-error.txt is what the next launch reads as "Hearth failed to
+  // start", and a background job going wrong is not that.
   process.on("unhandledRejection", function (err) {
+    if (globalThis.__hearthServing) {
+      write("node-warning.txt", "Unhandled promise rejection (Hearth kept running)\n\n" + (err && err.stack ? err.stack : String(err)));
+      return;
+    }
     globalThis.__hearthReport("Unhandled promise rejection", err);
     process.exit(1);
   });

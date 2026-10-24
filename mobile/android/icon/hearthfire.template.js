@@ -59,7 +59,13 @@
 
   const VERT = `attribute vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }`;
   const FRAG = `
+// High precision where the GPU has it; some older phones' do not, and a shader asking for it there does not
+// compile at all — no fire. Medium is enough for a flame a screen tall.
+#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
+#else
+precision mediump float;
+#endif
 uniform vec2 uRes;          // the canvas, in its own pixels
 uniform float uT;
 uniform vec2 uSrc;          // the middle of the flame's base

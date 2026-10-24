@@ -350,9 +350,11 @@ describe("recaps", () => {
     expect(normaliseEntry({ comment: "Current state", content: "x", recap: false }).recap).toBe(false);
     expect(normaliseEntry({ comment: "Davren", content: "x", recap: true }).recap).toBe(true);
   });
-  test("looksLikeRecap reads the name, not words inside it", () => {
-    expect(looksLikeRecap("Summary of the war", "")).toBe(true);
-    expect(looksLikeRecap("A summary", "")).toBe(false);
+  test("looksLikeRecap reads the name, not words inside it — and a fact called a summary is a fact", () => {
+    expect(looksLikeRecap("Previously on The Hand", "")).toBe(true);
+    expect(looksLikeRecap("A recap of nothing", "")).toBe(false);
+    expect(looksLikeRecap("Summary: House Stark", "")).toBe(false);
+    expect(looksLikeRecap("Previously unknown cousin", "")).toBe(false);
   });
 });
 

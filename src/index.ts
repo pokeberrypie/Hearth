@@ -38,7 +38,7 @@ import { CARRY_SYSTEM, carryEntry, carryPrompt, carriedTitle, cleanSummary, rece
 import { normaliseExtension, runServerHook, type Extension } from "./extensions";
 import { archiveUrls, buildFromRepo, parseRepo, type RepoFile } from "./extinstall";
 import { DICE_BRIEF, describeRoll, resolveRolls, rollDice } from "./dice";
-import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityAsked, abilityCheck, afterTime, askedFor, describeCheck, makeSheet, modifier, provideClasses, provideRaces,
+import { ABILITY_NAMES, CHECK_BRIEF, CLASSES, abilityCheck, afterTime, askedFor, describeCheck, makeSheet, modifier, provideClasses, provideRaces,
          normaliseSheet, resolveChecks, sheetForPrompt, type Ability, type Sheet } from "./tabletop";
 import { LEVELS, difficultyForPrompt } from "./difficulty";
 import { bookIsUsable, seedFromBook } from "./frombook";
@@ -68,7 +68,7 @@ import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
 import { listModels } from "./models";
 import { readZip, planBackup, eachZipEntry, type Entry } from "./backup";
-import { listDir, inspect, collect, places, isWanted } from "./localfs";
+import { listDir, collect, places, isWanted } from "./localfs";
 import { normaliseBook, normaliseEntry, activate, place, stampEntries, recencyOf, type LoreEntry } from "./lore";
 import {
   PRESET_FIELDS, DEFAULT_BLOCKS, fromHearth, fromSillyTavern, isHearthPreset, keptOnly, normaliseBlocks,
@@ -625,8 +625,8 @@ api.get("/chats/:id/export", (c) => {
     .get(c.req.param("id")) as any;
   if (!chat) return c.json({ error: "Chat not found." }, 404);
   const messages = db
-    .query("SELECT role, name, content, created_at, swipes, swipe_index, reasoning FROM messages WHERE chat_id = ? ORDER BY created_at, rowid")
-    .all(chat.id);
+    .query("SELECT id, role, name, content, created_at, swipes, swipe_index, reasoning FROM messages WHERE chat_id = ? ORDER BY created_at, rowid")
+    .all(chat.id) as any[];
 
   const safe = (chat.title || chat.character_name).replace(/[^\w.-]+/g, "_");
 
@@ -661,13 +661,85 @@ api.get("/chats/:id/export", (c) => {
     });
   }
 
-  return new Response(JSON.stringify({ hearth: 1, chat, messages }, null, 2), {
+  // The world goes with it: the Story World's ledger, each entry tied to its message by where that message
+  // is in the file, and who sits at a group's table, by name. Without these an exported chat came back
+  // undated, empty of everything the story had established, and alone.
+  const at = new Map(messages.map((m, i) => [m.id, i]));
+  const chronicle = (db.query("SELECT * FROM chronicle WHERE chat_id = ? ORDER BY created_at").all(chat.id) as any[])
+    .map(({ chat_id: _c, message_id, ...e }) => ({ ...e, message_at: message_id && at.has(message_id) ? at.get(message_id) : null }));
+  const members = (db.query(`SELECT characters.name, chat_members.position, chat_members.muted FROM chat_members
+    JOIN characters ON characters.id = chat_members.character_id WHERE chat_members.chat_id = ? ORDER BY chat_members.position`).all(chat.id) as any[]);
+  return new Response(JSON.stringify({ hearth: 1, chat, members, messages: messages.map(({ id: _id, ...m }) => m), chronicle }, null, 2), {
     headers: {
       "content-type": "application/json",
       "content-disposition": `attachment; filename="${safe}.json"`,
     },
   });
 });
+
+/**
+ * What a Hearth export carries besides its messages, put back: the chat's own settings and calendar, its
+ * persona and followed story where this library has them, the people at a group's table by name, and the
+ * Story World's ledger — every entry under a new id, the links between entries rewritten to match, each tied
+ * to its message again by where that message was in the file.
+ */
+function restoreWorld(chatId: string, characterId: string, own: any, ids: (string | null)[]) {
+  const ch = own.chat ?? {};
+  const world = Array.isArray(own.chronicle) && own.chronicle.length > 0;
+  const str = (v: unknown, n = 20000) => (typeof v === "string" ? v.slice(0, n) : "");
+  const persona = typeof ch.persona_id === "string" && db.query("SELECT 1 FROM personas WHERE id = ?").get(ch.persona_id) ? ch.persona_id : null;
+  // A followed story only if it is on this shelf too; otherwise the chat would follow nothing it could find.
+  let tale = "";
+  try { const a = JSON.parse(ch.apocrypha || "{}"); if (a?.book && db.query("SELECT 1 FROM apocrypha WHERE id = ?").get(a.book)) tale = ch.apocrypha; } catch {}
+  db.query(`UPDATE chats SET author_note = ?, note_depth = ?, scenario = ?, location = ?, accent = ?, ambience = ?, calendar = ?,
+              apocrypha = ?, steward_at = ?, offstage_day = ?, persona_id = COALESCE(?, persona_id) WHERE id = ?`)
+    .run(str(ch.author_note), Number.isFinite(+ch.note_depth) ? +ch.note_depth : 2, str(ch.scenario), str(ch.location, 400),
+      /^#[0-9a-f]{6}$/i.test(String(ch.accent ?? "")) ? ch.accent : "", str(ch.ambience, 20), str(ch.calendar), tale,
+      // Where the Steward had read up to, only with the ledger it read into: an older export, without one,
+      // is read afresh, so its world is built again rather than counted as already done.
+      world && Number.isFinite(+ch.steward_at) ? +ch.steward_at : 0, world && Number.isFinite(+ch.offstage_day) ? +ch.offstage_day : -1, persona, chatId);
+
+  // The table: everyone this library has by name, the chat's own character first.
+  const members = Array.isArray(own.members) ? own.members : [];
+  if (members.length > 1) {
+    const found = members.map((m: any) => ({ m, c: db.query("SELECT id FROM characters WHERE name = ? AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get(String(m?.name ?? "")) as any }))
+      .filter((x: any) => x.c);
+    if (found.length > 1) {
+      const add = db.query("INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES (?,?,?,?,?)");
+      const seen = new Set<string>();
+      let pos = 0;
+      if (!found.some((x: any) => x.c.id === characterId)) { add.run(uid(), chatId, characterId, pos++, 0); seen.add(characterId); }
+      for (const { m, c } of found) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        add.run(uid(), chatId, c.id, pos++, m.muted ? 1 : 0);
+      }
+      db.query("UPDATE chats SET is_group = 1 WHERE id = ?").run(chatId);
+    }
+  }
+
+  const entries = Array.isArray(own.chronicle) ? own.chronicle.filter((e: any) => e && typeof e.id === "string") : [];
+  if (!entries.length) return;
+  const fresh = new Map<string, string>(entries.map((e: any) => [e.id, uid()]));
+  // Ids are UUIDs, so wherever one appears in another entry's fields it is that entry, and nothing else.
+  const relink = (v: unknown) => {
+    if (typeof v !== "string" || !v) return v ?? null;
+    let out = v;
+    for (const [from, to] of fresh) if (out.includes(from)) out = out.split(from).join(to);
+    return out;
+  };
+  const ins = db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, day, minute, span, title, body, visibility, source, evidence,
+    scene_id, subject, field, object, amount, data, created_at, undone_at, proposed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  db.transaction(() => {
+    for (const e of entries) {
+      const at = Number.isInteger(e.message_at) ? ids[e.message_at] ?? null : null;
+      ins.run(fresh.get(e.id)!, chatId, at, str(e.kind, 40) || "event", Number.isFinite(e.day) ? e.day : null, Number.isFinite(e.minute) ? e.minute : null,
+        Number(e.span) || 0, str(e.title), str(e.body), str(e.visibility, 20) || "table", str(e.source, 20) || "user", str(e.evidence),
+        relink(e.scene_id), relink(e.subject), str(e.field, 40) || null, relink(e.object), Number(e.amount) || 0, relink(str(e.data, 200000)) ?? "",
+        Number(e.created_at) || now(), Number.isFinite(e.undone_at) ? e.undone_at : null, e.proposed ? 1 : 0);
+    }
+  })();
+}
 
 /** Accepts a Hearth export or a SillyTavern .jsonl. */
 api.post("/chats/import", async (c) => {
@@ -682,14 +754,17 @@ api.post("/chats/import", async (c) => {
   const text = await file.text();
   let title = file.name.replace(/\.(json|jsonl)$/i, "");
   let rows: any[] = [];
+  // A Hearth export carries the chat around its messages too: its world, its calendar, its table.
+  let own: any = null;
 
   try {
     if (/\.jsonl$/i.test(file.name)) {
       rows = text.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => JSON.parse(l));
     } else {
       const j = JSON.parse(text);
-      rows = j.messages ?? [];
+      rows = Array.isArray(j.messages) ? j.messages : [];
       title = j.chat?.title ?? title;
+      if (j.hearth) own = j;
     }
   } catch {
     return c.json({ error: "That file could not be read." }, 400);
@@ -701,21 +776,29 @@ api.post("/chats/import", async (c) => {
     .run(chatId, characterId, title, t, t);
 
   const ins = db.query(
-    "INSERT INTO messages (id, chat_id, role, name, content, created_at, swipes, swipe_index) VALUES (?,?,?,?,?,?,?,?)",
+    "INSERT INTO messages (id, chat_id, role, name, content, created_at, swipes, swipe_index, reasoning) VALUES (?,?,?,?,?,?,?,?,?)",
   );
+  // A Hearth export's own times, when they are in order — what the Story World measured from — or else now,
+  // one apart, in the order they came.
+  const times = rows.map((r) => Number(r?.created_at));
+  const ownTimes = !!own && times.every((x, i) => Number.isFinite(x) && x > 0 && (i === 0 || x >= times[i - 1]));
   let n = 0;
+  const ids: (string | null)[] = [];
   db.transaction(() => {
-    for (const r of rows) {
-      const content = r.content ?? r.mes;
-      if (content === undefined) continue;                    // ST metadata line
+    for (const [i, r] of rows.entries()) {
+      const content = r?.content ?? r?.mes;
+      if (content === undefined) { ids.push(null); continue; }   // ST metadata line
       const isUser = r.role ? r.role === "user" : r.is_user === true;
-      ins.run(uid(), chatId, isUser ? "user" : "assistant", r.name ?? "", String(content), t + n,
+      const id = uid();
+      ids.push(id);
+      ins.run(id, chatId, isUser ? "user" : "assistant", r.name ?? "", String(content), ownTimes ? times[i] : t + n,
         typeof r.swipes === "string" ? r.swipes
           : JSON.stringify(Array.isArray(r.swipes) ? r.swipes : [String(content)]),
-        Number(r.swipe_index ?? r.swipe_id ?? 0));
+        Number(r.swipe_index ?? r.swipe_id ?? 0), typeof r.reasoning === "string" ? r.reasoning : "");
       n++;
     }
   })();
+  if (n && own) restoreWorld(chatId, characterId, own, ids);
 
   if (!n) {
     db.query("DELETE FROM chats WHERE id = ?").run(chatId);
@@ -1008,7 +1091,7 @@ api.post("/chats/:id/generate", async (c) => {
    */
   if (mode === "swipe" && getSettings().mode === "tabletop") {
     const allowance = swipeAllowance();
-    const taken = Math.max(1, JSON.parse(swipeTarget?.swipes || "[]").length || 1) - 1;
+    const taken = Math.max(1, swipesOf(swipeTarget).length || 1) - 1;
     if (taken >= allowance) {
       return c.json({
         error: allowance === 0
@@ -1162,7 +1245,13 @@ api.post("/chats/:id/generate", async (c) => {
           // A stop is not a failure. Whatever arrived before it is kept, so the
           // screen and the database still agree afterwards.
           if (ac.signal.aborted) failed = false;
-          else {
+          // Nor is a connection that broke partway through a reply: on a phone that is the commonest way a
+          // reply ends early, and throwing away the nine paragraphs that did arrive, already read on screen,
+          // for the tenth that did not, is the worst answer. Kept, and said, so Continue can finish it.
+          else if (full.trim().length >= 80) {
+            failed = false;
+            send({ warning: `The reply was cut off (${err?.message ?? "the connection broke"}). What arrived is kept — Continue to finish it.` });
+          } else {
             failed = true;
             send({ error: err?.message ?? "Generation failed." });
           }
@@ -1266,7 +1355,7 @@ api.post("/chats/:id/generate", async (c) => {
           tieNarration(chatId, continuingId, t0);
           send({ done: true, id: continuingId, text: joined, thrown, ...stats });
         } else if (mode === "swipe" && swipeTarget) {
-          const list = JSON.parse(swipeTarget.swipes || "[]");
+          const list = swipesOf(swipeTarget);
           if (!list.length) list.push(swipeTarget.content);
           list.push(full);
           db.query(
@@ -1325,11 +1414,22 @@ api.post("/chats/:id/generate", async (c) => {
   });
 });
 
+/**
+ * A message's alternates, as a list of strings, whatever is stored: a reply imported from elsewhere, or a row
+ * half-written when the app was killed, must never make saving the next swipe throw — that loses the reply.
+ */
+function swipesOf(m: { swipes?: unknown } | null | undefined): string[] {
+  try {
+    const v = typeof m?.swipes === "string" ? JSON.parse(m.swipes || "[]") : m?.swipes;
+    return Array.isArray(v) ? v.map((x) => String(x ?? "")) : [];
+  } catch { return []; }
+}
+
 api.post("/messages/:id/swipe", async (c) => {
   const { index } = await c.req.json();
   const m = db.query("SELECT * FROM messages WHERE id = ?").get(c.req.param("id")) as any;
   if (!m) return c.json({ error: "Message not found." }, 404);
-  const list = JSON.parse(m.swipes || "[]");
+  const list = swipesOf(m);
   if (!list[index]) return c.json({ error: "No such alternate." }, 400);
   if (index !== m.swipe_index) forgetSteward([m.id]);
   db.query("UPDATE messages SET content = ?, swipe_index = ? WHERE id = ?")
@@ -3987,6 +4087,21 @@ function agendasOf(entries: ChronicleEntry[]) {
 const isDead = (fields: Record<string, { title: string } | undefined> | undefined) =>
   /\b(dead|died|slain|killed|executed|deceased|murdered)\b/i.test(fields?.physical?.title ?? "") && !/\b(not|nearly|almost|half|feared|playing)\s+dead\b/i.test(fields?.physical?.title ?? "");
 
+/**
+ * Everyone the records say has died, and who has not been brought back: death sticks. A later note on how a
+ * body lies ("lying in state") does not make anyone alive again; only the story saying so does.
+ */
+function deadIn(entries: ChronicleEntry[]): Set<string> {
+  const out = new Set<string>();
+  const physical = liveEntries(entries).filter((e) => e.kind === "status" && e.field === "physical" && e.subject)
+    .sort((a, b) => a.created_at - b.created_at);
+  for (const e of physical) {
+    if (isDead({ physical: { title: e.title } })) out.add(e.subject!);
+    else if (/^\s*alive\b|\b(alive again|revived|resurrected|raised from the dead|returned from the dead|brought back to life|not dead after all)\b/i.test(e.title)) out.delete(e.subject!);
+  }
+  return out;
+}
+
 /** Someone who cannot act today: dead, or held. Read from the tracker; anything unclear may act. */
 const cannotAct = (fields: Record<string, { title: string } | undefined> | undefined) =>
   /\b(dead|died|slain|killed|executed|imprisoned|in chains|in a cell|dungeon|captive|unconscious)\b/i
@@ -4115,11 +4230,18 @@ function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "faile
  * narrator gets only what became true and what could be noticed; a threat to
  * the player's character becomes a question, then a scene — never an outcome.
  */
+/** Chats whose world is moving right now: one turn at a time, or two replies close together give two people the same day's turn. */
+const offstageBusy = new Set<string>();
+
 async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boolean } = {}) {
-  const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string } =
-    await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
-  logOffstage(chatId, o.manual ? "manual" : o.midday ? "midday" : "day", r);
-  return r;
+  if (offstageBusy.has(chatId)) return { acted: 0, quiet: 0, threats: 0, note: "The world offstage is already taking its turn." };
+  offstageBusy.add(chatId);
+  try {
+    const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string } =
+      await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
+    logOffstage(chatId, o.manual ? "manual" : o.midday ? "midday" : "day", r);
+    return r;
+  } finally { offstageBusy.delete(chatId); }
 }
 
 /** One run, kept: what came of it, or why nothing did — so a still world always says why, even after a restart. */
@@ -4137,16 +4259,22 @@ function logOffstage(chatId: string, kind: string, r: { acted?: number; quiet?: 
  * awaited: the reply that told of it is already done.
  */
 function afterDeaths(chatId: string, deaths: { who: string; evidence: string }[]) {
-  const entries = chronicleOf(chatId);
-  const at = clockOf(calendarOf(chatId), entries);
-  let t = now();
-  const ended = agendasOf(entries).filter((g) => g.status === "active" && deaths.some((d) => d.who === g.who))
-    .map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: "", source: "offstage", visibility: "private",
-      day: at.day, minute: at.minute, created_at: t++, data: { of: g.id, status: "died" } }));
-  if (ended.length) copyChronicle(ended, chatId);
+  endGoalsOf(chatId, deaths.map((d) => d.who));
   const s = getSettings();
   if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
   offstageStir(chatId, deaths.map((d) => `${d.who} has died: "${d.evidence}"`), "death").catch(() => {});
+}
+
+/** The goals of the dead end with them, marked as such. */
+function endGoalsOf(chatId: string, who: string[]) {
+  const entries = chronicleOf(chatId);
+  const at = clockOf(calendarOf(chatId), entries);
+  let t = now();
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const ended = agendasOf(entries).filter((g) => g.status === "active" && who.some((w) => same(w, g.who)))
+    .map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: "", source: "offstage", visibility: "private",
+      day: at.day, minute: at.minute, created_at: t++, data: { of: g.id, status: "died" } }));
+  if (ended.length) copyChronicle(ended, chatId);
 }
 
 /**
@@ -4167,8 +4295,7 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
   const entries = chronicleOf(chatId);
   const at = clockOf(calendarOf(chatId), entries);
   const player = whoAmI(chat.persona_id)?.name ?? "";
-  const status = statusOf(entries);
-  const dead = new Set(Object.keys(status).filter((n) => isDead(status[n] as any)));
+  const dead = deadIn(entries);
   const active = agendasOf(entries).filter((g) => g.status === "active");
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
@@ -4210,6 +4337,7 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
     copyChronicle(died.map((n) => normaliseChronicleEntry({ id: uid(), kind: "status", subject: n, field: "physical", title: "dead",
       source: "offstage", day: at.day, minute: at.minute, created_at: t0++ })), chatId);
     for (const n of died) dead.add(n);
+    endGoalsOf(chatId, died);
   }
   const goals = stirGoals(answer, { player, dead, active });
   if (!goals.length) return died.length ? { goals: 0, note: `Recorded as dead: ${died.join(", ")}.` }
@@ -4257,7 +4385,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
   const recentRows = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 8").all(chatId) as any[];
   const status = statusOf(entries);
   // The dead are not cast: they want nothing now, and nobody asks where they are.
-  const dead = new Set(Object.keys(status).filter((n) => isDead(status[n] as any)));
+  const dead = deadIn(entries);
   const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId)])].filter((p) => p && p !== player && !dead.has(p));
   // News that travels: who has died lately. A death is the world's business, not a secret of the story's.
   const news = liveEntries(entries).filter((e) => e.kind === "status" && e.field === "physical" && isDead({ physical: { title: e.title } })
@@ -4588,7 +4716,10 @@ export async function offstageTurn(chatId: string) {
   // once enough has been said since anyone offstage last moved. Never before the world has moved once.
   const last = db.query("SELECT MAX(created_at) t FROM chronicle WHERE chat_id = ? AND kind = 'offstage' AND undone_at IS NULL").get(chatId) as any;
   if (!last?.t) return;
-  const since = (db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND created_at > ?").get(chatId, last.t) as any)?.n ?? 0;
+  // Counted from its last try, not only its last success: a run that failed, or found nobody to move, is
+  // not tried again after every single reply — each try is a call to its model, paid for.
+  const tried = (db.query("SELECT MAX(created_at) t FROM offstage_runs WHERE chat_id = ?").get(chatId) as any)?.t ?? 0;
+  const since = (db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND created_at > ?").get(chatId, Math.max(last.t, tried)) as any)?.n ?? 0;
   if (since >= OFFSTAGE_EVERY) await offstageRun(chatId, { midday: true });
 }
 
@@ -4990,6 +5121,13 @@ export async function stewardTurn(chatId: string) {
     "SELECT id, role, name, content, created_at FROM messages WHERE chat_id = ? AND created_at > ? ORDER BY created_at, rowid",
   ).all(chatId, chat.steward_at ?? 0) as any[];
   if (!isDue(fresh.length, Number(s.steward_every) || 0)) return;
+  // After a failed reading, the usual wait again before the next try: the messages it failed on are kept to be
+  // read, but a model that is down is not asked again after every single reply, each ask paid for.
+  const last = db.query("SELECT problem, created_at FROM steward_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 1").get(chatId) as any;
+  if (last?.problem) {
+    const since = fresh.filter((m) => m.created_at > last.created_at).length;
+    if (!isDue(since, Number(s.steward_every) || 0)) return;
+  }
   // A long silence is read in its latest stretch, not handed over whole.
   await stewardRun(chat, fresh.slice(-40), s);
 }
@@ -6838,10 +6976,8 @@ api.post("/extensions/install", async (c) => {
 
   const LIMIT = 8 * 1024 * 1024;
   let zip: Uint8Array | null = null;
-  let tried = "";
 
   for (const address of archiveUrls(ref)) {
-    tried = address;
     try {
       const res = await fetch(address, { signal: AbortSignal.timeout(30_000) });
       if (!res.ok) continue;
@@ -8659,6 +8795,19 @@ app.get("/host/:key", (c) => {
 });
 
 app.route("/api", api);
+
+/**
+ * Anything a route did not expect, answered the way every route answers: JSON with an error the page can
+ * show, rather than a bare "Internal Server Error" it cannot read. A body that is not JSON is the asker's
+ * mistake and says so; anything else is ours, and is written down.
+ */
+const onError = (err: Error, c: any) => {
+  if (err instanceof SyntaxError && /JSON/i.test(err.message)) return c.json({ error: "That request could not be read." }, 400);
+  console.error(`[error] ${c.req.method} ${c.req.path}:`, err?.stack || err);
+  return c.json({ error: `Something went wrong: ${err?.message || "an unexpected error"}.` }, 500);
+};
+api.onError(onError);
+app.onError(onError);
 
 /**
  * Everything below this line used to live here too: mounting `/uploads/*`
