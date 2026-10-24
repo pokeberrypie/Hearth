@@ -298,6 +298,43 @@ export function thinkingOffSwitch(model: string): string | null {
   return null;
 }
 
+/**
+ * "No thinking", as a request: what each service and model family takes for
+ * it, beyond the prompt switch above. Not every model can stop — DeepSeek R1,
+ * Kimi K2-Thinking and o-series models always think, and Gemini 2.5 Pro and
+ * GPT-5 can only be turned down — so this asks for the least there is, and
+ * never for something the service would refuse.
+ */
+export function thinkingOffRequest(provider: string, base: string, model: string): { model: string; extra: Record<string, unknown> } {
+  const m = String(model ?? "").toLowerCase();
+  const host = String(base ?? "").toLowerCase();
+  const extra: Record<string, unknown> = {};
+  let id = model;
+  // The same model without its thinking: NanoGPT's ":thinking" variants, DeepSeek's reasoner.
+  if (/:thinking$/i.test(id)) id = id.replace(/:thinking$/i, "");
+  if (host.includes("api.deepseek.com") && m === "deepseek-reasoner") id = "deepseek-chat";
+  if (provider === "openrouter") {
+    // Told not to think at all, not merely to hide it.
+    extra.reasoning = { enabled: false, exclude: true };
+  } else if (provider === "custom" && isLocalBase(base)) {
+    // A server on this machine (llama.cpp, vLLM, LM Studio) takes the chat template's own switch:
+    // enable_thinking for Qwen and GLM, thinking for DeepSeek's.
+    extra.chat_template_kwargs = { enable_thinking: false, thinking: false };
+  } else if (/(^|\.)z\.ai|bigmodel\.cn/.test(host) && /glm/.test(m)) {
+    extra.thinking = { type: "disabled" };
+  } else if (provider === "google" && /gemini/.test(m)) {
+    // Flash can be switched off; Pro and Gemini 3 only turned down.
+    extra.reasoning_effort = /2\.5-flash/.test(m) ? "none" : /2\.5-pro|gemini-3/.test(m) ? "low" : undefined;
+  } else if (/gpt-5/.test(m) && !/gpt-5[\w.-]*-chat/.test(m)) {
+    // GPT-5 thinks a little at the least; 5.1 and later can be told none at all.
+    extra.reasoning_effort = /gpt-5\.\d/.test(m) ? "none" : "minimal";
+  } else if (/(^|\/)o[134](-|$)/.test(m)) {
+    extra.reasoning_effort = "low";
+  }
+  for (const k of Object.keys(extra)) if (extra[k] === undefined) delete extra[k];
+  return { model: id, extra };
+}
+
 function callOpenAI(a: GenerateArgs, base: string) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -352,10 +389,9 @@ function callOpenAI(a: GenerateArgs, base: string) {
    * the setting is empty, which leaves the model's own default alone.
    */
   if (s.reasoningEffort === "off") {
-    // OpenRouter can be told not to think at all, not just to hide it; a server on this machine
-    // (llama.cpp, vLLM) takes the chat template's own switch.
-    if (a.provider === "openrouter") body.reasoning = { enabled: false, exclude: true };
-    if (a.provider === "custom") body.chat_template_kwargs = { enable_thinking: false };
+    const off = thinkingOffRequest(a.provider, base, a.model);
+    body.model = off.model;
+    Object.assign(body, off.extra);
   } else if (s.reasoningEffort) {
     if (a.provider === "openrouter") body.reasoning = { effort: s.reasoningEffort };
     else body.reasoning_effort = s.reasoningEffort;

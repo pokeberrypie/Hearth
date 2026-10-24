@@ -6,7 +6,7 @@
 
 import { afterAll, expect, test } from "bun:test";
 
-import { generate, thinkingOffSwitch } from "./providers";
+import { generate, thinkingOffRequest, thinkingOffSwitch } from "./providers";
 
 const realFetch = globalThis.fetch;
 afterAll(() => { globalThis.fetch = realFetch; });
@@ -49,6 +49,30 @@ test("no system message: the switch goes on the last thing the user said", async
 
 test("OpenRouter is told not to think at all, not just to hide it; a local server gets its template's switch", async () => {
   expect((await bodyFor("openrouter", "deepseek/deepseek-v3.2", "off")).reasoning).toEqual({ enabled: false, exclude: true });
-  expect((await bodyFor("custom", "qwen3-8b", "off")).chat_template_kwargs).toEqual({ enable_thinking: false });
+  expect((await bodyFor("custom", "qwen3-8b", "off")).chat_template_kwargs).toEqual({ enable_thinking: false, thinking: false });
   expect((await bodyFor("nanogpt", "qwen3-8b", "off")).chat_template_kwargs).toBeUndefined();
+});
+
+test("each family, each service: the least thinking there is, and never a setting the service would refuse", () => {
+  const off = (p: string, base: string, model: string) => thinkingOffRequest(p, base, model);
+  // DeepSeek and Claude's thinking variants on NanoGPT: the same model, without it.
+  expect(off("nanogpt", "", "deepseek-ai/DeepSeek-V3.1:thinking")).toEqual({ model: "deepseek-ai/DeepSeek-V3.1", extra: {} });
+  expect(off("nanogpt", "", "claude-sonnet-4-5-20250929:thinking").model).toBe("claude-sonnet-4-5-20250929");
+  // DeepSeek's own API: the chat model is the reasoner without its thinking.
+  expect(off("custom", "https://api.deepseek.com/v1", "deepseek-reasoner")).toEqual({ model: "deepseek-chat", extra: {} });
+  // GLM on Z.ai's own API.
+  expect(off("custom", "https://api.z.ai/api/paas/v4", "glm-4.6").extra).toEqual({ thinking: { type: "disabled" } });
+  // ChatGPT: 5.1 and later can be told none; GPT-5 only minimal; the chat variant does not think; o-series turned down.
+  expect(off("nanogpt", "", "openai/gpt-5.1").extra).toEqual({ reasoning_effort: "none" });
+  expect(off("custom", "https://api.openai.com/v1", "gpt-5").extra).toEqual({ reasoning_effort: "minimal" });
+  expect(off("nanogpt", "", "openai/gpt-5-chat-latest").extra).toEqual({});
+  expect(off("custom", "https://api.openai.com/v1", "o3-mini").extra).toEqual({ reasoning_effort: "low" });
+  // Gemini on Google: Flash off, Pro down.
+  expect(off("google", "", "gemini-2.5-flash").extra).toEqual({ reasoning_effort: "none" });
+  expect(off("google", "", "gemini-2.5-pro").extra).toEqual({ reasoning_effort: "low" });
+  // A local server takes the template switch; OpenAI itself is never sent it.
+  expect(off("custom", "http://localhost:8080/v1", "qwen3-8b").extra).toEqual({ chat_template_kwargs: { enable_thinking: false, thinking: false } });
+  expect(off("custom", "https://api.openai.com/v1", "gpt-4o").extra).toEqual({});
+  // Kimi: K2 does not think and K2-Thinking always does — nothing to send either way.
+  expect(off("nanogpt", "", "moonshotai/kimi-k2-thinking")).toEqual({ model: "moonshotai/kimi-k2-thinking", extra: {} });
 });
