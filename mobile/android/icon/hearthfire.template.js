@@ -41,12 +41,11 @@
   const RISE_MS = 2600;
   const PART_MS = 2000;
 
-  // The icon's fire, outermost first. Where each colour begins: the rim at the edge; the next three that
-  // many band-widths in from it; the pale heart where the heat passes a level.
-  const COLOURS = ["#7a2410", "#c9471a", "#f0862b", "#ffc14c", "#fff0be"];
-  const LEVELS = [0, 1, 2, 3.4, 0.78];
-  // And deep in the body, how hot it must be for each: so where the fire is broad, its cooler parts are orange.
-  const DEEP = [0, 0.04, 0.12, 0.24, 0];
+  // The fire's colours, outermost first — a red-orange rim, oranges inside it, a light gold heart — and how far
+  // in from the outline each begins, as a share of the flame's half-width there: so each is a smaller flame
+  // nested inside the last, as a drawn flame's are.
+  const COLOURS = ["#a8321a", "#e2531e", "#f5792a", "#ffa040", "#ffc96e"];
+  const LEVELS = [0, 0.12, 0.26, 0.5, 0.78];
 
   const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
   // Easing for the rise itself: gentle at both ends.
@@ -59,52 +58,71 @@
   const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 
   const VERT = `attribute vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }`;
-  const FRAG = (deriv) => `${deriv ? "#extension GL_OES_standard_derivatives : enable\n" : ""}
+  const FRAG = `
 precision highp float;
 uniform vec2 uRes;          // the canvas, in its own pixels
 uniform float uT;
-uniform vec2 uSrc;          // where the fire burns from
-uniform vec3 uR;            // how far it reaches: to the sides, up, and down
-uniform float uFill;        // at the end, heat everywhere, so the screen is fire edge to edge
-uniform vec2 uScale;        // the size of its turbulence: fine, and broad
-uniform float uBroad;       // how much of the broad there is
+uniform vec2 uSrc;          // the middle of the flame's base
+uniform vec2 uSize;         // its half-width at the base, and its height
+uniform float uFill;        // at the end, fire everywhere, so the screen is fire edge to edge
 uniform vec4 uOpen;         // the opening: centre, and radii
 uniform float uRim;
-uniform float uBand;        // how thick each outer colour is, in pixels: the rim and the bands inside it
 uniform vec3 uC[5];
 uniform float uL[5];
-uniform float uD[5];        // how hot it must be, deep in the body, for each colour
 
-float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+// Simplex noise (Gustavson): no grid in it to show through as the flame moves.
+vec3 permute(vec3 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }
+float snoise(vec2 v) {
+  const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+  vec2 i = floor(v + dot(v, C.yy));
+  vec2 x0 = v - i + dot(i, C.xx);
+  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec4 x12 = x0.xyxy + C.xxzz;
+  x12.xy -= i1;
+  i = mod(i, 289.0);
+  vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+  vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
+  m = m * m; m = m * m;
+  vec3 x = 2.0 * fract(p * C.www) - 1.0;
+  vec3 h = abs(x) - 0.5;
+  vec3 ox = floor(x + 0.5);
+  vec3 a0 = x - ox;
+  m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
+  vec3 g;
+  g.x = a0.x * x0.x + h.x * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+  return 130.0 * dot(m, g);
 }
-// Two octaves, not more: a flame's edge is round lobes and long waves, not crinkle.
-float fbm(vec2 p) { return noise(p) * 0.68 + noise(p * 2.03 + 7.1) * 0.32; }
 
 void main() {
   vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
-  vec2 d = p - uSrc;
-  float up = max(0.0, -d.y), dn = max(0.0, d.y);
-  // The body: hottest where it burns, reaching further up than out, and least down.
-  float base = 1.0 - length(vec2(d.x / uR.x, up / uR.y + dn / uR.z));
-  // Turbulence rising through it, stretched upward, and stirred by a slower turbulence of its own — so
-  // tongues lift out of the body, lean, pinch off and go.
-  vec2 qf = vec2(d.x / uScale.x, d.y / (uScale.x * 1.7));
-  vec2 qb = vec2(d.x / uScale.y, d.y / (uScale.y * 1.5));
-  float stir = fbm(qb * 0.6 + vec2(0.0, uT * 0.35));
-  float fine = fbm(qf + vec2((stir - 0.5) * 1.6, uT * 2.1));
-  float broad = fbm(qb + vec2((stir - 0.5) * 1.2, uT * 1.15));
-  float n = mix(fine, broad, uBroad);
-  float rise = clamp(up / uR.y, 0.0, 1.4);
-  float f = base + (n - 0.5) * (0.4 + 1.15 * rise) + uFill;
-  float aa = ${deriv ? "max(fwidth(f) * 0.8, 0.0015)" : "0.006"};
-  // How far in from the fire's edge this pixel is: the outer colours are insets of the one outline, a thin
-  // rim and a band or two inside it, the way a drawn flame's are; past them it is yellow, and where it is
-  // hottest, the pale heart.
-  ${deriv ? "float inset = f / max(length(vec2(dFdx(f), dFdy(f))), 1e-4);" : "float inset = f / 0.004;"}
+  float W = uSize.x, H = uSize.y;
+  float up = uSrc.y - p.y;                 // height above the base
+  float v = up / H;
+  // The flame bends, and the bend runs up it: an S that travels, more the higher it goes.
+  float sway = snoise(vec2(v * 1.5 - uT * 0.85, 3.7)) * 0.6 + snoise(vec2(v * 3.2 - uT * 1.6, 9.1)) * 0.22;
+  float x = p.x - uSrc.x - sway * W * 0.6 * pow(clamp(v, 0.0, 1.6), 1.3);
+  // Its outline: a round base, full low down, tapering to a point.
+  float hw;
+  if (v < 0.0) { float b = -up / (W * 0.8); hw = W * sqrt(max(0.0, 1.0 - b * b)); }
+  else hw = W * pow(max(0.0, 1.0 - v), 0.8) * (1.0 + 0.6 * v * (1.0 - v));
+  float f = 1.0 - abs(x) / max(hw, 0.001);
+  // Tongues: turbulence stretched upward and rising, cutting the upper flame into tips that lean and part.
+  // More toward the top, and more toward its sides than its heart, so tongues break from the flanks too.
+  float top = smoothstep(-0.05, 0.8, v);
+  float side = 0.55 + 0.45 * clamp(abs(x) / max(hw, 0.001), 0.0, 1.0);
+  float t1 = snoise(vec2(x / (W * 0.3), up / (H * 0.42) - uT * 1.5)) * 0.5 + 0.5;
+  float t2 = snoise(vec2(x / (W * 0.18) + 5.0, up / (H * 0.24) - uT * 2.4)) * 0.5 + 0.5;
+  f -= (t1 * 0.85 + t2 * 0.4) * top * side;
+  // Licks: pieces broken off above the tips, rising and going.
+  float l = snoise(vec2(x / (W * 0.2) + 11.0, up / (H * 0.15) - uT * 3.2));
+  float near = smoothstep(0.7, 0.95, v) * (1.0 - smoothstep(1.15, 1.5, v)) * (1.0 - smoothstep(0.15, 0.5, abs(x) / W));
+  // A blob only where the turbulence is strong, and fewer as they rise out of their band; elsewhere well
+  // below the edge, so nothing half-there shows.
+  f = max(f, (l - 0.55 - (1.0 - near) * 0.5) * 2.5);
+  f += uFill;
+  // How much f changes across a pixel, near enough, for a clean edge without derivatives.
+  float aa = 1.2 / max(hw, max(W * 0.12, 4.0));
 
   // The opening, rippling; each colour drawn back from it by its own amount, the brightest most.
   vec2 e = p - uOpen.xy;
@@ -114,13 +132,7 @@ void main() {
   vec3 col = uC[0];
   float alpha = 0.0;
   for (int i = 0; i < 5; i++) {
-    float on;
-    if (i == 0) on = smoothstep(-aa, aa, f);
-    // A band-width in from the edge, and — inside the body, where the edge is far — hot enough: so the
-    // cooler reaches of a fire that fills the screen still show as orange tongues running up through it.
-    else if (i < 4) on = max(smoothstep(uBand * uL[i] - 0.8, uBand * uL[i] + 0.8, inset), smoothstep(0.3, 0.34, f))
-      * smoothstep(uD[i] - aa, uD[i] + aa, f);
-    else on = smoothstep(uL[4] - aa, uL[4] + aa, f);
+    float on = smoothstep(uL[i] - aa, uL[i] + aa, f);
     if (uOpen.z > 0.0) {
       float g = float(i) * uRim;
       float k = length(vec2(e.x / ((uOpen.z + g) * ripple), e.y / ((uOpen.w + g * 1.6) * ripple)));
@@ -153,14 +165,13 @@ void main() {
   function fieldOn(canvas) {
     const gl = canvas.getContext("webgl", { premultipliedAlpha: true, antialias: false, alpha: true });
     if (!gl) return null;
-    const deriv = !!gl.getExtension("OES_standard_derivatives");
     const shader = (type, src) => {
       const sh = gl.createShader(type);
       gl.shaderSource(sh, src);
       gl.compileShader(sh);
       return gl.getShaderParameter(sh, gl.COMPILE_STATUS) ? sh : null;
     };
-    const vs = shader(gl.VERTEX_SHADER, VERT), fs = shader(gl.FRAGMENT_SHADER, FRAG(deriv));
+    const vs = shader(gl.VERTEX_SHADER, VERT), fs = shader(gl.FRAGMENT_SHADER, FRAG);
     if (!vs || !fs) return null;
     const prog = gl.createProgram();
     gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
@@ -173,10 +184,9 @@ void main() {
     gl.enableVertexAttribArray(a);
     gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
     const u = {};
-    for (const n of ["uRes", "uT", "uSrc", "uR", "uFill", "uScale", "uBroad", "uOpen", "uRim", "uBand", "uC", "uL", "uD"]) u[n] = gl.getUniformLocation(prog, n);
+    for (const n of ["uRes", "uT", "uSrc", "uSize", "uFill", "uOpen", "uRim", "uC", "uL"]) u[n] = gl.getUniformLocation(prog, n);
     gl.uniform3fv(u.uC, new Float32Array(COLOURS.flatMap(rgb)));
     gl.uniform1fv(u.uL, new Float32Array(LEVELS));
-    gl.uniform1fv(u.uD, new Float32Array(DEEP));
     return { gl, u };
   }
 
@@ -239,18 +249,21 @@ void main() {
     s.raf = requestAnimationFrame(frame);
   }
 
-  /** How big the fire is at a given heat, in screen pixels: where it burns from, and how far it reaches. */
+  /**
+   * How big the flame is at a given heat, in screen pixels: the middle of its base (x, y), its half-width there
+   * (rx) and its height (ry). It stands on the logs, a fire in a grate; climbs, and widens; and its base goes
+   * down past the bottom of the screen as it takes the room.
+   */
   function reach(s, heat) {
     const { w, h, grate } = s;
     const u0 = s.unit || 4, mouth = s.mouth;
     const inBox = Math.max(10, grate.y - s.archTop);
     return {
-      x: grate.x, y: grate.y + u0,
-      // Up before out, and out before down: a fire climbs, spreads, and last spills.
-      rx: grow(mouth * 0.6, Math.max(w * 0.95, h * 0.5), Math.pow(heat, 1.3)),
-      ry: grow(inBox * 1.1, h * 1.08, Math.pow(heat, 0.8)),
-      rd: grow(u0 * 2.5, h * 1.3, Math.pow(heat, 1.4)),
-      fill: smooth(0.7, 1, heat) * 0.16,
+      x: grate.x,
+      y: lerp(grate.y + u0, h * 1.15, smooth(0.3, 1, heat)),
+      rx: grow(mouth * 0.88, w * 1.6, Math.pow(heat, 1.25)),
+      ry: grow(inBox * 1.05, h * 1.9, Math.pow(heat, 0.8)),
+      fill: smooth(0.72, 1, heat) * 0.3,
     };
   }
 
@@ -269,15 +282,10 @@ void main() {
       gl.uniform2f(u.uRes, s.field.width, s.field.height);
       gl.uniform1f(u.uT, t % 1000);
       gl.uniform2f(u.uSrc, r.x * k, r.y * k);
-      gl.uniform3f(u.uR, r.rx * k, r.ry * k, r.rd * k);
+      gl.uniform2f(u.uSize, r.rx * k, r.ry * k);
       gl.uniform1f(u.uFill, r.fill);
-      // Its turbulence: fine while it is in the hearth, broad as it takes the room.
-      gl.uniform2f(u.uScale, s.mouth * 0.55 * k, Math.min(w, h) * 0.34 * k);
-      gl.uniform1f(u.uBroad, smooth(0.2, 0.85, heat) * 0.85);
       gl.uniform4f(u.uOpen, cx * k, cy * k, rx * k, ry * k);
       gl.uniform1f(u.uRim, rim * k);
-      // Bands that thicken a little as the fire grows, as a bigger drawing's outline would.
-      gl.uniform1f(u.uBand, clamp(r.rx * 0.035, 3, Math.min(w, h) * 0.035) * k);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

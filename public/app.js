@@ -4672,28 +4672,33 @@ function renderEntries() {
   const recaps = all.filter(([e]) => e.recap).sort(([a], [b]) => entryWhen(b) - entryWhen(a));
   const facts = all.filter(([e]) => !e.recap);
   const newest = recaps[0]?.[1];
-  const heading = (text, hint) => {
+  const SCROLL = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8"/><path d="M7 4a2 2 0 0 0-2 2v1h4V6a2 2 0 0 0-2-2z"/><path d="M8 20a2 2 0 0 1-2-2V7M10 9h6M10 12h6M10 15h4"/></svg>`;
+  const SPARK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z"/></svg>`;
+  const heading = (icon, text, hint) => {
     const h = document.createElement("div");
     h.className = "ebookhead";
-    h.innerHTML = `<span>${text}</span>${hint ? `<span class="ekeys">${hint}</span>` : ""}`;
+    h.innerHTML = `<span class="ebh-icon">${icon}</span><span class="ebh-text"><span class="ebh-title">${text}</span><span class="ebh-hint">${hint}</span></span>`;
     box.appendChild(h);
   };
 
-  if (recaps.length) heading("Recaps", "the newest is how things stand now");
+  if (recaps.length) heading(SCROLL, "Recaps", "Where the story stands. Only the newest one is read — by the narrator and by everyone offstage.");
   if (recaps.length && facts.length) recaps.push(["entries"]);
   [...recaps, ...facts].forEach(([e, i]) => {
-    if (e === "entries") { heading("Entries", "come in when the story names them"); return; }
+    if (e === "entries") { heading(SPARK, "Entries", "Facts about people, places and things. Each comes in when the story names one of its keywords."); return; }
     const hay = `${e.comment} ${e.keys.join(" ")} ${e.content}`.toLowerCase();
     if (q && !hay.includes(q)) return;
     const age = entryAge(e);
 
     const el = document.createElement("details");
-    el.className = "entry" + (e.enabled ? "" : " off");
+    el.className = "entry" + (e.enabled ? "" : " off") + (e.recap ? (i === newest ? " recap newest" : " recap older") : "");
     el.innerHTML =
       `<summary>` +
       `<input type="checkbox" class="pick" ${e.enabled ? "checked" : ""} data-i="${i}" data-f="enabled" aria-label="Enabled">` +
       `<span class="etitle"><span class="ename">${esc(e.comment || e.keys[0] || "Untitled entry")}</span>` +
-      `<span class="emeta"><span class="ekeys">${e.recap ? (i === newest ? "the newest recap" : "an older recap") : e.constant ? "always on" : esc(e.keys.join(", ")) || "no keywords"}</span>` +
+      `<span class="emeta">${e.recap ? `<span class="ebadge${i === newest ? " new" : ""}">${i === newest ? "✦ Newest" : "Older"}</span>`
+        : e.constant ? `<span class="ebadge">Always on</span>`
+        : e.keys.length ? e.keys.slice(0, 3).map((k) => `<span class="ekey">${esc(k)}</span>`).join("") + (e.keys.length > 3 ? `<span class="ekey more">+${e.keys.length - 3}</span>` : "")
+        : `<span class="ekey none">no keywords</span>`}` +
       `<span class="ewhen" title="${esc(age.title)}">${esc(age.text)}</span></span></span>` +
       `<button class="ico" data-remove="${i}" title="Remove" aria-label="Remove entry">${ICON.del}</button>` +
       `</summary>` +
