@@ -22,6 +22,9 @@ A = "{http://schemas.android.com/apk/res/android}"
 # What the loading screen leaves out, by the colours the icon paints it in.
 FLAME = {"#FFC9471A", "#FFF0862B", "#FFFFC14C", "#FFFFF0BE", "#FFFFFBEE", "#FFFFCB7A", "#FFFFA23A"}
 POT = {"#FF2A2420", "#FF3A332D"}
+# The inside of the firebox: left open, so the fire — drawn behind the hearth — shows through the opening,
+# behind the logs, and the stone in front of it hides where it starts.
+HOLLOW = {"#FF190C07", "#FF7A2F10"}
 CRANE_STROKES = {"#FF241D18", "#FF6E6159"}
 
 
@@ -33,12 +36,17 @@ def colour(argb):
 def keep(el):
     fill = (el.get(A + "fillColor") or "").upper()
     stroke = (el.get(A + "strokeColor") or "").upper()
-    if fill in FLAME or fill in POT:
+    if fill in FLAME or fill in POT or fill in HOLLOW:
         return False
     if stroke and stroke in CRANE_STROKES:
         return False
     return True
 
+
+# The chimney breast, and the opening in it: the breast's mortar and everything laid over it are cut
+# through there, so what burns behind the hearth is seen in the firebox.
+BREAST = "M40,22 L68,22 L72,32 L80,42 L80,74 L77,80 L31,80 L28,74 L28,42 L36,32 Z"
+OPENING = "M40,80 L40,58 Q40,50 54,50 Q68,50 68,58 L68,80 Z"
 
 clips = []
 
@@ -49,7 +57,9 @@ def convert(el, out, depth=0):
         if tag == "path":
             if not keep(child):
                 continue
-            attrs = [f'd="{child.get(A + "pathData")}"']
+            d = child.get(A + "pathData")
+            cut = d.strip() == BREAST
+            attrs = [f'd="{d + " " + OPENING if cut else d}"'] + (['fill-rule="evenodd"'] if cut else [])
             fill = child.get(A + "fillColor")
             stroke = child.get(A + "strokeColor")
             attrs.append(f'fill="{colour(fill)}"' if fill else 'fill="none"')
@@ -68,7 +78,11 @@ def convert(el, out, depth=0):
             clip = child.find("clip-path")
             if clip is not None:
                 cid = f"bh{len(clips)}"
-                clips.append(f'<clipPath id="{cid}"><path d="{clip.get(A + "pathData")}"/></clipPath>')
+                cd = clip.get(A + "pathData")
+                if cd.strip() == BREAST:
+                    clips.append(f'<clipPath id="{cid}"><path clip-rule="evenodd" d="{cd} {OPENING}"/></clipPath>')
+                else:
+                    clips.append(f'<clipPath id="{cid}"><path d="{cd}"/></clipPath>')
                 g.append(f'clip-path="url(#{cid})"')
             inner = []
             convert(child, inner, depth + 1)

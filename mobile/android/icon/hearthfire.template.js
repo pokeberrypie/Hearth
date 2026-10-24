@@ -11,8 +11,13 @@
  * writes it from gen_icon.py), and the fire is drawn the way the icon draws
  * fire: flat shapes in its own colours, deep red to a pale-gold heart, layered.
  * Each layer is a row of pointed tongues that flicker and sway on their own
- * time; licks break off the tips and rise, and embers drift up. It grows out
- * of the grate until it is a wall of flame across the whole screen.
+ * time; licks break off the tips and rise, and embers drift up.
+ *
+ * It burns behind the hearth, not on it: the firebox is left open, so the
+ * fire is seen through the opening behind the logs, and as it grows it rises
+ * up past the mantel and the chimney from behind the stone — the hearth hides
+ * where it starts. Spreading wider than the hearth, its foot is the floor; at
+ * full height it swallows the hearth and is a wall of flame across the screen.
  *
  * And then it parts, the way water would: an opening wells up in the middle of
  * the flames — a rippling oval with a thick rim, each colour drawn back by its
@@ -85,16 +90,17 @@
     }
     const still = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
     root.classList.add("hf");
-    root.innerHTML = `<div class="hf-room"></div>
+    // The fire is behind the hearth: the stone in front hides where it starts, and the open firebox shows it.
+    root.innerHTML = `<div class="hf-room"></div><canvas class="hf-fire"></canvas>
       <svg class="hf-hearth" viewBox="14 16 80 74" preserveAspectRatio="xMidYMax meet" aria-hidden="true">${HEARTH}</svg>
-      <canvas class="hf-fire"></canvas><div class="hf-light"></div>`;
+      <div class="hf-light"></div>`;
     const svg = root.querySelector(".hf-hearth");
     const canvas = root.querySelector(".hf-fire");
     const s = {
       root, svg, canvas, ctx: canvas.getContext("2d"), still,
       start: performance.now() - (opts.lit ? RISE_MS : 0),
       split: 0, splitStart: 0, last: performance.now(), raf: 0, done: null,
-      licks: [], embers: [], w: 0, h: 0, dpr: 1, grate: { x: 0, y: 0, half: 10, open: 40 }, hearthHalf: 100,
+      licks: [], embers: [], w: 0, h: 0, dpr: 1, grate: { x: 0, y: 0, half: 10, open: 40 }, hearthHalf: 100, hearthBottom: 0,
     };
     state = s;
     const size = () => {
@@ -107,8 +113,10 @@
         const at = pt(GRATE.x, GRATE.y), edge = pt(GRATE.x + GRATE.half, GRATE.y), top = pt(GRATE.x, GRATE.top);
         s.grate = { x: at.x, y: at.y, half: Math.max(8, edge.x - at.x), open: Math.max(20, at.y - top.y) };
         s.hearthHalf = Math.max(s.grate.half * 2, pt(84, GRATE.y).x - at.x);
+        s.hearthBottom = pt(GRATE.x, 84).y;
       } else {
         s.grate = { x: s.w / 2, y: s.h * 0.8, half: s.w * 0.07, open: s.h * 0.1 };
+        s.hearthBottom = s.h * 0.9;
       }
     };
     size();
@@ -147,7 +155,10 @@
     // wide — and by the time it is as wide as the hearth its foot is the floor, so it never hangs in the air.
     const half = lerp(grate.half * 1.15, w * 0.95, Math.pow(heat, 2.4));
     const spread = clamp((half - grate.half * 1.15) / Math.max(1, s.hearthHalf * 1.1 - grate.half * 1.15), 0, 1);
-    const baseY = lerp(grate.y, h + 6, ease(spread));
+    // Its foot sinks from the grate to behind the hearthstone as it grows — out of sight either way — and
+    // then, as it spreads past the hearth, to the floor.
+    const behind = lerp(grate.y, s.hearthBottom || grate.y, ease(clamp(heat / 0.35, 0, 1)));
+    const baseY = lerp(behind, h + 6, ease(spread));
     const tall = lerp(grate.open * 1.2, h * 1.5, Math.pow(heat, 1.15));
     const cx = grate.x;
     const N = 96;
@@ -221,6 +232,9 @@
     const heat = ease(clamp((now - s.start) / RISE_MS, 0, 1));
     if (s.splitStart) s.split = ease(clamp((now - s.splitStart) / PART_MS, 0, 1));
     s.root.style.setProperty("--heat", heat.toFixed(3));
+    // At the last of its climb the fire swallows the hearth.
+    const gone = clamp((heat - 0.74) / 0.22, 0, 1);
+    s.svg.style.opacity = String(1 - gone * gone * (3 - 2 * gone));
     const g = draw(s, heat, t, s.split);
 
     // New licks off the tips of the brighter layers, and — parting — off the walls, thrown outward.
