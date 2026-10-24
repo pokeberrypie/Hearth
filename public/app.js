@@ -4640,22 +4640,61 @@ function openBook(b) {
   $("#bookDialog").showModal();
 }
 
+/**
+ * When an entry was saved or last changed — or, for one from before entries were dated, made, which Hearth's
+ * own ids record ("e" and the time in base 36 for a note, "new" and the time for one added here). 0 if unknown.
+ */
+function entryWhen(e) {
+  const stamped = Math.max(e.changed_at || 0, e.added_at || 0);
+  if (stamped) return stamped;
+  const id = String(e.id ?? "");
+  const t = /^e[0-9a-z]{8}/.test(id) ? parseInt(id.slice(1, 9), 36) : /^new\d{13}$/.test(id) ? Number(id.slice(3)) : 0;
+  return t > Date.UTC(2020, 0, 1) && t < Date.now() + 86400000 ? t : 0;
+}
+
+function entryAge(e) {
+  const t = entryWhen(e);
+  if (!t) return { text: "undated", title: "Imported, and not changed here since — no date" };
+  const m = Math.round((Date.now() - t) / 60000);
+  const text = m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : m < 60 * 24 * 60 ? `${Math.round(m / 1440)} d ago` : new Date(t).toLocaleDateString();
+  const how = e.changed_at && e.added_at && e.changed_at > e.added_at ? "changed" : "added";
+  return { text: `${how} ${text}`, title: new Date(t).toLocaleString() };
+}
+
 function renderEntries() {
   const q = $("#b_search").value.trim().toLowerCase();
   const box = $("#b_entries");
   box.innerHTML = "";
 
-  editingBook.entries.forEach((e, i) => {
+  // Recaps first, newest first — only the newest is where the story stands now — then the entries, in the
+  // book's own order.
+  const all = editingBook.entries.map((e, i) => [e, i]);
+  const recaps = all.filter(([e]) => e.recap).sort(([a], [b]) => entryWhen(b) - entryWhen(a));
+  const facts = all.filter(([e]) => !e.recap);
+  const newest = recaps[0]?.[1];
+  const heading = (text, hint) => {
+    const h = document.createElement("div");
+    h.className = "ebookhead";
+    h.innerHTML = `<span>${text}</span>${hint ? `<span class="ekeys">${hint}</span>` : ""}`;
+    box.appendChild(h);
+  };
+
+  if (recaps.length) heading("Recaps", "the newest is how things stand now");
+  if (recaps.length && facts.length) recaps.push(["entries"]);
+  [...recaps, ...facts].forEach(([e, i]) => {
+    if (e === "entries") { heading("Entries", "come in when the story names them"); return; }
     const hay = `${e.comment} ${e.keys.join(" ")} ${e.content}`.toLowerCase();
     if (q && !hay.includes(q)) return;
+    const age = entryAge(e);
 
     const el = document.createElement("details");
     el.className = "entry" + (e.enabled ? "" : " off");
     el.innerHTML =
       `<summary>` +
       `<input type="checkbox" class="pick" ${e.enabled ? "checked" : ""} data-i="${i}" data-f="enabled" aria-label="Enabled">` +
-      `<span class="etitle">${esc(e.comment || e.keys[0] || "Untitled entry")}</span>` +
-      `<span class="ekeys">${e.constant ? "always on" : esc(e.keys.join(", ")) || "no keywords"}</span>` +
+      `<span class="etitle"><span class="ename">${esc(e.comment || e.keys[0] || "Untitled entry")}</span>` +
+      `<span class="emeta"><span class="ekeys">${e.recap ? (i === newest ? "the newest recap" : "an older recap") : e.constant ? "always on" : esc(e.keys.join(", ")) || "no keywords"}</span>` +
+      `<span class="ewhen" title="${esc(age.title)}">${esc(age.text)}</span></span></span>` +
       `<button class="ico" data-remove="${i}" title="Remove" aria-label="Remove entry">${ICON.del}</button>` +
       `</summary>` +
       `<div class="ebody">` +
@@ -4678,6 +4717,7 @@ function renderEntries() {
       `<label>Chance %<input type="number" min="0" max="100" data-i="${i}" data-f="probability" value="${e.probability}"></label>` +
       `<label>Scan depth<input type="number" min="1" max="30" data-i="${i}" data-f="scanDepth" value="${e.scanDepth ?? ""}" placeholder="default"></label>` +
       `</div>` +
+      `<label class="check"><input type="checkbox" data-i="${i}" data-f="recap" ${e.recap ? "checked" : ""}> A recap — where the story stands, not a fact; only the newest one counts</label>` +
       `<label class="check"><input type="checkbox" data-i="${i}" data-f="constant" ${e.constant ? "checked" : ""}> Always on, no keyword needed</label>` +
       `<label class="check"><input type="checkbox" data-i="${i}" data-f="wholeWords" ${e.wholeWords ? "checked" : ""}> Match whole words only</label>` +
       `<label class="check"><input type="checkbox" data-i="${i}" data-f="caseSensitive" ${e.caseSensitive ? "checked" : ""}> Case sensitive</label>` +
@@ -4695,7 +4735,7 @@ $("#b_entries").addEventListener("input", (e) => {
   if (el.dataset.i === undefined) return;
   const entry = editingBook.entries[+el.dataset.i];
   const f = el.dataset.f;
-  if (el.type === "checkbox") entry[f] = el.checked;
+  if (el.type === "checkbox") { entry[f] = el.checked; if (f === "recap") renderEntries(); }
   else if (f === "keys" || f === "secondary") entry[f] = el.value.split(",").map((x) => x.trim()).filter(Boolean);
   else if (["depth", "order", "probability"].includes(f)) entry[f] = +el.value || 0;
   else if (f === "scanDepth") entry[f] = el.value === "" ? null : +el.value;
@@ -4713,16 +4753,20 @@ $("#b_entries").addEventListener("click", async (e) => {
 
 $("#b_search").oninput = () => renderEntries();
 
-$("#b_add").onclick = () => {
+$("#b_add").onclick = () => addEntry(false);
+$("#b_addRecap").onclick = () => addEntry(true);
+
+function addEntry(recap) {
   editingBook.entries.unshift({
-    id: "new" + Date.now(), keys: [], secondary: [], logic: "and_any", content: "",
-    comment: "", constant: false, enabled: true, order: 100, position: "after_char",
+    id: "new" + Date.now(), keys: [], secondary: [], logic: "and_any", content: "", recap, added_at: Date.now(),
+    // A recap is always in the prompt: it is where the story is, not something a keyword brings up.
+    comment: recap ? "Recap" : "", constant: recap, enabled: true, order: 100, position: "after_char",
     depth: 4, probability: 100, caseSensitive: false, wholeWords: true, scanDepth: null,
     excludeRecursion: false, preventRecursion: false,
   });
   $("#b_search").value = "";
   renderEntries();
-};
+}
 
 $("#b_close").onclick = () => $("#bookDialog").close();
 

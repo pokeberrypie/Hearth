@@ -167,6 +167,7 @@ export function carryEntry(summary: string, title: string) {
     constant: true,
     content: `What has happened so far in ${title}:\n\n${summary}`,
     comment: `Carried on from ${title}`,
+    recap: true,
     // After the character, before the transcript — the same place a note about
     // the world goes, because that is what this now is.
     position: "after_char",

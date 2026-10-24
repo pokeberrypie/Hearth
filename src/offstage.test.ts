@@ -828,49 +828,44 @@ describe("who is in the scene is read from the story and the lorebook", () => {
     expect(question).toContain("taken east toward the Vale");
     expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
     expect(asked().some((m) => m.includes("deciding for: Davren"))).toBe(false);
-    expect(asked().find((m) => m.includes("deciding for: Tyrion"))).toContain("An older note, which may no longer be so: Tyrion Lannister is a captive");
+    expect(asked().find((m) => m.includes("deciding for: Tyrion"))).toContain("What the world knows: Tyrion Lannister is a captive");
     expect((await ledger()).actions[0].lore).toEqual(["Tyrion taken"]);
   });
 
-  test("the newest entries are how things stand; an old one the story calls up is read as maybe past", async () => {
+  test("only the latest recap is how things stand: an older one is read by nobody, the narrator included", async () => {
     party();
-    // Eleven notes after the old one, so it is not among the newest ten — and only it names the sept.
     const old = { id: "old", keys: ["Davren", "Arys"], comment: "Current state — the night Nyssara arrived",
       content: "Ser Arys Oakheart of the Kingsguard keeps watch in the royal sept; Davren Baratheon sleeps in the White Sword Tower.", enabled: true, added_at: Date.UTC(2026, 0, 1) };
-    const filler = Array.from({ length: 10 }, (_, i) => ({ id: `f${i}`, keys: [`filler${i}`], comment: `Note ${i}`, content: `An unrelated note ${i}.`, enabled: true, added_at: Date.UTC(2026, 1, 1 + i) }));
-    const newest = { id: "new", keys: ["road"], comment: "On the road", content: "Davren Baratheon and Arys Oakheart, no longer of the Kingsguard, ride with Jaime and Yvenna on the road.", enabled: true, changed_at: Date.UTC(2026, 3, 1) };
-    db.query("UPDATE lorebooks SET entries = ? WHERE id = 'lb'").run(JSON.stringify([old, ...filler, newest]));
+    const newer = { id: "new", keys: [], comment: "Recap — on the road", recap: true, constant: true,
+      content: "Davren Baratheon and Arys Oakheart, no longer of the Kingsguard, ride with Jaime and Yvenna on the road.", enabled: true, changed_at: Date.UTC(2026, 3, 1) };
+    const fact = { id: "fact", keys: ["Davren"], comment: "Davren", content: "Davren Baratheon is Robert's bastard, and proud.", enabled: true };
+    db.query("UPDATE lorebooks SET entries = ? WHERE id = 'lb'").run(JSON.stringify([old, newer, fact]));
     db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m3', 'ch', 'assistant', 'Jaime Lannister', 'Davren checks the horses.', 4)").run();
     presenceAnswer = "HERE | Davren Baratheon\nAWAY | Tyrion Lannister | the Vale road";
     await send("/api/chats/ch/offstage/run", "POST");
     const question = asked().find((m) => m.includes("For each person in the list"))!;
-    const [latest, older] = question.split("Older notes");
-    expect(latest).toContain("The latest notes, newest first");
-    expect(latest.indexOf("no longer of the Kingsguard")).toBeLessThan(latest.indexOf("An unrelated note 9"));
-    expect(latest).not.toContain("royal sept");
-    expect(older).toContain("royal sept");
-    expect(older).toContain("the latest is true");
-    // And the Offstage tab shows the ten it reads as now, newest first.
-    const l = await ledger();
-    expect(l.latest.length).toBe(10);
-    expect(l.latest[0].name).toBe("On the road");
-    expect(l.latest.map((e: any) => e.name)).not.toContain("Current state — the night Nyssara arrived");
+    expect(question).toContain("The latest recap");
+    expect(question).toContain("no longer of the Kingsguard");
+    expect(question).not.toContain("royal sept");
+    // A fact the scene names still comes in, whatever its age.
+    expect(question).toContain("proud");
+    // The Offstage tab shows which recap it reads.
+    expect((await ledger()).recap.name).toBe("Recap — on the road");
+    // And the narrator is not sent the old one either, even though the story names Davren.
+    const fired = await (await ask("/api/chats/ch/lore")).json();
+    expect(fired.map((e: any) => e.comment)).not.toContain("Current state — the night Nyssara arrived");
+    expect(fired.map((e: any) => e.comment)).toContain("Recap — on the road");
   });
 
-  test("saving a book dates its entries; imported, undated entries are never the latest", async () => {
+  test("saving a book dates its entries, and keeps the old ones' dates", async () => {
     party();
-    // A world book on every chat, imported and undated: setting, not news.
-    db.query("INSERT INTO lorebooks (id, name, entries, created_at) VALUES ('wb', 'Westeros', ?, 1)")
-      .run(JSON.stringify([{ id: "w1", keys: ["Dorne"], comment: "Dorne", content: "Dorne is hot.", enabled: true }]));
-    db.query("INSERT INTO lorebook_links (book_id, scope, target_id) VALUES ('wb', 'global', NULL)").run();
     const was = JSON.parse((db.query("SELECT entries FROM lorebooks WHERE id = 'lb'").get() as any).entries);
     const entries = [...was, { id: "e2", keys: ["Davren"], comment: "Davren on the road", content: "Davren rides with the party.", enabled: true }];
     await ask("/api/lorebooks/lb", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ entries }) });
     const stored = JSON.parse((db.query("SELECT entries FROM lorebooks WHERE id = 'lb'").get() as any).entries);
     expect(stored.find((e: any) => e.id === "e2").added_at).toBeGreaterThan(0);
     expect(stored.find((e: any) => e.id === "e1").added_at).toBe(0);
-    const names = (await ledger()).latest.map((e: any) => e.name);
-    expect(names).toEqual(["Davren on the road"]);
+    expect(stored.find((e: any) => e.id === "e2").recap).toBe(false);
   });
 
   test("read once per turn of the story, not once per run", async () => {

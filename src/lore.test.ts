@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { activate, normaliseBook, normaliseEntry, place, bornOf, recencyOf, stampEntries, type LoreEntry } from "./lore";
+import { activate, normaliseBook, normaliseEntry, place, bornOf, looksLikeRecap, recencyOf, stampEntries, type LoreEntry } from "./lore";
 
 /** A complete entry with sane defaults, so each test only states what it means. */
 const mk = (raw: Record<string, unknown>): LoreEntry =>
@@ -334,5 +334,33 @@ describe("when an undated entry was made, from its id", () => {
   test("an undated entry is as recent as its id says", () => {
     const t = Date.UTC(2026, 5, 1);
     expect(recencyOf(normaliseEntry({ id: `new${t}`, content: "x" }))).toBe(t);
+  });
+});
+
+describe("recaps", () => {
+  test("Hearth's carry-over summaries and entries named as a recap are recaps until marked otherwise", () => {
+    expect(normaliseEntry({ comment: "Carried on from The Road", content: "x" }).recap).toBe(true);
+    expect(normaliseEntry({ comment: "Current state — the night Nyssara arrived", content: "x" }).recap).toBe(true);
+    expect(normaliseEntry({ comment: "The story so far", content: "x" }).recap).toBe(true);
+    expect(normaliseEntry({ comment: "Anything", content: "What has happened so far in The Road:\n\n…" }).recap).toBe(true);
+    expect(normaliseEntry({ comment: "Davren Baratheon", content: "Robert's bastard." }).recap).toBe(false);
+    expect(normaliseEntry({ comment: "Recapture of Riverrun", content: "x" }).recap).toBe(false);
+  });
+  test("marking it settles it", () => {
+    expect(normaliseEntry({ comment: "Current state", content: "x", recap: false }).recap).toBe(false);
+    expect(normaliseEntry({ comment: "Davren", content: "x", recap: true }).recap).toBe(true);
+  });
+  test("looksLikeRecap reads the name, not words inside it", () => {
+    expect(looksLikeRecap("Summary of the war", "")).toBe(true);
+    expect(looksLikeRecap("A summary", "")).toBe(false);
+  });
+});
+
+describe("an entry new to a book", () => {
+  test("is dated when its id says it was made — copied in from another book, say — or else now", () => {
+    const made = Date.UTC(2026, 2, 1);
+    const [copied, fresh] = stampEntries([], [normaliseEntry({ id: `new${made}`, content: "x" }), normaliseEntry({ id: "7", content: "y" })], Date.UTC(2026, 5, 1));
+    expect(copied.added_at).toBe(made);
+    expect(fresh.added_at).toBe(Date.UTC(2026, 5, 1));
   });
 });

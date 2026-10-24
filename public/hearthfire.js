@@ -8,25 +8,26 @@
  * be the same fire, which is why this is one file and not two kept in step.
  *
  * The hearth is the icon's own drawing (mobile/android/icon/boot_hearth.py
- * writes it from gen_icon.py), and the fire is drawn the way the icon draws
- * fire: flat shapes in its own colours, deep red to a pale-gold heart, layered.
- * Each layer is a row of pointed tongues that flicker and sway on their own
- * time; licks break off the tips and rise, and embers drift up.
+ * writes it from gen_icon.py). The fire is drawn the way the icon draws fire —
+ * flat bands of its own colours, deep red to a pale-gold heart — but it is one
+ * body, not shapes: a field of heat, hottest where it burns, with turbulence
+ * rising through it, and each colour is where that field passes a level. So
+ * tongues rise out of the mass, pinch off and go, and the bands run together
+ * the way a fire's do; nothing in it is a piece that can be told apart.
  *
- * It comes out of the hearth. It burns in the firebox, behind the logs, seen
- * through the open mouth of it; and as it grows it pours out of that mouth —
- * a second fire in front of the stone, whose foot is the arch of the opening
- * itself, reaching down into the top of the opening so the fire inside and the
- * fire pouring out are one, fanning up and out over the chimney breast and the
- * mantel. Then it spills: its foot sweeps down past the hearthstone and off the
- * bottom of the screen, and it spreads to the edges, until the hearth and the
- * screen are fire — one fire throughout, never a second one rising to meet it.
+ * It starts on the logs, in front of everything, and only ever grows: up out
+ * of the mouth of the hearth, over the stone, and out and down until it is the
+ * whole screen. There is one fire, so nothing passes from behind the stone to
+ * in front of it.
  *
  * And then it parts, the way water would: an opening wells up in the middle of
  * the flames — a rippling oval with a thick rim, each colour drawn back by its
  * own amount so the rim is layered — and spreads, taller and wider, throwing
  * drops of flame off its edge, until the fire has drawn away to the sides of
  * the screen. The app is in the opening.
+ *
+ * Drawn on the GPU (WebGL), because the field is worked out for every pixel.
+ * Where there is no WebGL the hearth is shown as it is, and fades when it parts.
  *
  *   HearthFire.light(el, { lit })   start it; lit = already at full height
  *   HearthFire.part()               part it; resolves when it is gone
@@ -40,39 +41,95 @@
   const RISE_MS = 2600;
   const PART_MS = 2000;
 
-  // The icon's fire, outermost first: each a colour, how tall it stands against the tallest, how much of it
-  // is body rather than tongue at full height, and its tongues — how many, how wide, how quick.
-  const LAYERS = [
-    { colour: "#7a2410", tall: 1.00, body: 0.97, n: 7, width: 0.36, speed: 1.0 },
-    { colour: "#c9471a", tall: 0.86, body: 0.66, n: 8, width: 0.30, speed: 1.35 },
-    { colour: "#f0862b", tall: 0.68, body: 0.48, n: 9, width: 0.24, speed: 1.75 },
-    { colour: "#ffc14c", tall: 0.48, body: 0.34, n: 9, width: 0.19, speed: 2.2 },
-    { colour: "#fff0be", tall: 0.27, body: 0.22, n: 7, width: 0.14, speed: 2.8 },
-  ];
+  // The icon's fire, outermost first. Where each colour begins: the rim at the edge; the next three that
+  // many band-widths in from it; the pale heart where the heat passes a level.
+  const COLOURS = ["#7a2410", "#c9471a", "#f0862b", "#ffc14c", "#fff0be"];
+  const LEVELS = [0, 1, 2, 3.4, 0.78];
+  // And deep in the body, how hot it must be for each: so where the fire is broad, its cooler parts are orange.
+  const DEEP = [0, 0.04, 0.12, 0.24, 0];
 
   const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
-  // Easing for the rise itself: gentler through the middle than ease, so the growth never lurches.
+  // Easing for the rise itself: gentle at both ends.
   const glide = (t) => (1 - Math.cos(Math.PI * t)) / 2;
-  // From a to b by the same proportion each step: a fire growing at a steady rate, from a few tongues to
-  // the whole screen, rather than one that creeps and then bursts.
+  // From a to b by the same proportion each step: a fire growing at a steady rate.
   const grow = (a, b, k) => a * Math.pow(b / a, k);
-  // How far the fire has come out of the hearth, and how far it has spilled down off it.
-  const outOf = (heat) => clamp((heat - 0.12) / 0.88, 0, 1);
-  const spillOf = (heat) => glide(clamp((outOf(heat) - 0.3) / 0.6, 0, 1));
   const lerp = (a, b, t) => a + (b - a) * t;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const smooth = (a, b, v) => { const x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 
-  /** A fixed scatter, so both copies of the fire (the phone's and the app's) flicker the same way. */
-  function seeded(n) {
-    let x = Math.sin(n * 12.9898) * 43758.5453;
-    return x - Math.floor(x);
+  const VERT = `attribute vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }`;
+  const FRAG = (deriv) => `${deriv ? "#extension GL_OES_standard_derivatives : enable\n" : ""}
+precision highp float;
+uniform vec2 uRes;          // the canvas, in its own pixels
+uniform float uT;
+uniform vec2 uSrc;          // where the fire burns from
+uniform vec3 uR;            // how far it reaches: to the sides, up, and down
+uniform float uFill;        // at the end, heat everywhere, so the screen is fire edge to edge
+uniform vec2 uScale;        // the size of its turbulence: fine, and broad
+uniform float uBroad;       // how much of the broad there is
+uniform vec4 uOpen;         // the opening: centre, and radii
+uniform float uRim;
+uniform float uBand;        // how thick each outer colour is, in pixels: the rim and the bands inside it
+uniform vec3 uC[5];
+uniform float uL[5];
+uniform float uD[5];        // how hot it must be, deep in the body, for each colour
+
+float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+// Two octaves, not more: a flame's edge is round lobes and long waves, not crinkle.
+float fbm(vec2 p) { return noise(p) * 0.68 + noise(p * 2.03 + 7.1) * 0.32; }
+
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 d = p - uSrc;
+  float up = max(0.0, -d.y), dn = max(0.0, d.y);
+  // The body: hottest where it burns, reaching further up than out, and least down.
+  float base = 1.0 - length(vec2(d.x / uR.x, up / uR.y + dn / uR.z));
+  // Turbulence rising through it, stretched upward, and stirred by a slower turbulence of its own — so
+  // tongues lift out of the body, lean, pinch off and go.
+  vec2 qf = vec2(d.x / uScale.x, d.y / (uScale.x * 1.7));
+  vec2 qb = vec2(d.x / uScale.y, d.y / (uScale.y * 1.5));
+  float stir = fbm(qb * 0.6 + vec2(0.0, uT * 0.35));
+  float fine = fbm(qf + vec2((stir - 0.5) * 1.6, uT * 2.1));
+  float broad = fbm(qb + vec2((stir - 0.5) * 1.2, uT * 1.15));
+  float n = mix(fine, broad, uBroad);
+  float rise = clamp(up / uR.y, 0.0, 1.4);
+  float f = base + (n - 0.5) * (0.4 + 1.15 * rise) + uFill;
+  float aa = ${deriv ? "max(fwidth(f) * 0.8, 0.0015)" : "0.006"};
+  // How far in from the fire's edge this pixel is: the outer colours are insets of the one outline, a thin
+  // rim and a band or two inside it, the way a drawn flame's are; past them it is yellow, and where it is
+  // hottest, the pale heart.
+  ${deriv ? "float inset = f / max(length(vec2(dFdx(f), dFdy(f))), 1e-4);" : "float inset = f / 0.004;"}
+
+  // The opening, rippling; each colour drawn back from it by its own amount, the brightest most.
+  vec2 e = p - uOpen.xy;
+  float ang = atan(e.y, e.x);
+  float ripple = 1.0 + 0.07 * sin(ang * 5.0 + uT * 6.5) + 0.035 * sin(ang * 11.0 - uT * 9.5) + 0.02 * sin(ang * 17.0 + uT * 13.0);
+
+  vec3 col = uC[0];
+  float alpha = 0.0;
+  for (int i = 0; i < 5; i++) {
+    float on;
+    if (i == 0) on = smoothstep(-aa, aa, f);
+    // A band-width in from the edge, and — inside the body, where the edge is far — hot enough: so the
+    // cooler reaches of a fire that fills the screen still show as orange tongues running up through it.
+    else if (i < 4) on = max(smoothstep(uBand * uL[i] - 0.8, uBand * uL[i] + 0.8, inset), smoothstep(0.3, 0.34, f))
+      * smoothstep(uD[i] - aa, uD[i] + aa, f);
+    else on = smoothstep(uL[4] - aa, uL[4] + aa, f);
+    if (uOpen.z > 0.0) {
+      float g = float(i) * uRim;
+      float k = length(vec2(e.x / ((uOpen.z + g) * ripple), e.y / ((uOpen.w + g * 1.6) * ripple)));
+      on *= smoothstep(1.0 - 1.5 / (uOpen.z + g), 1.0 + 1.5 / (uOpen.z + g), k);
+    }
+    if (i == 0) alpha = on; else col = mix(col, uC[i], on);
   }
-  const TONGUES = LAYERS.map((L, li) => Array.from({ length: L.n }, (_, i) => ({
-    u: -1 + (2 * (i + 0.5)) / L.n + (seeded(li * 31 + i) - 0.5) * (1.6 / L.n),
-    f: L.speed * lerp(0.8, 1.3, seeded(li * 17 + i * 3)),
-    p: seeded(li * 7 + i * 11) * Math.PI * 2,
-    q: seeded(li * 13 + i * 5) * Math.PI * 2,
-  })));
+  gl_FragColor = vec4(col * alpha, alpha);
+}`;
 
   const CSS = `
 #boot.hf { position: fixed; inset: 0; z-index: 999; pointer-events: none; overflow: hidden; background: #120c09; }
@@ -87,10 +144,41 @@
   background: radial-gradient(70% 55% at 50% 80%, rgba(255, 170, 80, .28), rgba(194, 90, 30, .10) 55%, transparent 80%);
   opacity: calc(0.3 + var(--heat, 0) * 0.7); }
 #boot.hf.parting { background: transparent; }
-#boot.hf.parting .hf-room, #boot.hf.parting .hf-hearth, #boot.hf.parting .hf-light, #boot.hf.parting .hf-back { display: none; }
+#boot.hf.parting .hf-room, #boot.hf.parting .hf-hearth, #boot.hf.parting .hf-light { display: none; }
 `;
 
   let state = null;
+
+  /** The GPU side: the field, compiled once. Null where there is no WebGL. */
+  function fieldOn(canvas) {
+    const gl = canvas.getContext("webgl", { premultipliedAlpha: true, antialias: false, alpha: true });
+    if (!gl) return null;
+    const deriv = !!gl.getExtension("OES_standard_derivatives");
+    const shader = (type, src) => {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      return gl.getShaderParameter(sh, gl.COMPILE_STATUS) ? sh : null;
+    };
+    const vs = shader(gl.VERTEX_SHADER, VERT), fs = shader(gl.FRAGMENT_SHADER, FRAG(deriv));
+    if (!vs || !fs) return null;
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+    gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const a = gl.getAttribLocation(prog, "a");
+    gl.enableVertexAttribArray(a);
+    gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+    const u = {};
+    for (const n of ["uRes", "uT", "uSrc", "uR", "uFill", "uScale", "uBroad", "uOpen", "uRim", "uBand", "uC", "uL", "uD"]) u[n] = gl.getUniformLocation(prog, n);
+    gl.uniform3fv(u.uC, new Float32Array(COLOURS.flatMap(rgb)));
+    gl.uniform1fv(u.uL, new Float32Array(LEVELS));
+    gl.uniform1fv(u.uD, new Float32Array(DEEP));
+    return { gl, u };
+  }
 
   function light(root, opts = {}) {
     if (!root || state) return;
@@ -102,206 +190,125 @@
     }
     const still = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
     root.classList.add("hf");
-    // The fire is behind the hearth: the stone in front hides where it starts, and the open firebox shows it.
-    // Two fires: the one in the firebox, behind the stone and the logs; and the one pouring out of its
-    // mouth, in front of the stone.
-    root.innerHTML = `<div class="hf-room"></div><canvas class="hf-fire hf-back"></canvas>
+    // The fire is in front of the hearth from the first: it starts on the logs. Embers and the drops thrown
+    // off the opening are drawn over it.
+    root.innerHTML = `<div class="hf-room"></div>
       <svg class="hf-hearth" viewBox="14 16 80 74" preserveAspectRatio="xMidYMax meet" aria-hidden="true">${HEARTH}</svg>
-      <canvas class="hf-fire hf-front"></canvas><div class="hf-light"></div>`;
+      <canvas class="hf-fire hf-field"></canvas><canvas class="hf-fire hf-sparks"></canvas><div class="hf-light"></div>`;
     const svg = root.querySelector(".hf-hearth");
-    const canvas = root.querySelector(".hf-front");
-    const back = root.querySelector(".hf-back");
+    const field = root.querySelector(".hf-field");
+    const sparks = root.querySelector(".hf-sparks");
     const s = {
-      root, svg, canvas, ctx: canvas.getContext("2d"), back, bctx: back.getContext("2d"), still,
+      root, svg, field, gpu: fieldOn(field), sparks, ctx: sparks.getContext("2d"), still,
       unit: 4, archTop: 0, mouth: 50,
       start: performance.now() - (opts.lit ? RISE_MS : 0),
       split: 0, splitStart: 0, last: performance.now(), raf: 0, done: null,
-      licks: [], embers: [], w: 0, h: 0, dpr: 1, grate: { x: 0, y: 0, half: 10, open: 40 }, hearthHalf: 100, hearthBottom: 0,
+      licks: [], embers: [], w: 0, h: 0, dpr: 1, gdpr: 1, grate: { x: 0, y: 0, half: 10, open: 40 }, hearthBottom: 0,
     };
     state = s;
     const size = () => {
       s.dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // The field is smooth bands; it needs fewer pixels than the sparks, and the phone's GPU thanks it.
+      s.gdpr = Math.min(window.devicePixelRatio || 1, 1.5);
       s.w = window.innerWidth; s.h = window.innerHeight;
-      canvas.width = back.width = Math.round(s.w * s.dpr); canvas.height = back.height = Math.round(s.h * s.dpr);
+      sparks.width = Math.round(s.w * s.dpr); sparks.height = Math.round(s.h * s.dpr);
+      field.width = Math.round(s.w * s.gdpr); field.height = Math.round(s.h * s.gdpr);
+      if (s.gpu) s.gpu.gl.viewport(0, 0, field.width, field.height);
       const m = svg.getScreenCTM();
       if (m) {
         const pt = (x, y) => { const p = svg.createSVGPoint(); p.x = x; p.y = y; return p.matrixTransform(m); };
         const at = pt(GRATE.x, GRATE.y), edge = pt(GRATE.x + GRATE.half, GRATE.y), top = pt(GRATE.x, GRATE.top);
         s.grate = { x: at.x, y: at.y, half: Math.max(8, edge.x - at.x), open: Math.max(20, at.y - top.y) };
-        s.hearthHalf = Math.max(s.grate.half * 2, pt(84, GRATE.y).x - at.x);
         s.hearthBottom = pt(GRATE.x, 84).y;
         // The mouth of the firebox: its arch, in screen pixels — 14 units either side of the middle, its
-        // crown 50 units down, its springing 58.
+        // crown 50 units down.
         s.unit = pt(1, 0).x - pt(0, 0).x;
         s.archTop = pt(GRATE.x, 50).y;
         s.mouth = 14 * s.unit;
       } else {
         s.grate = { x: s.w / 2, y: s.h * 0.8, half: s.w * 0.07, open: s.h * 0.1 };
         s.hearthBottom = s.h * 0.9;
+        s.archTop = s.grate.y - s.grate.open;
+        s.mouth = s.grate.half * 1.3;
       }
     };
     size();
     s.onResize = size;
     window.addEventListener("resize", size);
-    if (still) { draw(s, 0.12, performance.now() / 1000, 0); return; }
+    if (still || !s.gpu) { draw(s, 0.25, performance.now() / 1000, 0); return; }
     s.raf = requestAnimationFrame(frame);
   }
 
-  /** How tall the fire is at a point, as a share of its tallest: the layer's body, and its tongues above it. */
-  function heightAt(li, u, t, heat) {
-    const L = LAYERS[li];
-    if (Math.abs(u) >= 1.15) return 0;
-    // A dome in the grate; a wall across the screen once it is full.
-    const dome = Math.sqrt(Math.max(0, 1 - Math.min(1, u * u)));
-    const env = lerp(dome, Math.abs(u) <= 1 ? 1 : 0, Math.pow(heat, 2));
-    if (env <= 0) return 0;
-    let tongue = 0;
-    for (const g of TONGUES[li]) {
-      const sway = 0.035 * Math.sin(t * g.f * 0.7 + g.q);
-      const d = Math.abs(u - g.u - sway) / L.width;
-      if (d >= 1) continue;
-      const flick = 0.6 + 0.26 * Math.sin(t * g.f * 2.1 + g.p) + 0.14 * Math.sin(t * g.f * 4.3 + g.q);
-      tongue = Math.max(tongue, flick * Math.pow(1 - d, 1.55));
-    }
-    const body = lerp(0.42, L.body, Math.pow(heat, 1.2));
-    return L.tall * env * (body + (1 - body) * tongue);
+  /** How big the fire is at a given heat, in screen pixels: where it burns from, and how far it reaches. */
+  function reach(s, heat) {
+    const { w, h, grate } = s;
+    const u0 = s.unit || 4, mouth = s.mouth;
+    const inBox = Math.max(10, grate.y - s.archTop);
+    return {
+      x: grate.x, y: grate.y + u0,
+      // Up before out, and out before down: a fire climbs, spreads, and last spills.
+      rx: grow(mouth * 0.6, Math.max(w * 0.95, h * 0.5), Math.pow(heat, 1.3)),
+      ry: grow(inBox * 1.1, h * 1.08, Math.pow(heat, 0.8)),
+      rd: grow(u0 * 2.5, h * 1.3, Math.pow(heat, 1.4)),
+      fill: smooth(0.7, 1, heat) * 0.16,
+    };
   }
 
   /** One frame of the fire, at a given heat and parting. */
   function draw(s, heat, t, split) {
-    const { ctx, bctx, w, h, dpr, grate } = s;
-    for (const c of [ctx, bctx]) { c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h); }
-    const cx = grate.x;
-    const N = 96;
-    const u0 = s.unit || 4;
-    const mouth = s.mouth || grate.half * 1.3;
-    const archTop = s.archTop || grate.y - grate.open;
-
-    // The fire in the firebox, behind the logs: as wide as the mouth, reaching up into the arch — and, once
-    // it is spilling out, filling it to the crown and past, so the fire inside and the fire pouring out are
-    // one fire (what reaches past the arch is behind the stone, and unseen).
-    if (!split) {
-      const tallIn = (grate.y - archTop) * lerp(0.9, 2.6, clamp(heat / 0.12, 0, 1));
-      for (let li = 0; li < LAYERS.length; li++) {
-        bctx.fillStyle = LAYERS[li].colour;
-        bctx.beginPath();
-        bctx.moveTo(cx - mouth * 1.1, grate.y + 2 * u0);
-        for (let i = 0; i <= N; i++) {
-          const u = -1.15 + (2.3 * i) / N;
-          bctx.lineTo(cx + u * mouth, grate.y - tallIn * heightAt(li, u, t, 0.15));
-        }
-        bctx.lineTo(cx + mouth * 1.1, grate.y + 2 * u0);
-        bctx.closePath();
-        bctx.fill();
-      }
-    }
-
-    // The fire out of the mouth. Its foot is the arch of the opening; beyond the opening its lower edge
-    // rises, so the flames fan up and out over the stone; as it grows that edge sweeps down to the floor.
-    const out = outOf(heat);                                    // nothing outside until the firebox is full
-    // Wide enough at the end that even the narrowest colour runs off both sides of the screen.
-    // Up before out: a fire climbs first and spreads after.
-    const half = grow(mouth * 1.05, w * 1.45, Math.pow(out, 1.5));
-    const tall = grow((grate.y - archTop) * 0.5, h * 1.55, Math.pow(out, 0.8));
-    // Spilling: the same fire's foot sweeping down off the hearth to the bottom of the screen.
-    const spill = spillOf(heat);
-    // The foot of the fire pouring out: across the mouth it is the grate itself — one fire from the logs up
-    // and out, the logs drawn over it — and at the sides of the mouth it meets the arch's springing.
-    // Its foot is the floor of the firebox, over the logs — the fire has them — and past the jambs it
-    // rises off the floor in one wavering line, so nothing of the stone shows between the two fires.
-    const floorY = (s.hearthBottom || grate.y + 6 * u0) - 0.5 * u0;
-    // It takes the logs as it comes out: its foot goes down from the grate to the floor.
-    const footY = lerp(grate.y, floorY, glide(clamp(out / 0.25, 0, 1)));
-    // And it comes out of the mouth softly, not all at once over the fire in the box.
-    const emerge = glide(clamp(out / 0.08, 0, 1));
-    // The opening: an oval welling up in the middle of the fire, taller than it is wide, rippling at its rim.
-    // It spreads until it is past every edge of the screen. Each colour is drawn back by its own amount, the
-    // brightest most, so the rim is a layered wall of fire around the gap.
-    const cy = h * 0.52;
+    const { ctx, w, h, dpr, gpu } = s;
+    const r = reach(s, heat);
+    // The opening: an oval welling up in the middle of the fire, taller than it is wide. It spreads until it is
+    // past every edge of the screen.
+    const cx = r.x, cy = h * 0.52;
     const rx = Math.pow(split, 1.25) * w * 0.85;
     const ry = Math.min(h * 1.4, rx * 2.3 + split * h * 0.15);
     const rim = Math.min(1, split * 5) * Math.max(5, Math.min(w, h) * 0.022);
-    const opening = (grow) => {
-      ctx.moveTo(-10, -10); ctx.lineTo(w + 10, -10); ctx.lineTo(w + 10, h + 10); ctx.lineTo(-10, h + 10); ctx.closePath();
-      if (rx <= 0) return;
-      const M = 72;
-      for (let k = 0; k <= M; k++) {
-        const a = (k / M) * Math.PI * 2;
-        const ripple = 1 + 0.07 * Math.sin(a * 5 + t * 6.5) + 0.035 * Math.sin(a * 11 - t * 9.5) + 0.02 * Math.sin(a * 17 + t * 13);
-        const x = cx + (rx + grow) * ripple * Math.cos(a), y = cy + (ry + grow * 1.6) * ripple * Math.sin(a);
-        k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-      }
-      ctx.closePath();
-    };
-    if (out > 0) {
-      for (let li = 0; li < LAYERS.length; li++) {
-        ctx.save();
-        if (split > 0) { ctx.beginPath(); opening(li * rim); ctx.clip("evenodd"); }
-        ctx.fillStyle = LAYERS[li].colour;
-        ctx.globalAlpha = emerge;
-        const tops = [], lows = [];
-        // The brighter the colour, the narrower: in the mouth the fire is deep orange at its sides and gold
-        // to pale at its heart, as a fire in a grate is.
-        const narrow = 1 - li * 0.13;
-        for (let i = 0; i <= N; i++) {
-          const u = -1.15 + (2.3 * i) / N;
-          const x = cx + u * half * narrow;
-          const dx = Math.abs(x - cx);
-          // The foot: on the floor across the mouth, and past the jambs rising off it in a diagonal that is
-          // a flame's edge, not a ruled line — waves run along it, bigger the further from the mouth.
-          const reach = Math.max(1, 1.15 * half * narrow - mouth * 0.85);
-          const beyond = clamp((dx - mouth * 0.85) / reach, 0, 1);
-          const lift = Math.pow(beyond, 1.5) * (footY - archTop + tall * LAYERS[li].tall * lerp(0.5, 0.3, out));
-          const wave = (Math.sin(beyond * 9 - t * 5.2 + li * 1.7) * 0.7 + Math.sin(beyond * 17 + t * 7.9 + li) * 0.3)
-            * Math.sin(Math.PI * beyond) * Math.max(2.5 * u0, reach * 0.07);
-          const foot = footY - lift + wave;
-          // Inside the mouth the brighter colours sit lower, and rise out of it as tongues; towards the colour's
-          // edge its crown comes down to meet its foot, so no side is ever cut straight down.
-          const sink = dx < mouth ? (grate.y - archTop) * 0.22 * li * (1 - out) : 0;
-          const side = clamp((Math.abs(u) - 0.7) / 0.3, 0, 1);
-          const crown = archTop + sink - tall * heightAt(li, u, t, out) + (1 - out) * 4 * u0;
-          const top = Math.min(foot, lerp(crown, foot, side * side * (3 - 2 * side)));
-          // And as it spills, its foot sweeps down, the middle first, past the bottom of the screen.
-          // Never at the colour's very edge, so its side is a curve down from its tip and not a wall.
-          const reachDown = glide(clamp(spill * 1.9 - Math.abs(u) / 1.15 * 1.3 * (1 - spill), 0, 1)) * (1 - side * side * (3 - 2 * side));
-          const low = Math.max(top, lerp(foot, h + 12, reachDown));
-          tops.push([x, top]); lows.push([x, low]);
-        }
-        ctx.beginPath();
-        ctx.moveTo(lows[0][0], lows[0][1]);
-        for (const [x, y] of tops) ctx.lineTo(x, y);
-        for (let i = lows.length - 1; i >= 0; i--) ctx.lineTo(lows[i][0], lows[i][1]);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
+    if (gpu) {
+      const { gl, u } = gpu, k = s.gdpr;
+      gl.uniform2f(u.uRes, s.field.width, s.field.height);
+      gl.uniform1f(u.uT, t % 1000);
+      gl.uniform2f(u.uSrc, r.x * k, r.y * k);
+      gl.uniform3f(u.uR, r.rx * k, r.ry * k, r.rd * k);
+      gl.uniform1f(u.uFill, r.fill);
+      // Its turbulence: fine while it is in the hearth, broad as it takes the room.
+      gl.uniform2f(u.uScale, s.mouth * 0.55 * k, Math.min(w, h) * 0.34 * k);
+      gl.uniform1f(u.uBroad, smooth(0.2, 0.85, heat) * 0.85);
+      gl.uniform4f(u.uOpen, cx * k, cy * k, rx * k, ry * k);
+      gl.uniform1f(u.uRim, rim * k);
+      // Bands that thicken a little as the fire grows, as a bigger drawing's outline would.
+      gl.uniform1f(u.uBand, clamp(r.rx * 0.035, 3, Math.min(w, h) * 0.035) * k);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
-    // Licks broken off the tongues, and thrown off the walls as they part; embers above them.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    // Drops thrown off the opening's rim as it spreads; embers going up.
     for (const k of s.licks) {
-      const f = k.age / k.life, r = k.size * (1 - f * 0.7);
-      ctx.fillStyle = LAYERS[k.layer].colour;
+      const f = k.age / k.life, rr = k.size * (1 - f * 0.7);
+      ctx.fillStyle = COLOURS[k.layer];
       ctx.globalAlpha = 1 - f * f;
       ctx.beginPath();
       const x = k.x, y = k.y;
-      ctx.moveTo(x, y - 2.1 * r);
-      ctx.bezierCurveTo(x + 0.35 * r, y - 1.15 * r, x + r, y - 0.5 * r, x + r, y + 0.15 * r);
-      ctx.bezierCurveTo(x + r, y + 0.75 * r, x + 0.5 * r, y + r, x, y + r);
-      ctx.bezierCurveTo(x - 0.5 * r, y + r, x - r, y + 0.75 * r, x - r, y + 0.15 * r);
-      ctx.bezierCurveTo(x - r, y - 0.5 * r, x - 0.35 * r, y - 1.15 * r, x, y - 2.1 * r);
+      ctx.moveTo(x, y - 2.1 * rr);
+      ctx.bezierCurveTo(x + 0.35 * rr, y - 1.15 * rr, x + rr, y - 0.5 * rr, x + rr, y + 0.15 * rr);
+      ctx.bezierCurveTo(x + rr, y + 0.75 * rr, x + 0.5 * rr, y + rr, x, y + rr);
+      ctx.bezierCurveTo(x - 0.5 * rr, y + rr, x - rr, y + 0.75 * rr, x - rr, y + 0.15 * rr);
+      ctx.bezierCurveTo(x - rr, y - 0.5 * rr, x - 0.35 * rr, y - 1.15 * rr, x, y - 2.1 * rr);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#ffe3a0";
     for (const e of s.embers) {
-      const f = e.age / e.life, r = e.size * (1 - f);
+      const f = e.age / e.life, rr = e.size * (1 - f);
       ctx.globalAlpha = 1 - f * 0.6;
       ctx.beginPath();
-      ctx.moveTo(e.x, e.y - r); ctx.lineTo(e.x + r * 0.7, e.y); ctx.lineTo(e.x, e.y + r); ctx.lineTo(e.x - r * 0.7, e.y);
+      ctx.moveTo(e.x, e.y - rr); ctx.lineTo(e.x + rr * 0.7, e.y); ctx.lineTo(e.x, e.y + rr); ctx.lineTo(e.x - rr * 0.7, e.y);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-    // The tongues' tips, for the licks and embers, are measured from the crown of the arch.
-    return { half, baseY: archTop, tall, cx, cy, rx, ry };
+    return { r, cx, cy, rx, ry };
   }
 
   function frame(now) {
@@ -313,21 +320,11 @@
     const heat = glide(clamp((now - s.start) / RISE_MS, 0, 1));
     if (s.splitStart) s.split = ease(clamp((now - s.splitStart) / PART_MS, 0, 1));
     s.root.style.setProperty("--heat", heat.toFixed(3));
-    // The hearth goes as the fire spilling over it covers it, not before and not after.
-    const gone = clamp((spillOf(heat) - 0.15) / 0.4, 0, 1);
-    s.svg.style.opacity = String(1 - gone * gone * (3 - 2 * gone));
+    // The hearth goes as the fire takes it, not before and not after.
+    const gone = smooth(0.45, 0.75, heat);
+    s.svg.style.opacity = String(1 - gone);
     const g = draw(s, heat, t, s.split);
 
-    // New licks off the tips of the brighter layers, and — parting — off the walls, thrown outward.
-    const tips = (2 + heat * 14) * dt;
-    if (Math.random() < tips) {
-      const li = 2 + Math.floor(Math.random() * 2);
-      const tg = TONGUES[li][Math.floor(Math.random() * TONGUES[li].length)];
-      const x = g.cx + tg.u * g.half;
-      s.licks.push({ layer: li, x, y: g.baseY - g.tall * heightAt(li, tg.u, t, heat) * 0.92,
-        vx: (Math.random() - 0.5) * 20, vy: -lerp(40, 160, heat), size: lerp(g.half * 0.06, Math.min(s.w, s.h) * 0.03, heat),
-        age: 0, life: lerp(0.45, 0.9, Math.random()) });
-    }
     // Drops of flame thrown off the rim of the opening as it spreads, outward from its middle.
     if (s.split > 0 && s.split < 0.85 && g.rx > 0) {
       for (let n = 0; n < 2 && Math.random() < 40 * dt; n++) {
@@ -338,8 +335,10 @@
           size: Math.min(s.w, s.h) * lerp(0.014, 0.032, Math.random()), age: 0, life: lerp(0.35, 0.7, Math.random()) });
       }
     }
-    if (Math.random() < (1 + heat * 8) * dt) {
-      s.embers.push({ x: g.cx + (Math.random() - 0.5) * g.half * 1.4, y: g.baseY - g.tall * 0.3 * Math.random(),
+    // Embers off the top of the fire.
+    if (!s.splitStart && Math.random() < (1 + heat * 8) * dt) {
+      const x = g.r.x + (Math.random() - 0.5) * g.r.rx * 0.9;
+      s.embers.push({ x, y: Math.max(s.h * 0.05, g.r.y - g.r.ry * lerp(0.55, 0.95, Math.random())),
         vx: (Math.random() - 0.5) * 30, vy: -lerp(50, 200, Math.random()) * lerp(1, 2, heat), size: lerp(1.5, 3.2, Math.random()),
         age: 0, life: lerp(1, 2.4, Math.random()), seed: Math.random() * 9 });
     }
@@ -348,7 +347,6 @@
 
     // Done when the opening is past every edge and the last drops thrown off it have gone — not later,
     // with a few of them hanging over the app.
-    // Open: every corner of the screen inside the opening, even at the low point of its ripple.
     const inside = (x, y) => Math.pow((x - g.cx) / (g.rx * 0.86), 2) + Math.pow((y - g.cy) / (g.ry * 0.86), 2) < 1;
     const open = g.rx > 0 && inside(0, 0) && inside(s.w, 0) && inside(0, s.h) && inside(s.w, s.h);
     if (s.split >= 1 || (open && !s.licks.length)) { finish(); return; }
@@ -369,7 +367,7 @@
   function part() {
     const s = state;
     if (!s) return Promise.resolve();
-    if (s.still) {
+    if (s.still || !s.gpu) {
       s.root.style.transition = "opacity .35s linear";
       s.root.style.opacity = "0";
       return new Promise((r) => setTimeout(() => { state = null; r(); }, 380));

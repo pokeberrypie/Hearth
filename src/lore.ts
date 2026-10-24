@@ -28,6 +28,7 @@ export type LoreEntry = {
   scanDepth: number | null;
   excludeRecursion: boolean;  // never triggered by another entry's content
   preventRecursion: boolean;  // its own content never triggers others
+  recap: boolean;         // a recap of where the story stands, not a fact: only the latest is how things are now
   added_at: number;       // when it was first saved here; 0 for entries from before this was kept, or imported
   changed_at: number;     // when what it says last changed; 0 likewise
 };
@@ -47,6 +48,16 @@ const arr = (v: unknown): string[] =>
 
 let seq = 0;
 const nextId = () => `e${Date.now().toString(36)}${(seq++).toString(36)}`;
+
+/**
+ * Whether an entry nobody has marked either way is a recap: Hearth's own carry-over summaries, and entries
+ * named as one — "Current state", "Recap", "The story so far", "Previously", "Summary". Marking it in the
+ * editor settles it for good.
+ */
+export function looksLikeRecap(comment: string, content: string): boolean {
+  return /^\s*(carried on from|current state|recap|(the )?story so far|previously|summary|where (things|we) stand)\b/i.test(comment)
+    || /^\s*what has happened so far in\b/i.test(content);
+}
 
 /** Accepts a SillyTavern entry or one of ours. */
 export function normaliseEntry(raw: any): LoreEntry {
@@ -71,6 +82,7 @@ export function normaliseEntry(raw: any): LoreEntry {
     scanDepth: raw.scanDepth === null || raw.scanDepth === undefined ? null : num(raw.scanDepth, 4),
     excludeRecursion: !!(raw.excludeRecursion ?? false),
     preventRecursion: !!(raw.preventRecursion ?? false),
+    recap: raw.recap !== undefined ? !!raw.recap : looksLikeRecap(String(raw.comment ?? raw.title ?? ""), String(raw.content ?? "")),
     added_at: num(raw.added_at, 0),
     changed_at: num(raw.changed_at, 0),
   };
@@ -79,13 +91,14 @@ export function normaliseEntry(raw: any): LoreEntry {
 /**
  * When each entry came in and last changed, kept by the server against what was stored before — so it is
  * right whichever page or feature saved the book, and whatever the client sent for these fields. A new id
- * is new now; one whose words or title changed has changed now; the rest keep what they had.
+ * is new as of when it was made, or now; one whose words or title changed has changed now; the rest keep what they had.
  */
 export function stampEntries(before: LoreEntry[], after: LoreEntry[], t: number): LoreEntry[] {
   const was = new Map(before.map((e) => [e.id, e]));
   return after.map((e) => {
     const old = was.get(e.id);
-    if (!old) return { ...e, added_at: t, changed_at: t };
+    // New to this book — but if its id says when it was made (copied from another book, say), then.
+    if (!old) { const born = bornOf(e.id) || t; return { ...e, added_at: born, changed_at: born }; }
     const changed = old.content !== e.content || old.comment !== e.comment;
     return { ...e, added_at: old.added_at, changed_at: changed ? t : old.changed_at };
   });

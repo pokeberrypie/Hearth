@@ -3328,6 +3328,30 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
   color: var(--lumiverse-text-hint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Under the name: what brings it up, and when it was added or last changed. */
+.etitle:has(.emeta) { display: flex; flex-direction: column; white-space: normal; }
+.etitle .ename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.etitle .emeta {
+  display: flex; gap: 0.7rem; align-items: baseline; min-width: 0;
+  font-family: var(--lumiverse-font-family);
+  margin-top: 0.1rem;
+}
+.etitle .emeta .ekeys { flex: 0 1 auto; }
+.ewhen {
+  flex: none;
+  font-size: 0.7rem;
+  color: var(--lumiverse-text-hint);
+  white-space: nowrap;
+}
+/* Recaps and entries are two kinds of thing: where the story stands, and facts. */
+.ebookhead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem;
+  margin: 0.7rem 0.1rem 0.35rem;
+  font-family: var(--lumiverse-font-display);
+  font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--lumiverse-text-dim, var(--lumiverse-text-hint));
+}
+.ebookhead:first-child { margin-top: 0.1rem; }
 .entry > summary .ico { width: 26px; height: 26px; flex: none; }
 .entry > summary .ico svg { width: 14px; }
 .ebody { padding: 0.2rem 0.7rem 0.7rem; border-top: 1px solid var(--lumiverse-border); }
