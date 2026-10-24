@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { identityOf, names, pressureOf, readDecision, resolve, rule, traceOf } from "./offstage";
 import { db, setSettings, wipe } from "./test-support";
 
-const { app, offstageTurn } = await import("./index");
+const { app, offstageTurn, forgetPresence } = await import("./index");
 
 const HOME = { incoming: { socket: { remoteAddress: "127.0.0.1" } } };
 const ask = (path: string, init: RequestInit = {}) => app.fetch(new Request(`http://home.test${path}`, init), HOME);
@@ -24,9 +24,11 @@ afterAll(() => { globalThis.fetch = realFetch; });
 let sent: any[] = [];
 let answers: string[] = [];
 let story = "The court is quiet.";
+let presenceAnswer = "";
 beforeEach(() => {
   sent = [];
   answers = [];
+  presenceAnswer = "";
   globalThis.fetch = (async (_u: any, init: any) => {
     const body = JSON.parse(init.body);
     sent.push(body);
@@ -37,6 +39,11 @@ beforeEach(() => {
         c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: story } }] })}\n\n`));
         c.enqueue(enc.encode("data: [DONE]\n\n")); c.close();
       } }), { headers: { "content-type": "text/event-stream" } });
+    }
+    // "Who is in the scene?" is its own question, answered from `presence` — and with nothing, by default,
+    // so the rule stands in and the scripted decisions go to the people deciding.
+    if (JSON.stringify(body.messages).includes("say who is physically there") || String(body.messages?.[0]?.content ?? "").includes("For each person in the list")) {
+      return Response.json({ choices: [{ message: { content: presenceAnswer } }] });
     }
     return Response.json({ choices: [{ message: { content: answers.shift() ?? "CHOOSE | NOTHING | a quiet day\nACT | reads in the garden | easy | none" } }] });
   }) as any;
@@ -55,6 +62,7 @@ const CERSEI_PLOTS = [
 
 function seed() {
   wipe();
+  forgetPresence();
   setSettings({ mode: "story", provider: "openrouter", key_openrouter: "sk", model: "story/model", steward_on: "0",
     offstage_level: "balanced", offstage_protection: "fair", offstage_per_day: "2" });
   db.query("INSERT INTO characters (id, name, description, created_at) VALUES ('c', 'Cersei Lannister', 'Queen. Proud, jealous, careful of her own neck.', 1)").run();
@@ -794,5 +802,42 @@ describe("the party is in the scene, mentioned lately or not", () => {
     await send("/api/chats/ch/offstage/run", "POST");
     expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
     expect(asked().some((m) => m.includes("deciding for: Davren"))).toBe(false);
+  });
+});
+
+describe("who is in the scene is read from the story and the lorebook", () => {
+  function party() {
+    seed();
+    setSettings({ gossip_level: "off", offstage_level: "dynamic" });
+    db.query("INSERT INTO characters (id, name, created_at) VALUES ('d', 'Davren Baratheon', 1), ('t', 'Tyrion Lannister', 1)").run();
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('x1', 'ch', 'j', 0), ('x2', 'ch', 'd', 1), ('x3', 'ch', 't', 2)").run();
+    // A lorebook on Jaime's card that says where Tyrion is.
+    db.query("INSERT INTO lorebooks (id, name, entries, created_at) VALUES ('lb', 'The Road', ?, 1)")
+      .run(JSON.stringify([{ id: "e1", keys: ["Tyrion"], content: "Tyrion Lannister is a captive of Catelyn Stark, taken east toward the Vale.", comment: "Tyrion taken", enabled: true }]));
+    db.query("INSERT INTO lorebook_links (book_id, scope, target_id) VALUES ('lb', 'chat', 'ch')").run();
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m2', 'ch', 'user', 'Yvenna Hightower', 'We need to reach Tyrion before the Vale.', 3)").run();
+  }
+  const asked = () => sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages));
+
+  test("the model reads Davren at the table and Tyrion away; the lorebook is in what it reads, and in what Tyrion knows", async () => {
+    party();
+    presenceAnswer = "HERE | Jaime Lannister\nHERE | Davren Baratheon\nAWAY | Tyrion Lannister | a captive on the road to the Vale";
+    answers = ["CHOOSE | it | x\nACT | asks his guards about the road ahead | easy | none"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const question = asked().find((m) => m.includes("For each person in the list"))!;
+    expect(question).toContain("taken east toward the Vale");
+    expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
+    expect(asked().some((m) => m.includes("deciding for: Davren"))).toBe(false);
+    expect(asked().find((m) => m.includes("deciding for: Tyrion"))).toContain("What the world knows: Tyrion Lannister is a captive");
+    expect((await ledger()).actions[0].lore).toEqual(["Tyrion taken"]);
+  });
+
+  test("read once per turn of the story, not once per run", async () => {
+    party();
+    presenceAnswer = "HERE | Davren Baratheon\nAWAY | Tyrion Lannister | the Vale road";
+    setSettings({ offstage_per_day: "6" });
+    await send("/api/chats/ch/offstage/run", "POST");
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(asked().filter((m) => m.includes("For each person in the list")).length).toBe(1);
   });
 });

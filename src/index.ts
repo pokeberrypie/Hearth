@@ -4127,25 +4127,35 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   const recentRows = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 6").all(chatId) as any[];
   const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId)])].filter((p) => p && p !== player);
   const status = statusOf(entries);
-  const onstage = new Set([...namedIn(recentRows.map((r) => r.content).join("\n"), cast), ...recentRows.map((r) => r.name).filter(Boolean)]);
-  // The party: the chat's own characters are in the scene with the player unless muted (which is how a
-  // member is marked away) or the tracker has them somewhere else — Tyrion on the road as a captive is not
-  // at the inn, whatever the cast bar says. Not mentioned lately is not the same as not there.
-  const whereIs = (who: string) => (status[who] as any)?.location?.title ?? "";
-  const here = whereIs(player);
-  for (const m of membersOf(chat) as any[]) {
-    if (!m.name || m.name === player || m.muted) continue;
-    const there = whereIs(m.name);
-    if (!there || !here || samePlace(there, here)) onstage.add(m.name);
-  }
-  const offstage = cast.filter((p) => !onstage.has(p));
-  if (!offstage.length) return { acted: 0, quiet: 0, threats: 0, note: cast.length ? "Everyone is in the scene with you right now: there is nobody offstage to act." : "There is nobody in this story yet but you." };
   const lastActed = new Map<string, number>();
   for (const e of liveEntries(entries)) if (e.kind === "offstage" && e.subject) lastActed.set(e.subject, e.created_at);
   const perDay = Math.max(1, Number(s.offstage_per_day) || 2);
   const today = liveEntries(entries).filter((e) => e.kind === "offstage" && dataOf(e).day === at.day && dataOf(e).outcome !== "dropped").length;
   const room = Math.max(0, perDay - today);
   if (!room) return { acted: 0, quiet: 0, threats: 0, note: "Everyone who could act today already has." };
+  const conn = offstageConnection(s);
+  const fold = needsFoldedSystem(conn.model);
+  // What the world's own notes say right now: the lorebook entries the latest part of the story calls up.
+  const lore = loreNow(chat, s, [...recentRows].reverse());
+  // Who is in the scene: read from the story and the lorebook, as a person would — Tyrion is a captive on
+  // the road whatever the cast bar says, and Davren is at the table whether or not he has spoken lately.
+  // If that reading cannot be had, a rule stands in: named or speaking lately, or one of the party who is
+  // not muted and not tracked somewhere else.
+  const read = cast.length ? await whoIsHere(chatId, conn, fold, cast, player, recentRows, lore) : null;
+  const onstage = new Set<string>(recentRows.map((r) => r.name).filter(Boolean));
+  if (read) for (const n of read) onstage.add(n);
+  else {
+    for (const n of namedIn(recentRows.map((r) => r.content).join("\n"), cast)) onstage.add(n);
+    const whereIs = (who: string) => (status[who] as any)?.location?.title ?? "";
+    const here = whereIs(player);
+    for (const m of membersOf(chat) as any[]) {
+      if (!m.name || m.name === player || m.muted) continue;
+      const there = whereIs(m.name);
+      if (!there || !here || samePlace(there, here)) onstage.add(m.name);
+    }
+  }
+  const offstage = cast.filter((p) => !onstage.has(p));
+  if (!offstage.length) return { acted: 0, quiet: 0, threats: 0, note: cast.length ? "Everyone is in the scene with you right now: there is nobody offstage to act." : "There is nobody in this story yet but you." };
   // Who goes: those with a goal before those without, longest idle first, and able to act at all.
   const hasGoal = new Set(goals.map((g) => g.who));
   const members = new Set(membersOf(chat).map((m: any) => m.name));
@@ -4155,8 +4165,6 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     .sort((a, b) => rank(a) - rank(b) || (lastActed.get(a) ?? 0) - (lastActed.get(b) ?? 0))
     .slice(0, Math.min(room, Math.max(1, ACTORS_PER_RUN[level] || (o.manual ? 1 : 0))));
   const trigger = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
-  const conn = offstageConnection(s);
-  const fold = needsFoldedSystem(conn.model);
   const protection = protectionOf(s.offstage_protection);
   let acted = 0, quiet = 0, threats = 0, unread = 0;
   let t = now();
@@ -4170,7 +4178,11 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   })() : [];
   for (const person of who) {
     const theirs = goals.filter((g) => g.who === person);
-    const view = { ...viewFor(chat, person, entries, cal, theirs), plan: planned.map(({ n, title, about }) => ({ n, title, about })) };
+    const base0 = viewFor(chat, person, entries, cal, theirs);
+    // What the lorebook says about them: the world's knowledge, which they have as much as anyone.
+    const theirLore = lore.filter((e) => namedIn(e.content, [person]).length).slice(0, 3);
+    base0.known.push(...theirLore.map((e) => `What the world knows: ${e.content.replace(/\s+/g, " ").slice(0, 400)}`));
+    const view = { ...base0, plan: planned.map(({ n, title, about }) => ({ n, title, about })) };
     const prompt = offstagePrompt(view);
     let said = "";
     let thought = "";
@@ -4219,7 +4231,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
       title: r.act || (r.kind === "abandon" ? "Gave something up" : "An ordinary day"), body: r.why, created_at: t++,
       data: { day: at.day, want: d.want, fear: d.fear, considered: d.considered.slice(0, 4), choice: d.choice, kind: r.kind,
               difficulty: r.difficulty, harm: r.harm, roll: out.roll, dc: out.dc, outcome, notes: r.notes,
-              seen: r.seen, fact: r.fact, clue: r.clue, traced: trace.left, trace_roll: trace.roll, trace_dc: trace.dc, threads: moved.kept, plan: planMarks } }));
+              seen: r.seen, fact: r.fact, clue: r.clue, traced: trace.left, trace_roll: trace.roll, trace_dc: trace.dc, threads: moved.kept, plan: planMarks, lore: theirLore.map((e) => e.name) } }));
     add.push(...moved.entries);
     // A conflict with the plan is the author's to know about — not to have solved for them. Asked once per scene,
     // above the writing line, like a threat: which scene, never who or how; that stays in the ledger.
@@ -4311,6 +4323,66 @@ function samePlace(a: string, b: string): boolean {
   const words = (x: string) => new Set(groupKey(x).split(" ").filter((w) => w.length > 3 && !["room", "common", "outside", "inside", "near", "with", "their", "hall"].includes(w)));
   const wa = words(a);
   return [...words(b)].some((w) => wa.has(w));
+}
+
+/** The lorebook entries the latest part of the story calls up, as the narrator would have them. */
+function loreNow(chat: any, s: Record<string, string>, rows: { name?: string; content: string; role?: string }[]) {
+  try {
+    return activate(loreFor(chat), rows.map((r) => ({ role: r.role ?? "assistant", content: r.content })), {
+      scanDepth: Number(s.lore_scan_depth) || 4, maxChars: 4000,
+    }).map((a) => ({ name: a.entry.comment || a.entry.keys[0] || "an entry", content: a.entry.content }));
+  } catch { return []; }
+}
+
+/** Who was read as in the scene, for the message it was read at: asked once per turn of the story, not per run. */
+const presence = new Map<string, { at: string; here: string[] }>();
+/** For tests, whose chats reuse the same ids from one to the next. */
+export const forgetPresence = () => presence.clear();
+
+/**
+ * Who is physically in the scene with the player — read by the Offstage's model from the latest part of the
+ * story and the lorebook entries it calls up, because being in a scene is a matter of the story, not of who
+ * was named lately. Null when it cannot be read, so the caller falls back to a rule.
+ */
+async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnection>, fold: boolean, cast: string[], player: string,
+  recent: { name?: string; content: string }[], lore: { name: string; content: string }[]): Promise<string[] | null> {
+  const at = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? "";
+  const known = presence.get(chatId);
+  if (known && known.at === at) return known.here;
+  const system = "You read where a story is right now and say who is physically there. You never continue the story and never explain yourself.";
+  const prompt = [
+    `People: ${cast.join("; ")}`,
+    `The player's character: ${player || "the player"}`,
+    lore.length ? `What the story's notes say:\n${lore.slice(0, 8).map((e) => `- ${e.content.replace(/\s+/g, " ").slice(0, 500)}`).join("\n")}` : "",
+    `The story, latest part:\n\n${[...recent].reverse().map((r) => `${r.name ? `${r.name}: ` : ""}${storyOnly(r.content)}`).join("\n\n").slice(-6000)}`,
+    `For each person in the list write one line: HERE | name — if they are physically in the scene with ${player || "the player"} right now — or AWAY | name | where they are, as far as the story or the notes say. Nothing else.`,
+  ].filter(Boolean).join("\n\n");
+  let said = "", thought = "";
+  try {
+    for await (const chunk of generate({
+      ...conn, system: fold ? "" : system,
+      messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
+      sampling: { temperature: 0, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+    })) {
+      if (chunk.kind === "text") said += chunk.text;
+      else if (chunk.kind === "reasoning") thought += chunk.text;
+      if (said.length > 6000) break;
+    }
+  } catch { return null; }
+  const text = withoutThinking(said).trim() || thought;
+  const here: string[] = [];
+  let lines = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\W*(HERE|AWAY)\W*\|\s*([^|]+)/i.exec(line.trim());
+    if (!m) continue;
+    lines++;
+    const name = m[2].trim().toLowerCase();
+    const who = cast.find((c) => c.toLowerCase() === name) ?? namedIn(m[2], cast)[0];
+    if (who && m[1].toUpperCase() === "HERE") here.push(who);
+  }
+  if (!lines) return null;
+  presence.set(chatId, { at, here });
+  return here;
 }
 
 /** Messages in one long day before the world offstage moves again. */

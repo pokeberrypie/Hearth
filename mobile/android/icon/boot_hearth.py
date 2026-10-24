@@ -7,7 +7,11 @@ loading screen draws for itself: the little static flame, its glow and
 sparks, and the pot on its crane, which would hang in the middle of the fire.
 
   python3 mobile/android/icon/gen_icon.py --literal --out /tmp/lit
-  python3 mobile/android/icon/boot_hearth.py /tmp/lit/ic_launcher_foreground.xml
+  python3 mobile/android/icon/boot_hearth.py /tmp/lit/ic_launcher_foreground.xml > /tmp/hearth.svg
+
+hearthfire.template.js beside this file is public/hearthfire.js with the drawing
+taken out (__HEARTH__); put the output in its place to write the fire again, and
+copy the result to mobile/android/app/src/main/assets/hearthfire.js as well.
 """
 
 import sys
