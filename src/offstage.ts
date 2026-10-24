@@ -37,6 +37,10 @@ export const protectionOf = (v: unknown): Protection => pickOf(v, PROTECTIONS, "
 /** How many people may act in one run, by level. */
 export const ACTORS_PER_RUN: Record<Level, number> = { off: 0, balanced: 1, dynamic: 3 };
 
+/** "none", "nothing", "n/a", "no new goal": a model filling in a line it was told to leave out. Never a goal. */
+export const saysNothing = (text: string) =>
+  /^\W*(none|nothing|n\/?a|null|no( new)?( goal| aim)?s?|not applicable|-+)\W*$/i.test(String(text ?? "").trim());
+
 /** One goal someone is pursuing. */
 export type Agenda = { id: string; who: string; goal: string; why: string };
 
@@ -193,7 +197,7 @@ export function readDecision(raw: string): Decision {
       const rel = parts[2].toLowerCase();
       const relation = /^conflict|imposs|prevent/.test(rel) ? "conflicts" : /^complicat|hinder|obstacle/.test(rel) ? "complicates" : /^support|help|enable/.test(rel) ? "supports" : null;
       if (n > 0 && relation) d.plan.push({ n, relation, how: parts.slice(3).join(" | ") });
-    } else if (key === "GOAL" && parts[1]) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
+    } else if (key === "GOAL" && parts[1] && !saysNothing(parts[1])) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
   }
   if (d.kind === "act" && !d.act) d.kind = "nothing";
   return d;

@@ -54,7 +54,8 @@ export type Claim =
   | { kind: "bond"; from: string; to: string; amount: number; label: string; evidence: string; message_id: string }
   | { kind: "faction"; name: string; description: string; symbol: string; evidence: string; message_id: string }
   | { kind: "thread"; name: string; open: boolean; evidence: string; message_id: string }
-  | { kind: "scene"; evidence: string; message_id: string; to?: string };
+  | { kind: "scene"; evidence: string; message_id: string; to?: string }
+  | { kind: "death"; subject: string; evidence: string; message_id: string };
 
 export type Dropped = { line: string; why: string };
 
@@ -129,6 +130,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     'TIME | how much time passed | "the exact words from the story that show it"',
     'EVENT | a short title for something that happened | "the exact words from the story that show it"',
     ...(o.tracking ? ['STATUS | person number | what | how they are now | "the exact words from the story that show it"'] : []),
+    'DEATH | person number, or their name if they are not listed | "the exact words from the story that show it"',
     'BOND | person number | person number | + or - | what they are to each other now | "the exact words from the story that show it"',
     'FACTION | its name | what it is, in a few words | one word for its emblem, if the story gives one | "the exact words from the story that show it"',
     'THREAD | open or settled | a short name for it | "the exact words from the story that show it"',
@@ -143,6 +145,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
       "- STATUS only for people marked (here), using their number from the list, and only when the story changes something about them or shows it for the first time.",
       "- For STATUS, \"what\" is one of: physical (injuries, health, tiredness), mental (mood, state of mind), clothes (what they wear), location (where they are), inventory (what they carry). Say how they are now in a few words.",
     ] : []),
+    "- DEATH when anyone dies in this part of the story — whoever and wherever they are, in the scene or far from it. Only a death that happens here: not wounded, not dying, not feared dead, not a death remembered from before.",
     "- BOND when how the first person feels about the second changes: + warmer, - colder. It goes one way: write it twice if both change.",
     "- FACTION only for a group the story names — a house, guild, order, company — that is not already listed. Leave the emblem empty if the story gives none.",
     "- THREAD open for something the story leaves hanging that should come back: a promise, a secret, a debt, a question, a letter not yet answered. THREAD settled when one of the open threads listed is resolved here — use its name exactly as listed.",
@@ -204,7 +207,8 @@ export function stewardRequest(model: string, people: Person[], nowText: string,
 
 // ---- reading the answer ---------------------------------------------------
 
-const KIND_WORDS: Record<string, "time" | "event" | "status" | "bond" | "faction" | "thread" | "scene" | "none"> = {
+const KIND_WORDS: Record<string, "time" | "event" | "status" | "bond" | "faction" | "thread" | "scene" | "death" | "none"> = {
+  DEATH: "death", DIED: "death", DEAD: "death", DIES: "death", KILLED: "death", SLAIN: "death",
   SCENE: "scene", SCENEDONE: "scene",
   THREAD: "thread", THREADS: "thread", PLOTTHREAD: "thread", HOOK: "thread", LOOSEEND: "thread",
   BOND: "bond", RELATIONSHIP: "bond", RELATION: "bond", FEELING: "bond",
@@ -253,6 +257,7 @@ export type Parsed = {
   factions: { name: string; description: string; symbol: string; evidence: string }[];
   threads: { state: string; name: string; evidence: string }[];
   scene: { state: string; evidence: string }[];
+  deaths: { who: string; evidence: string }[];
   none: boolean;
   dropped: Dropped[];
   /** Lines that were not findings at all — chatter, headings — counted, not judged. */
@@ -261,7 +266,7 @@ export type Parsed = {
 
 /** The answer as lines, before anything is checked against the story. */
 export function parseAnswer(raw: string): Parsed {
-  const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], threads: [], scene: [], none: false, dropped: [], noise: 0 };
+  const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], threads: [], scene: [], deaths: [], none: false, dropped: [], noise: 0 };
   const text = withoutThinking(raw).replace(/```[a-z]*\n?/gi, "");
   for (const original of text.split(/\r?\n/)) {
     const line = tidyLine(original);
@@ -284,6 +289,8 @@ export function parseAnswer(raw: string): Parsed {
       out.bonds.push({ from: first, to: unquote(parts[2]), way: unquote(parts[3]), label: parts.length > 5 ? unquote(parts.slice(4, -1).join(" ")) : "", evidence });
     } else if (kind === "scene") {
       out.scene.push({ state: first, evidence });
+    } else if (kind === "death") {
+      out.deaths.push({ who: first, evidence });
     } else if (kind === "thread") {
       if (parts.length < 4) { out.dropped.push({ line: original.trim(), why: "a THREAD line needs open or settled, a name, and a quote" }); continue; }
       out.threads.push({ state: first, name: unquote(parts.slice(2, -1).join(" ")), evidence });
@@ -540,6 +547,27 @@ export function checkAnswer(
     const at = findEvidence(sc.evidence, passages);
     if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
     claims.push(to ? { kind: "scene", evidence: sc.evidence, message_id: at, to: to.id } : { kind: "scene", evidence: sc.evidence, message_id: at });
+  }
+
+  // Deaths: of anyone, in the scene or not — a king dying in another city is the one change the world must
+  // never miss. Someone on the list, or a name the story itself uses; quoted, like everything else.
+  const story = words(passages.map((x) => `${x.who} ${x.text}`).join(" "));
+  const died = new Set<string>();
+  for (const dth of p.deaths) {
+    const line = `DEATH | ${dth.who} | "${dth.evidence}"`;
+    const listed = whoIs(dth.who, people);
+    const name = listed?.name ?? dth.who.replace(/\s+/g, " ").trim().slice(0, 60);
+    const own = words(name);
+    if (!listed && (!own.length || own.length > 5 || !/^[A-Z]/.test(name) || !story.includes(own[0]))) {
+      dropped.push({ line, why: "not someone the list or the story names" }); continue;
+    }
+    if (died.has(name)) { dropped.push({ line, why: "the same death twice" }); continue; }
+    if (died.size >= 4) { dropped.push({ line, why: "more deaths than allowed in one go" }); continue; }
+    if (/\b(dead|died|slain|killed)\b/i.test(listed?.known?.physical ?? "")) { died.add(name); continue; }
+    const at = findEvidence(dth.evidence, passages);
+    if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
+    died.add(name);
+    claims.push({ kind: "death", subject: name, evidence: dth.evidence, message_id: at });
   }
 
   return { claims, dropped, none: p.none && !claims.length, noise: p.noise };

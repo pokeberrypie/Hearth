@@ -505,7 +505,19 @@ async function paintOffstage() {
       <select data-manner="${txt(w)}">${Object.entries(MANNER).map(([k, v]) => `<option value="${k}"${(l.discretion?.[w] ?? "ordinary") === k ? " selected" : ""}>${v}</option>`).join("")}</select></li>`).join("")}</ul>` : "";
   // The recap it takes as how things stand: not a secret, so shown sealed or not.
   const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${Math.max(1, m)} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  // Its last runs: when, and what came of each — or why nothing did. Kept across restarts; no spoilers in it.
+  const KIND = { day: "A new day", midday: "A long day", manual: "Run by hand", death: "After a death", "manual stir": "Stirred by hand", stir: "Stirred" };
+  const runs = (l.runs ?? []).map((r) => `<li><span class="wdwhen">${ago(r.created_at)} · ${txt(KIND[r.kind] ?? r.kind)}</span>
+      <div>${r.problem ? `<span class="wdbad">Failed: ${txt(r.problem)}</span>`
+        : [r.acted ? `${r.acted} ${r.acted === 1 ? "person" : "people"} took a turn` : "", r.goals ? `${r.goals} new goal${r.goals === 1 ? "" : "s"}` : "", r.note ? txt(r.note) : ""].filter(Boolean).join(" · ") || "Nobody moved."}</div></li>`).join("");
   const run = `<button type="button" class="solid wide" id="wdRunDay">Run a day offstage</button>
+    <div class="wdoffadd wdstir">
+      <input id="wdStirWhat" placeholder="What just happened? — King Robert is dead (optional)" autocomplete="off">
+      <button type="button" class="ghost" id="wdStir">Stir the world</button>
+    </div>
+    <p class="hint">Something big happened? Stirring reads the story and gives the people it touches — at court, in the city, wherever the news reaches — something new to want. A death the Steward reads does this by itself.</p>
+    <details class="wdlatest"${runs && (l.runs[0]?.problem || !l.runs.slice(0, 3).some((r) => r.acted || r.goals)) ? " open" : ""}><summary>Its last runs</summary>
+      ${runs ? `<ul class="wdledger">${runs}</ul>` : `<p class="hint">It has not run in this chat yet.</p>`}</details>
     <details class="wdlatest"><summary>The recap it reads as now</summary>
       ${l.recap ? `<p><b>${txt(l.recap.name)}</b> <span class="wdwhen">${l.recap.at ? ago(l.recap.at) : "undated"}</span></p>
       <p class="wdwhen">${txt(l.recap.text)}${l.recap.text.length >= 400 ? "…" : ""}</p>` : `<p class="hint">No recap in this chat's lorebooks.</p>`}
@@ -575,6 +587,16 @@ async function paintOffstage() {
       body: JSON.stringify({ who, goal, why: $("#wdGoalWhy").value.trim() }) });
     if (r?.error) return toast(r.error);
     toast(`${who} has a goal now.`);
+    paintOffstage();
+  };
+  $("#wdStir").onclick = async () => {
+    const b = $("#wdStir");
+    b.disabled = true;
+    b.textContent = "The news spreads…";
+    const r = await api(`/chats/${S.chatId}/offstage/stir`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ what: $("#wdStirWhat").value.trim() }) }).catch(() => ({ error: "That did not work." }));
+    if (r?.error) toast(r.error);
+    else toast(r.goals ? `${r.goals} ${r.goals === 1 ? "person has" : "people have"} something new to want.` : r.note || "Nobody's wants changed.");
     paintOffstage();
   };
   $("#wdRunDay").onclick = async () => {

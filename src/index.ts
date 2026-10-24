@@ -61,7 +61,7 @@ import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, min
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
-         resolve as resolveAttempt, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
+         resolve as resolveAttempt, saysNothing, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
 import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutSheets, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
@@ -3983,6 +3983,10 @@ function agendasOf(entries: ChronicleEntry[]) {
   return [...out.values()];
 }
 
+/** Someone the tracker says is dead. */
+const isDead = (fields: Record<string, { title: string } | undefined> | undefined) =>
+  /\b(dead|died|slain|killed|executed|deceased|murdered)\b/i.test(fields?.physical?.title ?? "") && !/\b(not|nearly|almost|half|feared|playing)\s+dead\b/i.test(fields?.physical?.title ?? "");
+
 /** Someone who cannot act today: dead, or held. Read from the tracker; anything unclear may act. */
 const cannotAct = (fields: Record<string, { title: string } | undefined> | undefined) =>
   /\b(dead|died|slain|killed|executed|imprisoned|in chains|in a cell|dungeon|captive|unconscious)\b/i
@@ -4111,7 +4115,134 @@ function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "faile
  * narrator gets only what became true and what could be noticed; a threat to
  * the player's character becomes a question, then a scene — never an outcome.
  */
-async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
+async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boolean } = {}) {
+  const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string } =
+    await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
+  logOffstage(chatId, o.manual ? "manual" : o.midday ? "midday" : "day", r);
+  return r;
+}
+
+/** One run, kept: what came of it, or why nothing did — so a still world always says why, even after a restart. */
+function logOffstage(chatId: string, kind: string, r: { acted?: number; quiet?: number; goals?: number; note?: string; error?: string }) {
+  try {
+    db.query("INSERT INTO offstage_runs (id, chat_id, kind, note, acted, goals, problem, created_at) VALUES (?,?,?,?,?,?,?,?)")
+      .run(uid(), chatId, kind, r.note ?? (r.acted || r.quiet ? "" : "Nobody moved."), (r.acted ?? 0) + (r.quiet ?? 0), r.goals ?? 0, r.error ?? "", now());
+    db.query("DELETE FROM offstage_runs WHERE chat_id = ? AND id NOT IN (SELECT id FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 40)").run(chatId, chatId);
+  } catch { /* the log is for reading; a run that cannot be logged has still run */ }
+}
+
+/**
+ * Someone has died. Their goals end with them; and the world hears of it: a death changes what people want,
+ * so the Offstage reads the story once more and gives the people it touches something new to want. Not
+ * awaited: the reply that told of it is already done.
+ */
+function afterDeaths(chatId: string, deaths: { who: string; evidence: string }[]) {
+  const entries = chronicleOf(chatId);
+  const at = clockOf(calendarOf(chatId), entries);
+  let t = now();
+  const ended = agendasOf(entries).filter((g) => g.status === "active" && deaths.some((d) => d.who === g.who))
+    .map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: "", source: "offstage", visibility: "private",
+      day: at.day, minute: at.minute, created_at: t++, data: { of: g.id, status: "died" } }));
+  if (ended.length) copyChronicle(ended, chatId);
+  const s = getSettings();
+  if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
+  offstageStir(chatId, deaths.map((d) => `${d.who} has died: "${d.evidence}"`), "death").catch(() => {});
+}
+
+/**
+ * The world stirred by something that has just happened: one reading of the story, naming the people whose
+ * wants it changes — at court, in the city, wherever the news reaches — and what each wants now. They are
+ * given those goals, and with them a place in the world offstage, whether or not they had one before.
+ */
+async function offstageStir(chatId: string, news: string[], kind = "stir") {
+  const r: { goals: number; note?: string; error?: string } = await stirOf(chatId, news).catch((e: any) => ({ goals: 0, error: e?.message || "The Offstage could not be reached." }));
+  logOffstage(chatId, kind, { goals: r.goals, note: r.goals ? `Stirred by: ${news.join("; ").slice(0, 200)}` : r.note, error: r.error });
+  return r;
+}
+
+async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; note?: string; error?: string }> {
+  const s = getSettings();
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return { goals: 0, error: "No such chat." };
+  const entries = chronicleOf(chatId);
+  const at = clockOf(calendarOf(chatId), entries);
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  const status = statusOf(entries);
+  const dead = new Set(Object.keys(status).filter((n) => isDead(status[n] as any)));
+  const active = agendasOf(entries).filter((g) => g.status === "active");
+  const conn = offstageConnection(s);
+  const fold = needsFoldedSystem(conn.model);
+  const rows = (db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 8").all(chatId) as any[]).reverse();
+  const recap = latestRecap(chat);
+  const system = "You read a story and say how the people in it would answer what has just happened: what each of them now wants. You never continue the story and never explain yourself.";
+  const prompt = [
+    `What has just happened:\n${news.map((n) => `- ${n}`).join("\n")}`,
+    `People already in the story: ${[...new Set([...peopleOfChat(chatId), ...active.map((g) => g.who)])].filter((p) => p && !dead.has(p)).join("; ") || "(none listed)"}`,
+    `The player's character: ${player || "the player"} — never someone you choose for.`,
+    dead.size ? `Dead, and wanting nothing: ${[...dead].join("; ")}` : "",
+    active.length ? `What some already want:\n${active.slice(0, 12).map((g) => `- ${g.who}: ${g.goal}`).join("\n")}` : "",
+    recap ? `How things stood, from the story's latest recap:\n${recap.content.replace(/\s+/g, " ").slice(0, 1500)}` : "",
+    `The story, latest part:\n\n${rows.map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content))}`).join("\n\n")}`,
+    "Name up to six people who would know of this by now and whose wants it changes — those at court, in the household, in the city, the rivals and the heirs; anyone the story or its people would name, not only those listed. For each, one line:",
+    "GOAL | their name | what they now want, in a few words | why, from where they stand",
+    "Each goal is something they can work toward over days: not a feeling, not a single act. Never the player's character, never the dead.",
+    "And if what happened, or the story, shows that someone has died who is not listed as dead, one line for each: DEAD | their name. Nothing else.",
+  ].filter(Boolean).join("\n\n");
+  let said = "", thought = "";
+  try {
+    for await (const chunk of generate({
+      ...conn, system: fold ? "" : system,
+      messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
+      sampling: { temperature: 0.8, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+    })) {
+      if (chunk.kind === "text") said += chunk.text;
+      else if (chunk.kind === "reasoning") thought += chunk.text;
+      if (said.length > 6000) break;
+    }
+  } catch (e: any) { return { goals: 0, error: e?.message || "The Offstage could not be reached." }; }
+  const answer = withoutThinking(said).trim() || thought;
+  // Deaths it read, recorded only for a name the story or the news itself uses: a reading cannot kill anyone.
+  const given = `${news.join(" ")} ${rows.map((r) => r.content).join(" ")}`.toLowerCase();
+  let t0 = now();
+  const died = [...answer.matchAll(/^\W*DEAD\W*\|\s*([^|\n]+)/gim)].map((m) => m[1].replace(/[*_"]/g, "").trim().slice(0, 60))
+    .filter((n) => n && !saysNothing(n) && n.toLowerCase() !== player.toLowerCase() && !dead.has(n) && given.includes(n.toLowerCase())).slice(0, 4);
+  if (died.length) {
+    copyChronicle(died.map((n) => normaliseChronicleEntry({ id: uid(), kind: "status", subject: n, field: "physical", title: "dead",
+      source: "offstage", day: at.day, minute: at.minute, created_at: t0++ })), chatId);
+    for (const n of died) dead.add(n);
+  }
+  const goals = stirGoals(answer, { player, dead, active });
+  if (!goals.length) return died.length ? { goals: 0, note: `Recorded as dead: ${died.join(", ")}.` }
+    : { goals: 0, error: said.trim() ? "Its model answered, but not in the lines it was asked for." : "Its model sent back an empty answer." };
+  let t = t0;
+  copyChronicle(goals.map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: g.goal, body: g.why,
+    source: "offstage", visibility: "private", day: at.day, minute: at.minute, created_at: t++, data: { stirred: news[0]?.slice(0, 200) ?? "" } })), chatId);
+  return { goals: goals.length };
+}
+
+/** A message, cut to fit beside others: its opening and the most of its end, where it has got to. */
+function trimmed(text: string, n = 1400) {
+  return text.length <= n ? text : `${text.slice(0, Math.round(n * 0.3))} … ${text.slice(-Math.round(n * 0.7))}`;
+}
+
+/** The goals a stirring named, checked: one each, never the player or the dead, never "none", never one they hold. */
+export function stirGoals(text: string, o: { player: string; dead: Set<string>; active: { who: string; goal: string }[] }) {
+  const out: { who: string; goal: string; why: string }[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\W*GOAL\W*\|\s*([^|]+)\|\s*([^|]+)(?:\|\s*(.+))?$/i.exec(line.trim());
+    if (!m) continue;
+    const who = m[1].replace(/[*_"]/g, "").trim().slice(0, 60), goal = m[2].trim().slice(0, 200), why = (m[3] ?? "").trim().slice(0, 300);
+    if (!who || !goal || saysNothing(goal) || saysNothing(who)) continue;
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    if (same(who, o.player) || [...o.dead].some((d) => same(d, who)) || out.some((g) => same(g.who, who))) continue;
+    if (o.active.some((g) => same(g.who, who) && same(g.goal, goal))) continue;
+    out.push({ who, goal, why });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: boolean } = {}) {
   const s = getSettings();
   const level = levelOf(s.offstage_level);
   const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
@@ -4123,14 +4254,20 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   const player = whoAmI(chat.persona_id)?.name ?? "";
   // Who is in the scene right now — named in the last few messages, or speaking in them — is with the
   // player, not offstage. Everyone else in the story may act: those with goals first, then the cast.
-  const recentRows = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 6").all(chatId) as any[];
-  const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId)])].filter((p) => p && p !== player);
+  const recentRows = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 8").all(chatId) as any[];
   const status = statusOf(entries);
+  // The dead are not cast: they want nothing now, and nobody asks where they are.
+  const dead = new Set(Object.keys(status).filter((n) => isDead(status[n] as any)));
+  const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId)])].filter((p) => p && p !== player && !dead.has(p));
+  // News that travels: who has died lately. A death is the world's business, not a secret of the story's.
+  const news = liveEntries(entries).filter((e) => e.kind === "status" && e.field === "physical" && isDead({ physical: { title: e.title } })
+    && e.day !== null && e.day >= at.day - 10).map((e) => `Word has reached them: ${e.subject} is dead.`);
   const lastActed = new Map<string, number>();
   for (const e of liveEntries(entries)) if (e.kind === "offstage" && e.subject) lastActed.set(e.subject, e.created_at);
   const perDay = Math.max(1, Number(s.offstage_per_day) || 2);
   const today = liveEntries(entries).filter((e) => e.kind === "offstage" && dataOf(e).day === at.day && dataOf(e).outcome !== "dropped").length;
-  const room = Math.max(0, perDay - today);
+  // A long day still gives the world a turn every so often: those turns are never refused for the day's count.
+  const room = Math.max(o.midday || o.manual ? 1 : 0, perDay - today);
   if (!room) return { acted: 0, quiet: 0, threats: 0, note: "Everyone who could act today already has." };
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
@@ -4141,9 +4278,12 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   // If that reading cannot be had, a rule stands in: named or speaking lately, or one of the party who is
   // not muted and not tracked somewhere else.
   const read = cast.length ? await whoIsHere(chatId, conn, fold, cast, player, recentRows, lore) : null;
-  const onstage = new Set<string>(recentRows.map((r) => r.name).filter(Boolean));
+  // Only the reading says who is here. Who has spoken lately is not where they are: in a story told from several
+  // places, the people writing scenes at court are exactly the ones away from the player.
+  const onstage = new Set<string>();
   if (read) for (const n of read) onstage.add(n);
   else {
+    for (const n of recentRows.map((r) => r.name).filter(Boolean)) onstage.add(n);
     for (const n of namedIn(recentRows.map((r) => r.content).join("\n"), cast)) onstage.add(n);
     const whereIs = (who: string) => (status[who] as any)?.location?.title ?? "";
     const here = whereIs(player);
@@ -4165,7 +4305,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     .slice(0, Math.min(room, Math.max(1, ACTORS_PER_RUN[level] || (o.manual ? 1 : 0))));
   const trigger = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
   const protection = protectionOf(s.offstage_protection);
-  let acted = 0, quiet = 0, threats = 0, unread = 0;
+  let acted = 0, quiet = 0, threats = 0, unread = 0, took = 0;
   let t = now();
   // The author's plan, the scene now and the two after: for the referee, never for the person deciding.
   const { book: taleBook, mark: taleMark } = taleOf(chatId);
@@ -4183,6 +4323,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     // knows all of it.
     const theirLore = lore.filter((e) => !e.recap && namedIn(e.content, [person]).length).slice(0, 3);
     base0.known.push(...theirLore.map((e) => `What the world knows: ${e.content.replace(/\s+/g, " ").slice(0, 400)}`));
+    base0.known.push(...news.filter((n) => !n.includes(`${person} is dead`)));
     const view = { ...base0, plan: planned.map(({ n, title, about }) => ({ n, title, about })) };
     const prompt = offstagePrompt(view);
     let said = "";
@@ -4271,6 +4412,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
       threats++;
     }
     if (r.abandons) add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.abandons, status: "abandoned" } }));
+    if (r.goal && outcome !== "dropped") took++;
     if (r.goal && outcome !== "dropped") add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: r.goal.goal, body: r.goal.why, created_at: t++ }));
     copyChronicle(add, chatId);
     entries = chronicleOf(chatId);
@@ -4292,9 +4434,9 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
     if (fresh.length) copyChronicle(fresh.map((k) => knowingEntry(k, base, t++)), chatId);
   }
-  if (unread && !acted && !quiet && !threats) return { acted, quiet, threats, error: `The Offstage could not be read: ${offstageProblems.get(chatId)}` };
+  if (unread && !acted && !quiet && !threats) return { acted, quiet, threats, goals: took, error: `The Offstage could not be read: ${offstageProblems.get(chatId)}` };
   if (!unread) offstageProblems.delete(chatId);
-  return { acted, quiet, threats };
+  return { acted, quiet, threats, goals: took };
 }
 
 /** The Offstage's last failure in each chat, until a run goes through: shown in the ledger, so a still world says why. */
@@ -4394,7 +4536,8 @@ async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnect
     `People: ${cast.join("; ")}`,
     `The player's character: ${player || "the player"}`,
     notesFor(lore, 500),
-    `The story, latest part:\n\n${[...recent].reverse().map((r) => `${r.name ? `${r.name}: ` : ""}${storyOnly(r.content)}`).join("\n\n").slice(-6000)}`,
+    // Every one of the latest messages, each cut to fit, rather than the tail of the last two.
+    `The story, latest part:\n\n${[...recent].reverse().map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content))}`).join("\n\n")}`,
     `For each person in the list write one line: HERE | name — if they are physically in the scene with ${player || "the player"} right now — or AWAY | name | where they are, as far as the story or the notes say. The story itself is the surest word, then the latest recap. Nothing else.`,
   ].filter(Boolean).join("\n\n");
   let said = "", thought = "";
@@ -4446,7 +4589,7 @@ export async function offstageTurn(chatId: string) {
   const last = db.query("SELECT MAX(created_at) t FROM chronicle WHERE chat_id = ? AND kind = 'offstage' AND undone_at IS NULL").get(chatId) as any;
   if (!last?.t) return;
   const since = (db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND created_at > ?").get(chatId, last.t) as any)?.n ?? 0;
-  if (since >= OFFSTAGE_EVERY) await offstageRun(chatId);
+  if (since >= OFFSTAGE_EVERY) await offstageRun(chatId, { midday: true });
 }
 
 /**
@@ -4504,7 +4647,12 @@ api.get("/chats/:id/offstage", (c) => {
     },
     discretion: discretions(entries),
     // Why the world may be standing still: the Offstage's last failure here, if the last run had one.
-    problem: offstageProblems.get(chatId) ?? "",
+    problem: offstageProblems.get(chatId) ?? (() => {
+      const last = db.query("SELECT problem FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 1").get(chatId) as any;
+      return last?.problem ?? "";
+    })(),
+    // Its last runs, kept across restarts: what came of each, or why nothing did.
+    runs: (db.query("SELECT kind, note, acted, goals, problem, created_at FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 8").all(chatId) as any[]),
     // Who knows what: every version, where it came from, and whether it is still going around.
     whispers: knowingsOf(entries).reverse().slice(0, 60),
     // Matters moving out of sight, and what was done offstage to the ones the story has.
@@ -4565,6 +4713,16 @@ api.post("/chats/:id/offstage/goal/:goal", async (c) => {
 
 /** A day offstage, now: for trying it, and for when the story wants the world to move. */
 api.post("/chats/:id/offstage/run", async (c) => c.json(await offstageRun(c.req.param("id"), { manual: true })));
+
+/** Stir the world by hand: what just happened, in the player's words or the Steward's latest, gives people new wants. */
+api.post("/chats/:id/offstage/stir", async (c) => {
+  const chatId = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const said = String(b?.what ?? "").trim().slice(0, 600);
+  const lately = liveEntries(chronicleOf(chatId)).filter((e) => e.kind === "event").slice(-6).map((e) => e.title);
+  const news = said ? [said] : lately.length ? lately : ["Nothing in particular: read where the story is now."];
+  return c.json(await offstageStir(chatId, news, "manual stir"));
+});
 
 // ---- the Steward -----------------------------------------------------------
 //
@@ -4744,7 +4902,8 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     const timed = new Set(liveEntries(chronicleOf(chat.id))
       .filter((e) => e.kind === "time" && e.source !== "steward" && e.message_id).map((e) => e.message_id));
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
-    const rank = { time: 0, event: 1, status: 2, bond: 3, faction: 4, thread: 5, scene: 6 } as const;
+    const rank = { time: 0, event: 1, status: 2, death: 2, bond: 3, faction: 4, thread: 5, scene: 6 } as const;
+    const deaths: { who: string; evidence: string }[] = [];
     const set = await charges();
     const story = [...checked.claims].filter((c) => !(c.kind === "time" && timed.has(c.message_id))).sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
@@ -4791,6 +4950,14 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           evidence: claim.evidence, source: "steward", created_at: t++,
           data: { people: namedIn(`${claim.name} ${claim.evidence}`, people.map((p) => p.name)) },
         }));
+      } else if (claim.kind === "death") {
+        // Dead, and it stays so: their body is the thing the tracker keeps, wherever they were.
+        entries.push(normaliseChronicleEntry({
+          id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
+          subject: claim.subject, field: "physical", title: "dead",
+          evidence: claim.evidence, source: "steward", created_at: t++,
+        }));
+        deaths.push({ who: claim.subject, evidence: claim.evidence });
       } else {
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
@@ -4800,6 +4967,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
       }
     }
     copyChronicle(entries, chat.id);
+    if (deaths.length) afterDeaths(chat.id, deaths);
   }
 
   const proposed = checked.claims.filter((c) => (c.kind === "time" && c.proposed) || c.kind === "faction" || c.kind === "scene").length;

@@ -1462,8 +1462,9 @@ label.check input[type="checkbox"]:checked {
 label.check input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
-  left: 6px;
-  top: 2px;
+  left: 50%;
+  top: 45%;
+  translate: -50% -50%;
   width: 5px;
   height: 10px;
   border: solid var(--lumiverse-bg-deep);
@@ -3249,6 +3250,12 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
 #bookDialog { width: min(96vw, 46rem); }
 
 .bookhead { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.8rem; }
+.booktitlebox { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bookcount {
+  padding: 0 0.6rem;
+  font-size: 0.78rem; font-style: italic;
+  color: var(--lumiverse-text-hint);
+}
 .booktitle {
   flex: 1;
   margin: 0;
@@ -3400,6 +3407,79 @@ body[data-msgstyle="portrait"] .msg.mine .plate {
 .ebody { padding: 0.2rem 0.7rem 0.7rem; border-top: 1px solid var(--lumiverse-border); }
 .ebody label { margin-bottom: 0.6rem; font-size: 0.78rem; }
 .ebody .check { padding: 0.3rem 0.4rem; margin-bottom: 0.25rem; }
+
+/* ---- the book, made kinder -------------------------------------------------
+   Each entry a little card with its own seal — a scroll for a recap, a star
+   for an entry — a switch for whether it is in use, and its keywords and age
+   in soft pills beneath its name. Recaps glow faintly like old paper. */
+.entry {
+  margin-bottom: 0.55rem;
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lumiverse-bg) 70%, transparent), color-mix(in srgb, var(--lumiverse-bg-deep) 40%, transparent));
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.entry:hover { border-color: var(--lumiverse-border-hover); transform: translateY(-1px); }
+.entry[open] { border-color: color-mix(in srgb, var(--lumiverse-primary) 40%, transparent); }
+.entry > summary { gap: 0.7rem; padding: 0.65rem 0.7rem; }
+.entry.recap {
+  border-left-width: 1px;
+  border-color: color-mix(in srgb, var(--lumiverse-primary) 30%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--lumiverse-primary) 13%, transparent), color-mix(in srgb, var(--lumiverse-bg) 60%, transparent) 60%);
+}
+.entry.recap.older { opacity: 0.68; background: color-mix(in srgb, var(--lumiverse-bg) 45%, transparent); }
+.emark {
+  order: 0;
+  flex: none;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--lumiverse-primary);
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--lumiverse-primary) 26%, transparent), color-mix(in srgb, var(--lumiverse-primary) 8%, transparent));
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 35%, transparent);
+}
+.emark svg, .ebh-icon svg, button.withicon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.entry.recap.newest .emark { color: var(--lumiverse-bg-deep); background: var(--lumiverse-primary); border-color: var(--lumiverse-primary); }
+.entry > summary .etitle { order: 1; }
+/* In use: a little switch, not a box. */
+.entry > summary > .pick {
+  order: 2;
+  box-sizing: border-box;
+  width: 34px; height: 20px; min-width: 0;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lumiverse-bg-deep) 70%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.entry > summary > .pick::after,
+.entry > summary > .pick:checked::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 3px;
+  translate: 0 -50%;
+  width: 12px; height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--lumiverse-text-hint);
+  transform: none;
+  transition: left 0.15s ease, background 0.15s ease;
+}
+.entry > summary > .pick:checked::after { left: 17px; background: var(--lumiverse-bg-deep); }
+.entry > summary .ico { order: 3; }
+/* Recaps and entries: a ruled heading between two seals, and what each is for beneath it, in full. */
+.ebookhead { display: block; margin: 1.1rem 0.2rem 0.6rem; text-align: center; }
+.ebookhead:first-child { margin-top: 0.2rem; }
+.ebh-rule { display: flex; align-items: center; gap: 0.55rem; }
+.ebh-rule::before, .ebh-rule::after {
+  content: ""; flex: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--lumiverse-primary) 45%, transparent));
+}
+.ebh-rule::after { background: linear-gradient(270deg, transparent, color-mix(in srgb, var(--lumiverse-primary) 45%, transparent)); }
+.ebh-rule .ebh-icon { width: 24px; height: 24px; border: 0; background: none; }
+.ebh-rule .ebh-icon svg { width: 14px; height: 14px; }
+.ebh-title { font-size: 1rem; letter-spacing: 0.14em; }
+.ebh-hint { margin: 0.35rem auto 0; max-width: 32rem; text-align: center; }
+.eempty { text-align: center; padding: 1.4rem 0.5rem; color: var(--lumiverse-text-dim); }
+.eempty .ebh-icon { margin: 0 auto 0.5rem; }
+button.withicon { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; }
 
 /* ---- lorebook scope toggles ---------------------------------------------
    Attaching a book is the thing you do constantly, so it happens in the row
@@ -8251,6 +8331,8 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 .wdsealedledger { text-align: center; padding: 1rem 0.5rem 0.4rem; }
 .wdsealedledger .wdseal { color: var(--lumiverse-primary); font-size: 1.4rem; }
 .wdoffadd { display: grid; gap: 0.45rem; margin: 0.4rem 0 1rem; }
+.wdoffadd.wdstir { grid-template-columns: 1fr auto; margin: 0.8rem 0 0.2rem; }
+.wdbad { color: #d98a6a; }
 .wdledger { list-style: none; margin: 0 0 1rem; padding: 0; }
 .wdledger > li { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.55rem 0; border-bottom: 1px solid var(--lumiverse-border); flex-wrap: wrap; }
 .wdledger > li > div { flex: 1 1 auto; min-width: 0; }

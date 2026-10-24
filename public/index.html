@@ -1643,7 +1643,10 @@
 
 <dialog id="bookDialog">
   <div class="bookhead">
-    <input id="b_name" class="booktitle" aria-label="Lorebook name">
+    <div class="booktitlebox">
+      <input id="b_name" class="booktitle" aria-label="Lorebook name">
+      <span id="b_count" class="bookcount"></span>
+    </div>
     <button class="ico" id="b_close" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
 
@@ -1656,8 +1659,8 @@
   <div id="b_entries" class="entries"></div>
 
   <div class="actions">
-    <button class="ghost" id="b_addRecap">Add a recap</button>
-    <button class="ghost" id="b_add">Add an entry</button>
+    <button class="ghost withicon" id="b_addRecap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8"/><path d="M8 20a2 2 0 0 1-2-2V7M10 9h6M10 12h6M10 15h4"/></svg>Add a recap</button>
+    <button class="ghost withicon" id="b_add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z"/></svg>Add an entry</button>
     <button class="solid" id="b_save">Save</button>
   </div>
 </dialog>

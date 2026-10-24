@@ -8,7 +8,7 @@
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { identityOf, names, pressureOf, readDecision, resolve, rule, traceOf } from "./offstage";
+import { identityOf, names, pressureOf, readDecision, resolve, rule, saysNothing, traceOf } from "./offstage";
 import { db, setSettings, wipe } from "./test-support";
 
 const { app, offstageTurn, forgetPresence } = await import("./index");
@@ -875,5 +875,75 @@ describe("who is in the scene is read from the story and the lorebook", () => {
     await send("/api/chats/ch/offstage/run", "POST");
     await send("/api/chats/ch/offstage/run", "POST");
     expect(asked().filter((m) => m.includes("For each person in the list")).length).toBe(1);
+  });
+});
+
+describe("a death, and the world stirred", () => {
+  function court() {
+    seed();
+    db.query("INSERT INTO characters (id, name, created_at) VALUES ('r', 'Robert Baratheon', 1)").run();
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('x1', 'ch', 'j', 0), ('x2', 'ch', 'c', 1), ('x3', 'ch', 'r', 2)").run();
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m2', 'ch', 'assistant', 'Robert Baratheon', 'The boar came out of the thicket, and Robert Baratheon is dead before the sun is down.', 3)").run();
+  }
+
+  test("stirring gives the people it touches goals — never the player, never the dead, never 'none' — and records the death it read", async () => {
+    court();
+    answers = [[
+      "GOAL | Cersei Lannister | crown Joffrey before Ned Stark can move | the throne is her son's or her head is forfeit",
+      "GOAL | Petyr Baelish | sell Ned Stark to whoever pays best | chaos is a ladder",
+      "GOAL | Yvenna Hightower | ride home | she would",
+      "GOAL | Robert Baratheon | live | no",
+      "GOAL | Varys | none | nothing",
+      "DEAD | Robert Baratheon",
+      "DEAD | Tywin Lannister",
+    ].join("\n")];
+    const r = await (await send("/api/chats/ch/offstage/stir", "POST", { what: "King Robert is dead" })).json();
+    expect(r.goals).toBe(2);
+    const l = await ledger();
+    expect(l.goals.filter((g: any) => g.status === "active").map((g: any) => g.who).sort()).toEqual(["Cersei Lannister", "Petyr Baelish"]);
+    expect(l.runs[0].kind).toBe("manual stir");
+    expect(l.runs[0].goals).toBe(2);
+    // Robert is named in the story; Tywin is not, so a reading cannot kill him.
+    const dead = db.query("SELECT subject FROM chronicle WHERE kind = 'status' AND field = 'physical' AND title = 'dead'").all() as any[];
+    expect(dead.map((d) => d.subject)).toEqual(["Robert Baratheon"]);
+  });
+
+  test("the dead never act, and those who knew hear of it", async () => {
+    court();
+    db.query("INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, day, created_at) VALUES ('d1', 'ch', 'status', 'Robert Baratheon', 'physical', 'dead', 'steward', 0, 5)").run();
+    await goal("Robert Baratheon", "hunt the boar");
+    await goal("Cersei Lannister", "crown Joffrey");
+    setSettings({ offstage_level: "dynamic", offstage_per_day: "6" });
+    presenceAnswer = "HERE | Jaime Lannister\nAWAY | Cersei Lannister | the Red Keep";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const asked = sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages));
+    expect(asked.some((m) => m.includes("deciding for: Robert"))).toBe(false);
+    expect(asked.find((m) => m.includes("deciding for: Cersei"))).toContain("Robert Baratheon is dead");
+  });
+
+  test("who spoke lately is not who is here: the reading decides", async () => {
+    court();
+    // Cersei wrote the last scene, at court; the reading puts only Jaime with the player.
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m3', 'ch', 'assistant', 'Cersei Lannister', 'In the Red Keep, Cersei poured the wine.', 4)").run();
+    presenceAnswer = "HERE | Jaime Lannister\nAWAY | Cersei Lannister | the Red Keep\nAWAY | Robert Baratheon | the Red Keep";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const asked = sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages));
+    expect(asked.some((m) => m.includes("deciding for: Cersei") || m.includes("deciding for: Robert"))).toBe(true);
+  });
+
+  test("every run is kept, with why nothing happened when nothing did", async () => {
+    seed();
+    await send("/api/chats/ch/offstage/run", "POST");
+    const l = await ledger();
+    expect(l.runs.length).toBe(1);
+    expect(l.runs[0].kind).toBe("manual");
+    expect(l.runs[0].note).toContain("nobody offstage to act");
+  });
+
+  test("a goal of 'none' is no goal", () => {
+    expect(saysNothing("none")).toBe(true);
+    expect(saysNothing("N/A")).toBe(true);
+    expect(saysNothing("No new goal.")).toBe(true);
+    expect(saysNothing("none of his brothers may know")).toBe(false);
   });
 });

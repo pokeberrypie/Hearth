@@ -404,3 +404,39 @@ describe("old tracker sheets leave what is sent to the model", () => {
     expect(withoutSheets("No sheets here.")).toBe("No sheets here.");
   });
 });
+
+describe("deaths", () => {
+  const KL: Passage[] = [
+    { id: "k1", who: "Robert Baratheon", text: "The boar came out of the thicket at a dead run, and Robert Baratheon was too drunk to sidestep it." },
+    { id: "k2", who: "Lancel Lannister", text: "Lancel watched the King of the Seven Kingdoms die, and when it was done Robert Baratheon lay still on the great bed." },
+  ];
+  const court: Person[] = [{ name: "Robert Baratheon", present: false }, { name: "Jaime Lannister", present: true }];
+
+  test("a death is kept wherever it happened — in the scene or a city away", () => {
+    const r = checkAnswer('DEATH | 1 | "when it was done Robert Baratheon lay still on the great bed"', KL, court, MOONS, NOW);
+    expect(r.claims).toEqual([{ kind: "death", subject: "Robert Baratheon", evidence: "when it was done Robert Baratheon lay still on the great bed", message_id: "k2" }]);
+  });
+
+  test("someone not on the list, if the story names them; never a name the story does not use", () => {
+    const r = checkAnswer([
+      'DEATH | Barristan Selmy | "Ser Barristan fell beside the king with the tusk through him"',
+      'DEATH | Tywin Lannister | "Ser Barristan fell beside the king with the tusk through him"',
+    ].join("\n"), [...KL, { id: "k3", who: "Lancel Lannister", text: "Ser Barristan fell beside the king with the tusk through him." }], court, MOONS, NOW);
+    expect(r.claims.map((c: any) => c.subject)).toEqual(["Barristan Selmy"]);
+    expect(r.dropped[0].why).toBe("not someone the list or the story names");
+  });
+
+  test("quoted, like everything else; and once is enough", () => {
+    const r = checkAnswer([
+      'DEATH | 1 | "the king choked on a peach"',
+      'DEATH | 1 | "Lancel watched the King of the Seven Kingdoms die"',
+      'DEATH | Robert Baratheon | "Lancel watched the King of the Seven Kingdoms die"',
+    ].join("\n"), KL, court, MOONS, NOW);
+    expect(r.claims.length).toBe(1);
+    expect(r.dropped.map((d) => d.why)).toEqual(["the quote is not in the story", "the same death twice"]);
+  });
+
+  test("the Steward is told to report any death, wherever it happens", () => {
+    expect(STEWARD_SYSTEM).toContain("DEATH when anyone dies");
+  });
+});

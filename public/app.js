@@ -4677,9 +4677,11 @@ function renderEntries() {
   const heading = (icon, text, hint) => {
     const h = document.createElement("div");
     h.className = "ebookhead";
-    h.innerHTML = `<span class="ebh-icon">${icon}</span><span class="ebh-text"><span class="ebh-title">${text}</span><span class="ebh-hint">${hint}</span></span>`;
+    h.innerHTML = `<div class="ebh-rule"><span class="ebh-icon">${icon}</span><span class="ebh-title">${text}</span><span class="ebh-icon">${icon}</span></div><p class="ebh-hint">${hint}</p>`;
     box.appendChild(h);
   };
+  $("#b_count").textContent = [recaps.length && `${recaps.length} recap${recaps.length === 1 ? "" : "s"}`,
+    `${facts.length} entr${facts.length === 1 ? "y" : "ies"}`].filter(Boolean).join(" · ");
 
   if (recaps.length) heading(SCROLL, "Recaps", "Where the story stands. Only the newest one is read — by the narrator and by everyone offstage.");
   if (recaps.length && facts.length) recaps.push(["entries"]);
@@ -4693,7 +4695,8 @@ function renderEntries() {
     el.className = "entry" + (e.enabled ? "" : " off") + (e.recap ? (i === newest ? " recap newest" : " recap older") : "");
     el.innerHTML =
       `<summary>` +
-      `<input type="checkbox" class="pick" ${e.enabled ? "checked" : ""} data-i="${i}" data-f="enabled" aria-label="Enabled">` +
+      `<span class="emark" aria-hidden="true">${e.recap ? SCROLL : SPARK}</span>` +
+      `<input type="checkbox" class="pick" ${e.enabled ? "checked" : ""} data-i="${i}" data-f="enabled" aria-label="In use" title="In use">` +
       `<span class="etitle"><span class="ename">${esc(e.comment || e.keys[0] || "Untitled entry")}</span>` +
       `<span class="emeta">${e.recap ? `<span class="ebadge${i === newest ? " new" : ""}">${i === newest ? "✦ Newest" : "Older"}</span>`
         : e.constant ? `<span class="ebadge">Always on</span>`
@@ -4731,7 +4734,8 @@ function renderEntries() {
   });
 
   if (!box.children.length) {
-    box.innerHTML = `<p class="hint">${editingBook.entries.length ? "Nothing matches that." : "No entries yet."}</p>`;
+    box.innerHTML = editingBook.entries.length ? `<p class="hint eempty">Nothing matches that.</p>`
+      : `<div class="eempty"><span class="ebh-icon">${SPARK}</span><p>An empty book.</p><p class="hint">Add a recap for where the story stands, or an entry for someone or something in it.</p></div>`;
   }
 }
 

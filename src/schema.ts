@@ -214,6 +214,21 @@ CREATE TABLE IF NOT EXISTS steward_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_steward_chat ON steward_runs(chat_id, created_at);
+
+-- Every time the world offstage was given its turn, and what came of it: who
+-- moved, who took up a goal, or why nothing did. Kept, not held in memory, so
+-- a world that has stood still says why even after the app was closed.
+CREATE TABLE IF NOT EXISTS offstage_runs (
+  id         TEXT PRIMARY KEY,
+  chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL DEFAULT 'day',
+  note       TEXT NOT NULL DEFAULT '',
+  acted      INTEGER NOT NULL DEFAULT 0,
+  goals      INTEGER NOT NULL DEFAULT 0,
+  problem    TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_offstage_runs_chat ON offstage_runs(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_npcs_chat ON npcs(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_rolls_chat ON rolls(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_links_book ON lorebook_links(book_id);
