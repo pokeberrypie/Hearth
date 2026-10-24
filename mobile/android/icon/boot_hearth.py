@@ -42,7 +42,7 @@ def keep(el):
     fill = (el.get(A + "fillColor") or "").upper()
     stroke = (el.get(A + "strokeColor") or "").upper()
     grate = fill in GRATE or stroke in GRATE
-    if FRONT != grate:
+    if FRONT and not grate:
         return False
     if fill in FLAME or fill in POT or fill in HOLLOW:
         return False
