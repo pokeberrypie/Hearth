@@ -183,9 +183,13 @@ const attr = (attrs, name) =>
  * See sanitise().
  */
 function styleInline(escaped) {
+  // The span is written without quotes in it (class=say), so no later rule here can mistake its own markup for
+  // dialogue. Straight quotes arrive escaped — esc() turns " into &quot; — and a regex script's markup may still
+  // carry bare ones, but never one that opens an attribute's value (="…").
   return escaped
-    .replace(/"([^"\n]+)"/g, '<span class="say">&ldquo;$1&rdquo;</span>')
-    .replace(/\u201c([^\u201d\n]+)\u201d/g, '<span class="say">&ldquo;$1&rdquo;</span>')
+    .replace(/&quot;((?:(?!&quot;)[^\n])+)&quot;/g, "<span class=say>&ldquo;$1&rdquo;</span>")
+    .replace(/(?<![=\w])"([^"\n<>]+)"/g, "<span class=say>&ldquo;$1&rdquo;</span>")
+    .replace(/\u201c([^\u201d\n]+)\u201d/g, "<span class=say>&ldquo;$1&rdquo;</span>")
     .replace(/\*\*\*([^\n]+?)\*\*\*/g, "<strong><em>$1</em></strong>")
     .replace(/\*\*([^\n]+?)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[\s(])\*([^*\n]+?)\*/gm, "$1<em>$2</em>");
