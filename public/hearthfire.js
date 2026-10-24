@@ -18,10 +18,9 @@
  * a second fire in front of the stone, whose foot is the arch of the opening
  * itself, reaching down into the top of the opening so the fire inside and the
  * fire pouring out are one, fanning up and out over the chimney breast and the
- * mantel. Then the room catches: flames rise from the floor across the whole
- * width, from below the screen, and climb to meet it until the hearth and the
- * screen are fire. Never a flat edge: the one fire starts in the grate, and the
- * other below the bottom of the screen.
+ * mantel. Then it spills: its foot sweeps down past the hearthstone and off the
+ * bottom of the screen, and it spreads to the edges, until the hearth and the
+ * screen are fire — one fire throughout, never a second one rising to meet it.
  *
  * And then it parts, the way water would: an opening wells up in the middle of
  * the flames — a rippling oval with a thick rim, each colour drawn back by its
@@ -194,9 +193,8 @@
     const out = clamp((heat - 0.12) / 0.88, 0, 1);              // nothing outside until the firebox is full
     const half = lerp(mouth * 1.05, w * 0.95, Math.pow(out, 1.9));
     const tall = lerp((grate.y - archTop) * 0.5, h * 1.55, Math.pow(out, 1.2));
-    // The room catching: flames from the floor, rising to meet the fire from the hearth.
-    const floor = ease(clamp((heat - 0.36) / 0.56, 0, 1));
-    const floorTall = lerp(0, h * 1.6, floor);
+    // Spilling: the same fire's foot sweeping down off the hearth to the bottom of the screen.
+    const spill = ease(clamp((heat - 0.36) / 0.56, 0, 1));
     // The foot of the fire pouring out: across the mouth it is the grate itself — one fire from the logs up
     // and out, the logs drawn over it — and at the sides of the mouth it meets the arch's springing.
     // Its foot is the floor of the firebox, over the logs — the fire has them — and past the jambs it
@@ -250,8 +248,9 @@
           const side = clamp((Math.abs(u) - 0.7) / 0.3, 0, 1);
           const crown = archTop + sink - tall * heightAt(li, u, t, out) + (1 - out) * 4 * u0;
           const top = Math.min(foot, lerp(crown, foot, side * side * (3 - 2 * side)));
-          // And as the room catches, its foot goes down with the fire from the floor, so the two are one.
-          const low = Math.max(top, lerp(foot, h + 12, Math.min(1, floor * 1.6)));
+          // And as it spills, its foot sweeps down, the middle first, past the bottom of the screen.
+          const reachDown = clamp(spill * 1.6 - Math.abs(u) / 1.15 * 0.6 * (1 - spill), 0, 1);
+          const low = Math.max(top, lerp(foot, h + 12, reachDown));
           tops.push([x, top]); lows.push([x, low]);
         }
         ctx.beginPath();
@@ -261,23 +260,6 @@
         ctx.closePath();
         ctx.fill();
         ctx.restore();
-        // The room's, in the same colour — the two fires drawn as one, colour by colour, so neither cuts
-        // across the other.
-        if (floorTall > 0) {
-        ctx.save();
-        if (split > 0) { ctx.beginPath(); opening(li * rim); ctx.clip("evenodd"); }
-        ctx.fillStyle = LAYERS[li].colour;
-        ctx.beginPath();
-        ctx.moveTo(-20, h + 20);
-        for (let i = 0; i <= N; i++) {
-          const u = -1 + (2 * i) / N;
-          ctx.lineTo(w / 2 + u * (w / 2 + 20), h + 8 - floorTall * heightAt(li, u * 0.92, t + 7.3, 0.6));
-        }
-        ctx.lineTo(w + 20, h + 20);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-        }
       }
     }
     // Licks broken off the tongues, and thrown off the walls as they part; embers above them.
@@ -317,9 +299,9 @@
     const heat = ease(clamp((now - s.start) / RISE_MS, 0, 1));
     if (s.splitStart) s.split = ease(clamp((now - s.splitStart) / PART_MS, 0, 1));
     s.root.style.setProperty("--heat", heat.toFixed(3));
-    // The hearth and its logs go as the fire from the floor reaches them, not before and not after.
-    const floorNow = ease(clamp((heat - 0.36) / 0.56, 0, 1));
-    const gone = clamp((floorNow - 0.18) / 0.3, 0, 1);
+    // The hearth goes as the fire spilling over it covers it, not before and not after.
+    const spillNow = ease(clamp((heat - 0.36) / 0.56, 0, 1));
+    const gone = clamp((spillNow - 0.18) / 0.3, 0, 1);
     s.svg.style.opacity = String(1 - gone * gone * (3 - 2 * gone));
     const g = draw(s, heat, t, s.split);
 
