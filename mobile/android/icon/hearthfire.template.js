@@ -51,6 +51,14 @@
   ];
 
   const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+  // Easing for the rise itself: gentler through the middle than ease, so the growth never lurches.
+  const glide = (t) => (1 - Math.cos(Math.PI * t)) / 2;
+  // From a to b by the same proportion each step: a fire growing at a steady rate, from a few tongues to
+  // the whole screen, rather than one that creeps and then bursts.
+  const grow = (a, b, k) => a * Math.pow(b / a, k);
+  // How far the fire has come out of the hearth, and how far it has spilled down off it.
+  const outOf = (heat) => clamp((heat - 0.12) / 0.88, 0, 1);
+  const spillOf = (heat) => glide(clamp((outOf(heat) - 0.3) / 0.6, 0, 1));
   const lerp = (a, b, t) => a + (b - a) * t;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -190,18 +198,22 @@
 
     // The fire out of the mouth. Its foot is the arch of the opening; beyond the opening its lower edge
     // rises, so the flames fan up and out over the stone; as it grows that edge sweeps down to the floor.
-    const out = clamp((heat - 0.12) / 0.88, 0, 1);              // nothing outside until the firebox is full
-    const half = lerp(mouth * 1.05, w * 0.95, Math.pow(out, 1.9));
-    const tall = lerp((grate.y - archTop) * 0.5, h * 1.55, Math.pow(out, 1.2));
+    const out = outOf(heat);                                    // nothing outside until the firebox is full
+    // Wide enough at the end that even the narrowest colour runs off both sides of the screen.
+    // Up before out: a fire climbs first and spreads after.
+    const half = grow(mouth * 1.05, w * 1.45, Math.pow(out, 1.5));
+    const tall = grow((grate.y - archTop) * 0.5, h * 1.55, Math.pow(out, 0.8));
     // Spilling: the same fire's foot sweeping down off the hearth to the bottom of the screen.
-    const spill = ease(clamp((heat - 0.36) / 0.56, 0, 1));
+    const spill = spillOf(heat);
     // The foot of the fire pouring out: across the mouth it is the grate itself — one fire from the logs up
     // and out, the logs drawn over it — and at the sides of the mouth it meets the arch's springing.
     // Its foot is the floor of the firebox, over the logs — the fire has them — and past the jambs it
     // rises off the floor in one wavering line, so nothing of the stone shows between the two fires.
     const floorY = (s.hearthBottom || grate.y + 6 * u0) - 0.5 * u0;
     // It takes the logs as it comes out: its foot goes down from the grate to the floor.
-    const footY = lerp(grate.y, floorY, ease(clamp(out / 0.18, 0, 1)));
+    const footY = lerp(grate.y, floorY, glide(clamp(out / 0.25, 0, 1)));
+    // And it comes out of the mouth softly, not all at once over the fire in the box.
+    const emerge = glide(clamp(out / 0.08, 0, 1));
     // The opening: an oval welling up in the middle of the fire, taller than it is wide, rippling at its rim.
     // It spreads until it is past every edge of the screen. Each colour is drawn back by its own amount, the
     // brightest most, so the rim is a layered wall of fire around the gap.
@@ -226,6 +238,7 @@
         ctx.save();
         if (split > 0) { ctx.beginPath(); opening(li * rim); ctx.clip("evenodd"); }
         ctx.fillStyle = LAYERS[li].colour;
+        ctx.globalAlpha = emerge;
         const tops = [], lows = [];
         // The brighter the colour, the narrower: in the mouth the fire is deep orange at its sides and gold
         // to pale at its heart, as a fire in a grate is.
@@ -249,7 +262,8 @@
           const crown = archTop + sink - tall * heightAt(li, u, t, out) + (1 - out) * 4 * u0;
           const top = Math.min(foot, lerp(crown, foot, side * side * (3 - 2 * side)));
           // And as it spills, its foot sweeps down, the middle first, past the bottom of the screen.
-          const reachDown = clamp(spill * 1.6 - Math.abs(u) / 1.15 * 0.6 * (1 - spill), 0, 1);
+          // Never at the colour's very edge, so its side is a curve down from its tip and not a wall.
+          const reachDown = glide(clamp(spill * 1.9 - Math.abs(u) / 1.15 * 1.3 * (1 - spill), 0, 1)) * (1 - side * side * (3 - 2 * side));
           const low = Math.max(top, lerp(foot, h + 12, reachDown));
           tops.push([x, top]); lows.push([x, low]);
         }
@@ -296,12 +310,11 @@
     const dt = Math.min(0.05, (now - s.last) / 1000);
     s.last = now;
     const t = now / 1000;
-    const heat = ease(clamp((now - s.start) / RISE_MS, 0, 1));
+    const heat = glide(clamp((now - s.start) / RISE_MS, 0, 1));
     if (s.splitStart) s.split = ease(clamp((now - s.splitStart) / PART_MS, 0, 1));
     s.root.style.setProperty("--heat", heat.toFixed(3));
     // The hearth goes as the fire spilling over it covers it, not before and not after.
-    const spillNow = ease(clamp((heat - 0.36) / 0.56, 0, 1));
-    const gone = clamp((spillNow - 0.18) / 0.3, 0, 1);
+    const gone = clamp((spillOf(heat) - 0.15) / 0.4, 0, 1);
     s.svg.style.opacity = String(1 - gone * gone * (3 - 2 * gone));
     const g = draw(s, heat, t, s.split);
 
