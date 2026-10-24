@@ -8044,6 +8044,7 @@ const money = (n) =>
 
 function setModel(id, info) {
   currentModel = id;
+  modelFor[$("#provider").value] = id || "";
   $("#modelLabel").textContent = id || "Choose a model";
   const m = info ?? allModels.find((x) => x.id === id);
   $("#modelPrice").textContent =
@@ -9637,6 +9638,12 @@ const FIELDS = [
 
 let providerMeta = {};
 let keys = {};
+/**
+ * The model last used with each provider. One shared "model" meant switching
+ * from NanoGPT to Google AI Studio carried NanoGPT's model name across, which
+ * Google has never heard of; now each provider comes back with its own.
+ */
+let modelFor = {};
 /** Set by the phone's server when it had to rebuild a damaged database. */
 let recoveryNotice = "";
 
@@ -9665,6 +9672,9 @@ async function loadSettings() {
   showSamplingSource();
   paintSampling();
   for (const id of Object.keys(providerMeta)) keys[id] = s["key_" + id] ?? "";
+  for (const id of Object.keys(providerMeta)) modelFor[id] = s["model_" + id] ?? "";
+  // A library from before this remembers one model, the current provider's.
+  if (s.model && !modelFor[s.provider]) modelFor[s.provider] = s.model;
   S.personaName = s.persona_name || "You";
   setModelLabel(s.model);
 
@@ -9815,6 +9825,9 @@ $("#provider").onchange = () => {
   $("#testHint").textContent = "";
   allModels = [];              // each provider has its own catalogue
   $("#modelHint").textContent = "";
+  // The model this provider was last used with — never the one from the provider before it.
+  setModelLabel(modelFor[$("#provider").value] || "");
+  saveSettings();
 };
 $("#api_key").oninput = () => { keys[$("#provider").value] = $("#api_key").value; };
 // A different address is a different catalogue, the same as a different provider.
@@ -9843,6 +9856,7 @@ function collect() {
   const patch = {};
   FIELDS.forEach((f) => { const v = fieldValue(f); if (v !== undefined) patch[f] = v; });
   for (const [id, v] of Object.entries(keys)) patch["key_" + id] = v;
+  for (const [id, v] of Object.entries(modelFor)) patch["model_" + id] = v;
   patch.model = currentModel;
   return patch;
 }

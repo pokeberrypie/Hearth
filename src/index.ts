@@ -11,6 +11,15 @@ import { generate, PROVIDERS } from "./providers";
  * five about a base address and a wire format. They ask for a connection now
  * and do not know there is more than one kind.
  */
+/**
+ * The model to use with a provider: the story's own when it is the story's provider, otherwise the one
+ * last used with that provider — so a Steward pointed at a different service is not handed a model name
+ * that service has never heard of.
+ */
+function modelFor(s: Record<string, string>, provider: string): string {
+  return provider === s.provider ? s.model : s[`model_${provider}`] || s.model;
+}
+
 function connectionFrom(s: Record<string, string>, provider = s.provider) {
   return {
     provider,
@@ -3958,7 +3967,7 @@ api.get("/chats/:id/factions/:key/arms.svg", async (c) => {
 /** The Offstage's own connection: its own if set, then the Steward's, then the story's. */
 function offstageConnection(s: Record<string, string>) {
   const provider = s.offstage_provider || s.steward_provider || s.provider;
-  return { ...connectionFrom(s, provider), model: s.offstage_model || s.steward_model || s.model };
+  return { ...connectionFrom(s, provider), model: s.offstage_model || s.steward_model || modelFor(s, provider) };
 }
 
 const dataOf = (e: { data: string }): any => { try { return e.data ? JSON.parse(e.data) : {}; } catch { return {}; } };
@@ -4409,7 +4418,7 @@ api.post("/chats/:id/offstage/run", async (c) => c.json(await offstageRun(c.req.
 /** The Steward's own connection, falling back to the story's for anything left empty. */
 function stewardConnection(s: Record<string, string>) {
   const provider = s.steward_provider || s.provider;
-  return { ...connectionFrom(s, provider), model: s.steward_model || s.model };
+  return { ...connectionFrom(s, provider), model: s.steward_model || modelFor(s, provider) };
 }
 
 /** Who the Steward may refer to, by number: the room, the people met on the way, and the player. */

@@ -695,3 +695,20 @@ describe("the world moves on its own", () => {
     expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
   });
 });
+
+describe("a different provider for the Offstage gets its own model, not the story's", () => {
+  test("pointed at Google, it uses the model last used with Google; on the story's provider, the story's", async () => {
+    seed();
+    setSettings({ offstage_provider: "google", key_google: "g", model_google: "gemini-2.5-pro", model_openrouter: "story/model" });
+    await goal("Cersei Lannister", "stop the wedding");
+    await send("/api/chats/ch/offstage/run", "POST");
+    const used = sent.filter((b) => !b.stream).map((b) => b.model);
+    expect(used).toContain("gemini-2.5-pro");
+    expect(used).not.toContain("story/model");
+    sent = [];
+    setSettings({ offstage_provider: "" });
+    await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "1 day" });
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(sent.filter((b) => !b.stream).map((b) => b.model)).toContain("story/model");
+  });
+});
