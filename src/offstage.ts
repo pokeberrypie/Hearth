@@ -93,6 +93,7 @@ export const OFFSTAGE_SYSTEM = [
   "WITNESS | who might have seen it — someone in the story by name, or a role like a kitchen maid | what they saw, as they saw it",
   "THREAD | open or advance or complicate or settle | its name | what changed, in a few words",
   "GOAL | a new goal, only if they take one up | why",
+  "DONE | the goal this finishes, as it is listed | how it came about, in a few words",
   "PLAN | the number of a planned scene, if one is listed | supports or complicates or conflicts | how, in a few words",
   "",
   "Rules:",
@@ -106,6 +107,7 @@ export const OFFSTAGE_SYSTEM = [
   "- PLAN only if a plan is listed and what they do bears on it: supports (it makes the scene likelier or possible), complicates (an obstacle, or the scene will play differently), conflicts (the scene cannot happen as written). Never choose what they do because of the plan.",
   "- NOTHING when they simply live their day: then ACT is the ordinary thing they do, easy, none, and there is no SEEN or FACT.",
   "- ABANDON when they give up a goal because it is costing them more than it is worth: then name the goal in the why.",
+  "- DONE only when what they do today, if it works, finishes one of the goals listed for them — the thing itself achieved, not a step toward it.",
 ].join("\n");
 
 /** The request: who they are and what they know, and nothing else. */
@@ -147,6 +149,8 @@ export type Decision = {
   fact: string;
   clue: string;
   goal: { goal: string; why: string } | null;
+  /** A goal of theirs this would finish, if it works. */
+  done: { goal: string; how: string } | null;
   threads: ThreadMove[];
   plan: PlanMark[];
   witness: { who: string; saw: string } | null;
@@ -162,7 +166,7 @@ const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/
 /** A model's answer, read. Untidy answers are read as far as they go; nothing here is believed yet. */
 export function readDecision(raw: string): Decision {
   const d: Decision = { want: "", fear: "", considered: [], choice: "", why: "", kind: "nothing", act: "", difficulty: "easy",
-    harm: "none", seen: "", fact: "", clue: "", goal: null, threads: [], plan: [], witness: null };
+    harm: "none", seen: "", fact: "", clue: "", goal: null, done: null, threads: [], plan: [], witness: null };
   const text = String(raw ?? "")
     .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
     .replace(/```[a-z]*\n?/gi, "");
@@ -198,6 +202,7 @@ export function readDecision(raw: string): Decision {
       const relation = /^conflict|imposs|prevent/.test(rel) ? "conflicts" : /^complicat|hinder|obstacle/.test(rel) ? "complicates" : /^support|help|enable/.test(rel) ? "supports" : null;
       if (n > 0 && relation) d.plan.push({ n, relation, how: parts.slice(3).join(" | ") });
     } else if (key === "GOAL" && parts[1] && !saysNothing(parts[1])) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
+    else if ((key === "DONE" || key === "ACHIEVED" || key === "ACCOMPLISHED") && parts[1] && !saysNothing(parts[1])) d.done = { goal: parts[1], how: parts.slice(2).join(" | ") };
   }
   if (d.kind === "act" && !d.act) d.kind = "nothing";
   return d;
@@ -226,6 +231,9 @@ export type Ruling = {
   witness: { who: string; saw: string } | null;
   /** Which goal was given up, when one was. */
   abandons: string;
+  /** Which goal this finishes if it works, and how — kept only on success, in the run. */
+  achieves: string;
+  how: string;
   /** Why anything was taken out. Shown in the author's ledger, so a dull run can be understood. */
   notes: string[];
 };
@@ -268,7 +276,7 @@ export function identityOf(who: string, card: string, factions: string[] = []): 
 export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[] }): Ruling {
   const notes: string[] = [];
   const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
-    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", notes };
+    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", achieves: "", how: "", notes };
   if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.clue = ""; r.harm = "none"; r.difficulty = "easy"; }
   // Something that cannot fail leaves no careless trace.
   if (r.difficulty === "easy") r.clue = "";
@@ -276,6 +284,14 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
     const target = o.goals.find((g) => words(d.why + " " + d.choice).some((w) => w.length > 3 && words(g.goal).includes(w))) ?? (o.goals.length === 1 ? o.goals[0] : undefined);
     if (target) r.abandons = target.id;
     else { notes.push("gave up a goal it could not name"); r.kind = "nothing"; }
+  }
+  // Finished, if it works: one of their own goals, named so it can be found — by its words, or the only one they have.
+  if (d.kind === "act" && d.done) {
+    const said = words(d.done.goal);
+    const target = o.goals.find((g) => said.filter((w) => w.length > 3 && words(g.goal).includes(w)).length >= Math.min(2, said.filter((w) => w.length > 3).length))
+      ?? (o.goals.length === 1 ? o.goals[0] : undefined);
+    if (target) { r.achieves = target.id; r.how = d.done.how.replace(/\s+/g, " ").trim().slice(0, 240); }
+    else notes.push("said it finished a goal it could not name");
   }
   // Only ever their own actions: a line that puts words or deeds in the player's mouth is not a decision of theirs.
   const playerWords = words(o.player).filter((w) => w.length > 2);

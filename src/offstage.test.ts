@@ -947,3 +947,78 @@ describe("a death, and the world stirred", () => {
     expect(saysNothing("none of his brothers may know")).toBe(false);
   });
 });
+
+describe("goals that end, and are put away", () => {
+  const goals = async () => (await ledger()).goals;
+  const later = (days: number) => db.query("INSERT INTO chronicle (id, chat_id, kind, span, title, source, created_at) VALUES (?, 'ch', 'time', ?, 'later', 'user', ?)")
+    .run(`t${Math.random()}`, days * 1440, Date.now() + days);
+  function court() {
+    seed();
+    setSettings({ offstage_level: "dynamic", offstage_per_day: "6" });
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('x1', 'ch', 'j', 0)").run();
+    presenceAnswer = "HERE | Jaime Lannister\nAWAY | Cersei Lannister | the Red Keep";
+  }
+
+  test("a goal is done when what they do finishes it — and only if it works", async () => {
+    court();
+    await goal("Cersei Lannister", "have the septa spread word of Targaryen blood");
+    answers = ["CHOOSE | the septa | now\nACT | Cersei has the septa whisper to the High Septon | easy | social\nDONE | have the septa spread word | the High Septon heard it from the septa herself"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const [g] = await goals();
+    expect(g.status).toBe("achieved");
+    expect(g.how).toContain("High Septon");
+  });
+
+  test("a failed attempt finishes nothing", async () => {
+    court();
+    await goal("Cersei Lannister", "have the septa spread word of Targaryen blood");
+    const rnd = Math.random;
+    Math.random = () => 0;               // the worst roll there is
+    try {
+      answers = ["CHOOSE | the septa | now\nACT | Cersei bribes the loyal septa | hard | social\nDONE | have the septa spread word | bribed"];
+      await send("/api/chats/ch/offstage/run", "POST");
+    } finally { Math.random = rnd; }
+    expect((await goals())[0].status).toBe("active");
+  });
+
+  test("three days after it came to pass, it is in the chat's lorebook and gone from the ledger", async () => {
+    court();
+    await goal("Cersei Lannister", "crown Joffrey");
+    const id = (await goals())[0].id;
+    await send(`/api/chats/ch/offstage/goal/${id}`, "POST", { status: "achieved", how: "the Gold Cloaks turned" });
+    later(2);
+    expect((await goals())[0].leaves).toBe(1);
+    later(1);
+    expect(await goals()).toEqual([]);
+    const book = db.query(`SELECT lorebooks.entries FROM lorebooks JOIN lorebook_links ON lorebook_links.book_id = lorebooks.id
+      WHERE lorebook_links.scope = 'chat' AND lorebook_links.target_id = 'ch'`).get() as any;
+    const [entry] = JSON.parse(book.entries);
+    expect(entry.comment).toBe("Cersei Lannister: crown Joffrey");
+    expect(entry.content).toContain("the Gold Cloaks turned");
+    expect(entry.keys).toContain("Cersei");
+  });
+
+  test("one given up is cleared, not made lore; and with the switch off, nothing is put away", async () => {
+    court();
+    await goal("Cersei Lannister", "poison the girl");
+    await send(`/api/chats/ch/offstage/goal/${(await goals())[0].id}`, "POST", { status: "abandoned" });
+    setSettings({ goal_archive: "0" });
+    later(5);
+    expect((await goals()).length).toBe(1);
+    setSettings({ goal_archive: "1" });
+    expect(await goals()).toEqual([]);
+    expect(db.query("SELECT COUNT(*) n FROM lorebooks").get()).toEqual({ n: 0 });
+  });
+
+  test("Remove takes a goal out at once; Clear takes every ended one", async () => {
+    court();
+    await goal("Cersei Lannister", "crown Joffrey");
+    await goal("Petyr Baelish", "sell Ned");
+    await goal("Varys", "watch");
+    const [a, b] = await goals();
+    expect((await send(`/api/chats/ch/offstage/goal/${a.id}`, "DELETE")).status).toBe(200);
+    await send(`/api/chats/ch/offstage/goal/${b.id}`, "POST", { status: "abandoned" });
+    expect((await (await send("/api/chats/ch/offstage/goals/clear", "POST")).json()).cleared).toBe(1);
+    expect((await goals()).map((g: any) => g.who)).toEqual(["Varys"]);
+  });
+});

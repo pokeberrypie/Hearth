@@ -619,6 +619,8 @@ export const DEFAULTS: Record<string, string> = {
   gossip_level: "natural",
   /** Whether a threat to the player's character waits for a yes before it comes into the story. Off: it just arrives. */
   offstage_threat_ask: "0",
+  // Finished goals put away after a few story days: achieved ones into the chat's lorebook, the rest cleared.
+  goal_archive: "1",
   /** Whether the model's own tracker sheets (@Status, <status>…) show in replies. Off: they are left out of what you see. */
   show_trackers: "0",
   /** How many of the latest messages keep their tracker sheets in what is sent to the model; 31 keeps them all. */

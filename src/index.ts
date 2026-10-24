@@ -4073,14 +4073,80 @@ const dataOf = (e: { data: string }): any => { try { return e.data ? JSON.parse(
 
 /** Goals, with how each stands now: a goal is its entry, and any later entry about it (`data.of`) changes its status. */
 function agendasOf(entries: ChronicleEntry[]) {
-  const out = new Map<string, Agenda & { status: string; since: number; source: string }>();
+  const out = new Map<string, Agenda & { status: string; since: number; source: string; ended: number | null; how: string }>();
   for (const e of liveEntries(entries)) {
     if (e.kind !== "agenda") continue;
     const d = dataOf(e);
-    if (d.of) { const g = out.get(d.of); if (g) g.status = String(d.status || g.status); continue; }
-    out.set(e.id, { id: e.id, who: e.subject ?? "", goal: e.title, why: e.body, status: "active", since: e.day ?? 0, source: e.source });
+    if (d.of) {
+      const g = out.get(d.of);
+      if (g) { g.status = String(d.status || g.status); g.ended = g.status === "active" ? null : e.day ?? null; g.how = String(d.how ?? ""); }
+      continue;
+    }
+    out.set(e.id, { id: e.id, who: e.subject ?? "", goal: e.title, why: e.body, status: "active", since: e.day ?? 0, source: e.source, ended: null, how: "" });
   }
   return [...out.values()];
+}
+
+/** How many story days a finished goal stays in the ledger before it is put away. */
+const GOAL_KEEP_DAYS = 3;
+
+/**
+ * Finished goals, put away once they are a few days old: one that came to pass becomes a lorebook entry — what
+ * they set out to do, and how it came about, now part of what the world knows — in the chat's own book; one
+ * given up, or ended by a death, is simply cleared from the ledger. Off, they stay where they are.
+ */
+function archiveGoals(chatId: string) {
+  const s = getSettings();
+  if (s.goal_archive === "0") return { archived: 0, cleared: 0 };
+  const entries = chronicleOf(chatId);
+  const cal = calendarOf(chatId);
+  const today = clockOf(cal, entries).day;
+  const due = agendasOf(entries).filter((g) => g.status !== "active" && g.ended !== null && today - g.ended >= GOAL_KEEP_DAYS);
+  if (!due.length) return { archived: 0, cleared: 0 };
+  const achieved = due.filter((g) => g.status === "achieved");
+  if (achieved.length) {
+    const book = notesBookFor(chatId);
+    if (book) {
+      const was = readEntries(book);
+      const add = achieved.map((g) => {
+        const first = g.who.split(/\s+/)[0];
+        return normaliseEntry({
+          keys: [...new Set([g.who, first].filter((k) => k && k.length > 2))],
+          comment: `${g.who}: ${g.goal}`.slice(0, 120),
+          content: `${g.who} set out to ${g.goal.replace(/^to\s+/i, "")}${g.ended !== null ? `, and by ${formatDate(cal, { day: g.ended, minute: 0 })} it had come to pass` : ", and it came to pass"}${g.how ? `: ${g.how}` : ""}.`,
+          order: 200, position: "after_char",
+        });
+      });
+      db.query("UPDATE lorebooks SET entries = ? WHERE id = ?").run(JSON.stringify(stampEntries(was, [...was, ...add], now())), book.id);
+    }
+  }
+  // Out of the ledger: the goal and every change to it.
+  const ids = new Set(due.map((g) => g.id));
+  const gone = liveEntries(entries).filter((e) => e.kind === "agenda" && (ids.has(e.id) || ids.has(String(dataOf(e).of ?? ""))));
+  const t = now();
+  const undo = db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?");
+  db.transaction(() => { for (const e of gone) undo.run(t, e.id); })();
+  return { archived: achieved.length, cleared: due.length - achieved.length };
+}
+
+/**
+ * The lorebook a chat keeps its own notes in: the one its notes already go to, or one of its own linked to
+ * it, made the first time it is needed and named for the chat.
+ */
+function notesBookFor(chatId: string): any | null {
+  const chat = db.query("SELECT id, title, auto_lore_book_id FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return null;
+  const own = chat.auto_lore_book_id
+    ? db.query("SELECT * FROM lorebooks WHERE id = ? AND deleted_at IS NULL").get(chat.auto_lore_book_id) as any : null;
+  if (own) return own;
+  const linked = db.query(`SELECT lorebooks.* FROM lorebooks JOIN lorebook_links ON lorebook_links.book_id = lorebooks.id
+    WHERE lorebook_links.scope = 'chat' AND lorebook_links.target_id = ? AND lorebooks.deleted_at IS NULL ORDER BY lorebooks.created_at LIMIT 1`).get(chatId) as any;
+  if (linked) return linked;
+  const id = uid();
+  db.query("INSERT INTO lorebooks (id, name, entries, created_at, world) VALUES (?,?,?,?,?)")
+    .run(id, `${chat.title || "This chat"} — what came to pass`, "[]", now(), currentWorld());
+  db.query("INSERT INTO lorebook_links (id, book_id, scope, target_id) VALUES (?,?,?,?)").run(uid(), id, "chat", chatId);
+  return db.query("SELECT * FROM lorebooks WHERE id = ?").get(id);
 }
 
 /** Someone the tracker says is dead. */
@@ -4540,6 +4606,8 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
       threats++;
     }
     if (r.abandons) add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.abandons, status: "abandoned" } }));
+    // Finished: only if it worked. A goal is not achieved by trying.
+    if (r.achieves && outcome === "succeeded") add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.achieves, status: "achieved", how: r.how } }));
     if (r.goal && outcome !== "dropped") took++;
     if (r.goal && outcome !== "dropped") add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: r.goal.goal, body: r.goal.why, created_at: t++ }));
     copyChronicle(add, chatId);
@@ -4702,6 +4770,7 @@ const OFFSTAGE_EVERY = 20;
 export async function offstageTurn(chatId: string) {
   const s = getSettings();
   if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
+  try { archiveGoals(chatId); } catch (e) { console.error("[offstage] putting goals away:", e); }
   const chat = db.query("SELECT offstage_day FROM chats WHERE id = ?").get(chatId) as any;
   if (!chat) return;
   const day = clockOf(calendarOf(chatId), chronicleOf(chatId)).day;
@@ -4764,12 +4833,15 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
 /** The ledger: goals, what people did, what reached the narrator. For the author, who sees it only when they unseal it. */
 api.get("/chats/:id/offstage", (c) => {
   const chatId = c.req.param("id");
+  try { archiveGoals(chatId); } catch {}
   const entries = chronicleOf(chatId);
   const live = liveEntries(entries);
   const cal = calendarOf(chatId);
   const when = (e: ChronicleEntry) => (e.day !== null ? formatDate(cal, { day: e.day, minute: e.minute ?? 0 }) : "");
   return c.json({
-    goals: agendasOf(entries).map(({ id, who, goal, why, status, source }) => ({ id, who, goal, why, status, source })),
+    goals: agendasOf(entries).map(({ id, who, goal, why, status, source, ended, how }) => ({ id, who, goal, why, status, source, how,
+      // Days left before a finished goal is put away, so the ledger can say so.
+      leaves: ended !== null && getSettings().goal_archive !== "0" ? Math.max(0, GOAL_KEEP_DAYS - (clockOf(cal, entries).day - ended)) : null })),
     actions: live.filter((e) => e.kind === "offstage").reverse().slice(0, 60)
       .map((e) => ({ id: e.id, who: e.subject, what: e.title, why: e.body, when: when(e), ...dataOf(e) })),
     told: {
@@ -4836,10 +4908,33 @@ api.post("/chats/:id/offstage/goal/:goal", async (c) => {
   const chatId = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const status = ["active", "abandoned", "achieved"].includes(b.status) ? b.status : "abandoned";
-  if (!agendasOf(chronicleOf(chatId)).some((g) => g.id === c.req.param("goal"))) return c.json({ error: "No such goal." }, 404);
+  const entries = chronicleOf(chatId);
+  if (!agendasOf(entries).some((g) => g.id === c.req.param("goal"))) return c.json({ error: "No such goal." }, 404);
+  // Dated in the story, so a finished goal is put away when it is a few days old, not never.
+  const at = clockOf(calendarOf(chatId), entries);
   copyChronicle([normaliseChronicleEntry({ id: uid(), kind: "agenda", title: "", visibility: "private", source: "user",
-    created_at: now(), data: { of: c.req.param("goal"), status } })], chatId);
+    day: at.day, minute: at.minute, created_at: now(), data: { of: c.req.param("goal"), status, how: String(b.how ?? "").slice(0, 240) } })], chatId);
   return c.json({ ok: true });
+});
+
+/** A goal gone: never wanted, or no longer wanted on the page. It and every change to it, out of the ledger. */
+api.delete("/chats/:id/offstage/goal/:goal", (c) => {
+  const chatId = c.req.param("id"), goal = c.req.param("goal");
+  const hit = db.query("UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'agenda' AND undone_at IS NULL AND (id = ? OR json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.of') = ?)")
+    .run(now(), chatId, goal, goal);
+  return hit.changes ? c.json({ ok: true }) : c.json({ error: "No such goal." }, 404);
+});
+
+/** Every goal that has ended — achieved, given up, ended by a death — out of the ledger at once. */
+api.post("/chats/:id/offstage/goals/clear", (c) => {
+  const chatId = c.req.param("id");
+  const entries = chronicleOf(chatId);
+  const ended = new Set(agendasOf(entries).filter((g) => g.status !== "active").map((g) => g.id));
+  const gone = liveEntries(entries).filter((e) => e.kind === "agenda" && (ended.has(e.id) || ended.has(String(dataOf(e).of ?? ""))));
+  const t = now();
+  const undo = db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?");
+  db.transaction(() => { for (const e of gone) undo.run(t, e.id); })();
+  return c.json({ cleared: ended.size });
 });
 
 /** A day offstage, now: for trying it, and for when the story wants the world to move. */

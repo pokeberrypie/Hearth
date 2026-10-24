@@ -8331,6 +8331,8 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 .wdsealedledger { text-align: center; padding: 1rem 0.5rem 0.4rem; }
 .wdsealedledger .wdseal { color: var(--lumiverse-primary); font-size: 1.4rem; }
 .wdoffadd { display: grid; gap: 0.45rem; margin: 0.4rem 0 1rem; }
+.wdgoaltools { display: flex; gap: 0.7rem; flex-wrap: wrap; justify-content: flex-end; flex: none; }
+.wdledger li.achieved > div:first-child, .wdledger li.abandoned > div:first-child, .wdledger li.died > div:first-child { opacity: 0.72; }
 .wdoffadd.wdstir { grid-template-columns: 1fr auto; margin: 0.8rem 0 0.2rem; }
 .wdbad { color: #d98a6a; }
 .wdledger { list-style: none; margin: 0 0 1rem; padding: 0; }

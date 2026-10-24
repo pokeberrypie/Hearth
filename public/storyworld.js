@@ -534,9 +534,17 @@ async function paintOffstage() {
       ${run}${addGoal}${manner}`;
   } else {
     const OUT = { succeeded: "it worked", failed: "it failed", routine: "an ordinary day", threat: "held as a scene", dropped: "not allowed" };
-    const goals = l.goals.map((g) => `<li class="${g.status}"><div><b>${txt(g.who)}</b> — ${txt(g.goal)}${g.why ? `<div class="wdwhen">${txt(g.why)}</div>` : ""}
-        <div class="wdwhen">${g.status}${g.source === "offstage" ? " · their own idea" : ""}</div></div>
-        ${g.status === "active" ? `<button type="button" class="linkish" data-giveup="${g.id}">Give up</button>` : ""}</li>`).join("");
+    // Active first; then what has ended, with what became of it and when it will be put away.
+    const STATUS = { active: "active", achieved: "came to pass", abandoned: "given up", died: "ended with them" };
+    const ordered = [...l.goals.filter((g) => g.status === "active"), ...l.goals.filter((g) => g.status !== "active")];
+    const goals = ordered.map((g) => `<li class="${g.status}"><div><b>${txt(g.who)}</b> — ${txt(g.goal)}${g.why ? `<div class="wdwhen">${txt(g.why)}</div>` : ""}
+        ${g.how ? `<div class="wdwhen">How: ${txt(g.how)}</div>` : ""}
+        <div class="wdwhen">${txt(STATUS[g.status] ?? g.status)}${g.source === "offstage" ? " · their own idea" : ""}${g.leaves !== null && g.leaves !== undefined
+          ? ` · ${g.status === "achieved" ? "into the lorebook" : "cleared"} ${g.leaves ? `in ${g.leaves} day${g.leaves === 1 ? "" : "s"}` : "soon"}` : ""}</div></div>
+        <div class="wdgoaltools">${g.status === "active" ? `<button type="button" class="linkish" data-goaldone="${g.id}">Done</button>
+          <button type="button" class="linkish" data-giveup="${g.id}">Give up</button>` : ""}
+          <button type="button" class="linkish" data-goalrm="${g.id}">Remove</button></div></li>`).join("");
+    const ended = l.goals.filter((g) => g.status !== "active").length;
     // The quiet days are one line, not a list: a world mostly living its life should read that way,
     // and a row of identical "an ordinary day"s buried the days anything happened.
     const quiet = l.actions.filter((a) => a.outcome === "routine");
@@ -563,7 +571,8 @@ async function paintOffstage() {
     body.innerHTML = `${off}
       <div class="wdrow wdledgerbar"><span class="wdkicker">The ledger</span><button type="button" class="linkish" id="wdReseal">Seal it again</button></div>
       ${run}
-      <div class="wdkicker">Goals</div>${goals ? `<ul class="wdledger">${goals}</ul>` : `<p class="hint">None yet.</p>`}
+      <div class="wdrow"><span class="wdkicker">Goals</span>${ended ? `<button type="button" class="linkish" id="wdClearGoals">Clear ${ended} ended</button>` : ""}</div>
+      ${goals ? `<ul class="wdledger">${goals}</ul>` : `<p class="hint">None yet.</p>`}
       ${addGoal}${manner}
       ${threads ? `<div class="wdkicker">Threads, behind the scenes</div><ul class="wdledger">${threads}</ul>` : ""}
       ${whispers ? `<div class="wdkicker">Who knows what</div><ul class="wdledger">${whispers}</ul>` : ""}
@@ -577,6 +586,14 @@ async function paintOffstage() {
       body: JSON.stringify({ who: sel.dataset.manner, discretion: sel.value }) }).catch(() => toast("That could not be saved."));
   }
   $("#wdReseal")?.addEventListener("click", () => { W.ledgerOpen = false; paintOffstage(); });
+  const goalCall = (url, init) => api(url, init).catch(() => ({ error: "That could not be saved." })).then((r) => { if (r?.error) toast(r.error); paintOffstage(); });
+  for (const b of body.querySelectorAll("[data-goaldone]")) {
+    b.onclick = () => goalCall(`/chats/${S.chatId}/offstage/goal/${b.dataset.goaldone}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "achieved" }) });
+  }
+  for (const b of body.querySelectorAll("[data-goalrm]")) {
+    b.onclick = () => goalCall(`/chats/${S.chatId}/offstage/goal/${b.dataset.goalrm}`, { method: "DELETE" });
+  }
+  $("#wdClearGoals")?.addEventListener("click", () => goalCall(`/chats/${S.chatId}/offstage/goals/clear`, { method: "POST" }));
   for (const b of body.querySelectorAll("[data-giveup]")) {
     b.onclick = async () => { await api(`/chats/${S.chatId}/offstage/goal/${b.dataset.giveup}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "abandoned" }) }); paintOffstage(); };
   }
@@ -867,9 +884,9 @@ function paintSetDate() {
 const WORLD_KEYS = ["story_world", "steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source",
   "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day",
   "offstage_provider", "offstage_model", "gossip_level", "gossip_distortion", "gossip_misinfo", "gossip_decay",
-  "offstage_threat_ask", "show_trackers", "tracker_keep"];
+  "offstage_threat_ask", "show_trackers", "tracker_keep", "goal_archive"];
 const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind", "gossip_misinfo",
-  "offstage_threat_ask", "show_trackers"]);
+  "offstage_threat_ask", "show_trackers", "goal_archive"]);
 
 /** Whether Story World is on at all; until the settings are read, it is. */
 const worldOn = () => W.enabled !== false;
@@ -972,6 +989,7 @@ async function paintWorldSettings() {
           ["grim", "Grim", "Injury can happen offstage; death and maiming are still always scenes."]])}
         ${swSlider("offstage_per_day", "Most things done offstage in a day", 1, 6)}
         ${swSwitch("offstage_threat_ask", "Ask me before danger comes in", "Off, a threat simply arrives in the next reply.")}
+        ${swSwitch("goal_archive", "Put finished goals away", "Three days after a goal ends: one that came to pass becomes a lorebook entry in this chat's book — which the narrator can then read — and the rest are cleared from the ledger.")}
         ${model("The Offstage", "The same as the Steward")}`)}
       ${swCard("whispers", "Whispers &amp; Rumours", "Who saw what, and who told whom", `
         ${swPills("gossip_level", "How much people talk", [
