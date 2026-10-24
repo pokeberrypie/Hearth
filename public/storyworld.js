@@ -831,12 +831,65 @@ function paintSetDate() {
 const WORLD_KEYS = ["story_world", "steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source",
   "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day",
   "offstage_provider", "offstage_model", "gossip_level", "gossip_distortion", "gossip_misinfo", "gossip_decay",
-  "offstage_threat_ask", "show_trackers"];
+  "offstage_threat_ask", "show_trackers", "tracker_keep"];
 const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind", "gossip_misinfo",
   "offstage_threat_ask", "show_trackers"]);
 
 /** Whether Story World is on at all; until the settings are read, it is. */
 const worldOn = () => W.enabled !== false;
+
+/*
+ * The panel's pieces. Every control keeps the id of the setting it is, so
+ * saving is the same whatever it looks like: a row of pills is a <select>
+ * underneath, a switch is a checkbox, a slider is a range.
+ */
+const SW_ICON = {
+  world: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"/><path d="M14.6 9.4 13 13l-3.6 1.6L11 11z"/>',
+  chronicle: '<path d="M6 3.5h9l3 3V20.5H6z"/><path d="M15 3.5v3h3"/><path d="M9 10h6M9 13.5h6M9 17h4"/>',
+  living: '<circle cx="8" cy="9" r="2.6"/><circle cx="16" cy="9" r="2.6"/><path d="M3.5 19c.6-3 2.4-4.6 4.5-4.6s3.9 1.6 4.5 4.6M11.5 19c.6-3 2.4-4.6 4.5-4.6s3.9 1.6 4.5 4.6"/>',
+  whispers: '<path d="M4 6.5h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z"/><path d="M19 9.5h1a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-.5v2.5l-3-2.5"/>',
+  apocrypha: '<path d="M4 5.5c2.8-1 5.4-1 8 .8 2.6-1.8 5.2-1.8 8-.8V19c-2.8-1-5.4-1-8 .8-2.6-1.8-5.2-1.8-8-.8z"/><path d="M12 6.3v13.5"/>',
+  arms: '<path d="M12 3.5 19.5 6v6c0 4.4-3.2 7.6-7.5 9-4.3-1.4-7.5-4.6-7.5-9V6z"/><path d="M12 8.5v8M8.5 12h7"/>',
+};
+const swIcon = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${SW_ICON[k]}</svg>`;
+const swSwitch = (id, title, hint = "") => `<label class="swswitch"><span class="swtext"><b>${title}</b>${hint ? `<small>${hint}</small>` : ""}</span>
+  <input type="checkbox" id="${id}" role="switch"><span class="swknob" aria-hidden="true"></span></label>`;
+const swSlider = (id, title, min, max, step = 1) => `<label class="swslider"><span class="swtext"><b>${title}</b><em id="v_${id}"></em></span>
+  <input type="range" id="${id}" min="${min}" max="${max}" step="${step}"></label>`;
+/** A short choice as a row of pills, each with the sentence that says what it means under the row. */
+const swPills = (id, title, options) => `<div class="swfield"><span class="swtext"><b>${title}</b></span>
+  <div class="swpills" role="radiogroup" data-for="${id}">${options.map(([v, label]) => `<button type="button" role="radio" data-v="${v}">${label}</button>`).join("")}</div>
+  <select id="${id}" hidden>${options.map(([v, label]) => `<option value="${v}">${label}</option>`).join("")}</select>
+  <small class="swsays" data-says="${id}">${options.map(([v, , says]) => `<span data-v="${v}">${says ?? ""}</span>`).join("")}</small></div>`;
+const swCard = (key, title, sub, body, open = false) => `<details class="swcard" data-card="${key}"${open ? " open" : ""}>
+  <summary><span class="swbadge">${swIcon(key)}</span><span class="swhead"><b>${title}</b><small>${sub}</small></span>
+    <span class="swchip" data-chip="${key}"></span></summary>
+  <div class="swbody">${body}</div></details>`;
+
+/** What each card says about itself while shut: the one thing worth knowing at a glance. */
+function paintWorldChips() {
+  const v = (id) => $("#" + id);
+  if (!v("story_world")) return;
+  const label = (id) => v(id)?.selectedOptions?.[0]?.textContent ?? "";
+  const chip = (k, text) => { const c = document.querySelector(`[data-chip="${k}"]`); if (c) c.textContent = text; };
+  chip("chronicle", v("steward_on").checked ? `Every ${v("steward_every").value}` : "By hand");
+  chip("living", label("offstage_level"));
+  chip("whispers", label("gossip_level"));
+  chip("apocrypha", v("apocrypha_blind").checked ? "Blind" : "Open book");
+  chip("arms", label("heraldry_style"));
+  const on = v("story_world").checked;
+  $("#swState").textContent = on ? "Story World is on" : "Story World is off";
+  document.querySelector(".swhero")?.classList.toggle("off", !on);
+  $("#swSummary").textContent = !on ? "Off — plain story chats, nothing kept, nothing extra sent."
+    : [v("steward_on").checked ? `the Steward reads every ${v("steward_every").value}` : "records kept by hand",
+       v("offstage_level").value === "off" ? "the world waits for you" : `the world moves (${label("offstage_level").toLowerCase()})`,
+       v("gossip_level").value === "off" ? "no gossip" : `${label("gossip_level").toLowerCase()} gossip`].join(" · ");
+  for (const box of document.querySelectorAll("#worldSettings .swpills")) {
+    const sel = v(box.dataset.for);
+    for (const b of box.children) b.setAttribute("aria-checked", String(b.dataset.v === sel.value));
+    for (const say of document.querySelectorAll(`[data-says="${box.dataset.for}"] span`)) say.hidden = say.dataset.v !== sel.value;
+  }
+}
 
 async function paintWorldSettings() {
   if (GUEST.on) return;
@@ -847,89 +900,95 @@ async function paintWorldSettings() {
   if (box && !$("#story_world")) {
     const providers = (none) => `<option value="">${none}</option>` +
       Object.entries(s.providers ?? {}).map(([id, m]) => `<option value="${id}">${txt(m.label)}</option>`).join("");
+    const model = (who, fallback) => `<details class="swmore"><summary>${who}'s model</summary>
+      <label class="swplain">Provider <select id="${who === "The Steward" ? "steward" : "offstage"}_provider">${providers(fallback)}</select></label>
+      <label class="swplain">Model <input id="${who === "The Steward" ? "steward" : "offstage"}_model" type="text" autocomplete="off" spellcheck="false" placeholder="${fallback}"></label>
+      <small class="swsays">${who === "The Steward" ? "Something cheaper than the storyteller is fine — it only takes notes." : "It makes decisions, so a little more thought pays off here."} Uses the key saved for that provider in Connection.</small></details>`;
     box.innerHTML = `
-      <label class="check wdmaster"><input type="checkbox" id="story_world"> Story World</label>
-      <p class="hint">The story's date, what has happened, how everyone is, who feels what, the threads left hanging, its
-        factions — and, if you want it, a world that moves on its own. Off, and chats are plain stories again: nothing
-        is kept, and nothing extra goes to the model. Your Apocrypha stories still work either way.</p>
+      <div class="swhero">
+        <span class="swbadge big">${swIcon("world")}</span>
+        <span class="swhead"><b id="swState">Story World is on</b><small id="swSummary"></small></span>
+        <label class="swswitch bare" title="Story World on or off"><input type="checkbox" id="story_world" role="switch"><span class="swknob" aria-hidden="true"></span></label>
+      </div>
       <div id="worldParts">
-      <details class="fold" open><summary><span>Keeping the records</span></summary><div class="foldbody">
-        <label class="check"><input type="checkbox" id="steward_on"> Let the Steward keep them as the story goes</label>
-        <p class="hint">The quiet second model that reads the story and writes down what it establishes. Nothing it
-          says is kept until it has been checked against the story's own words.</p>
-        <label>Read again after <span class="v" id="v_steward_every"></span>
-          <input type="range" id="steward_every" min="2" max="40" step="1"></label>
-        <label>When a lot of time passes at once
-          <select id="steward_ask_days">
-            <option value="0">Always ask me first</option><option value="1">Ask above a day</option>
+      ${swCard("chronicle", "The Chronicle", "The date, what happened, how everyone is", `
+        ${swSwitch("steward_on", "The Steward keeps the records", "A quiet second model reads the story and writes down what it shows — checked against the story's own words.")}
+        ${swSlider("steward_every", "Reads again after", 2, 40)}
+        <label class="swplain">When a lot of time passes at once
+          <select id="steward_ask_days"><option value="0">Always ask me first</option><option value="1">Ask above a day</option>
             <option value="3">Ask above three days</option><option value="7">Ask above a week</option>
             <option value="30">Ask above a month</option><option value="-1">Never ask</option></select></label>
-        <label>Who keeps track of how everyone is
-          <select id="tracker_source"><option value="hearth">Hearth</option><option value="preset">My preset's trackers</option></select></label>
-        <p class="hint">Only one ever does. With your preset's, Hearth's own tracker is neither kept nor sent to the model.</p>
-        <label class="check"><input type="checkbox" id="show_trackers"> Show the model's tracker sheets in replies</label>
-        <p class="hint">Off, the @Status, @Tracker and &lt;status&gt; blocks a preset has the model write are left out of what you see — the scene reads as a scene. They are still in the chat, and still sent to the model.</p>
-        <label>The Steward's provider <select id="steward_provider">${providers("The same as the story")}</select></label>
-        <label>The Steward's model <input id="steward_model" type="text" autocomplete="off" spellcheck="false" placeholder="The same as the story"></label>
-        <p class="hint">It can be something cheaper than the one telling the story. Uses the key saved for that provider in Connection.</p>
-      </div></details>
-      <details class="fold"><summary><span>Living World</span></summary><div class="foldbody">
-        <p class="hint">People with goals act on their own, offstage, once a story day: from what they want, what they
-          fear losing and only what they know. The story learns what becomes true and what could be noticed — never who
-          did it or why. Give someone a goal in Story World → Offstage.</p>
-        <label>How alive
-          <select id="offstage_level"><option value="off">Off — nobody acts on their own</option>
-            <option value="balanced">Balanced — one person a day, now and then</option>
-            <option value="dynamic">Dynamic — up to three a day</option></select></label>
-        <label>Protecting your character
-          <select id="offstage_protection"><option value="sheltered">Sheltered — only their name and standing can be harmed</option>
-            <option value="fair">Fair — anything, but harm to body or freedom is always played out as a scene</option>
-            <option value="grim">Grim — injury can happen offstage; death and maiming are always scenes</option></select></label>
-        <label class="check"><input type="checkbox" id="offstage_threat_ask"> Ask me before danger comes into the story</label>
-        <p class="hint">Off, a threat to your character simply arrives in the next reply, as a scene you can fight, flee or talk your way out of. On, you are asked first.</p>
-        <label>Most things done offstage in a day <span class="v" id="v_offstage_per_day"></span>
-          <input type="range" id="offstage_per_day" min="1" max="6" step="1"></label>
-        <label>The Offstage's provider <select id="offstage_provider">${providers("The same as the Steward")}</select></label>
-        <label>The Offstage's model <input id="offstage_model" type="text" autocomplete="off" spellcheck="false" placeholder="The same as the Steward"></label>
-        <p class="hint">It makes decisions rather than notes, so a little more thought pays off here than for the Steward.</p>
-        <div class="wdkicker">Whispers &amp; rumours</div>
-        <p class="hint">Who saw what, who found a trace, who told whom. Every telling is someone's version — the truth
-          underneath is never changed — and people can keep what they know to themselves.</p>
-        <label>How much people talk
-          <select id="gossip_level"><option value="off">Off — what someone knows stays with them</option>
-            <option value="natural">Natural — gossip happens, now and then</option>
-            <option value="court">Court intrigue — information is currency</option>
-            <option value="chaotic">Chaotic — everyone talks, and much of it is wrong</option></select></label>
-        <label>How much it changes in the telling <span class="v" id="v_gossip_distortion"></span>
-          <input type="range" id="gossip_distortion" min="0" max="50" step="5"></label>
-        <label class="check"><input type="checkbox" id="gossip_misinfo"> Rumours can come to blame the wrong person</label>
-        <label>A rumour stops going around after <span class="v" id="v_gossip_decay"></span>
-          <input type="range" id="gossip_decay" min="2" max="30" step="1"></label>
-      </div></details>
-      <details class="fold"><summary><span>Apocrypha</span></summary><div class="foldbody">
-        <label class="check"><input type="checkbox" id="apocrypha_blind"> Play blind</label>
-        <p class="hint">A chat following one of your stories shows only the scenes already reached; the rest stay
-          shut until you get there. The shelf still opens the whole book, for when you are writing it.</p>
-      </div></details>
-      <details class="fold"><summary><span>Arms</span></summary><div class="foldbody">
-        <label class="check"><input type="checkbox" id="heraldry_contrast"> Keep shields readable (the rule of tincture)</label>
-        <label>Draw arms as
-          <select id="heraldry_style"><option value="auto">Shields, or badges in a modern story</option>
-            <option value="shield">Always shields</option><option value="badge">Always badges</option></select></label>
-      </div></details>
+        ${swPills("tracker_source", "Who tracks how everyone is", [
+          ["hearth", "Hearth", "Hearth's own tracker, kept by the Steward and shown on the portraits."],
+          ["preset", "My preset", "Your preset's sheets instead; Hearth keeps none of its own."]])}
+        ${swSwitch("show_trackers", "Show tracker sheets in replies", "The @Status and &lt;status&gt; blocks a preset has the model write. Off, replies read as just the scene.")}
+        ${swSlider("tracker_keep", "Sheets sent to the model", 1, 31)}
+        <small class="swsays">Older sheets leave what is sent, so the model is not told how everyone was ten replies ago. The chat keeps them.</small>
+        ${model("The Steward", "The same as the story")}`, true)}
+      ${swCard("living", "Living World", "People act on their own, offstage", `
+        ${swPills("offstage_level", "How alive", [
+          ["off", "Still", "Nobody acts unless you run a day by hand."],
+          ["balanced", "Balanced", "Someone offstage does something now and then — each new day, and in long scenes."],
+          ["dynamic", "Dynamic", "Up to three people a turn: a busier, less predictable world."]])}
+        ${swPills("offstage_protection", "Protecting your character", [
+          ["sheltered", "Sheltered", "Only their name and standing can be harmed offstage."],
+          ["fair", "Fair", "Anything — but harm to body or freedom always comes as a scene you can play."],
+          ["grim", "Grim", "Injury can happen offstage; death and maiming are still always scenes."]])}
+        ${swSlider("offstage_per_day", "Most things done offstage in a day", 1, 6)}
+        ${swSwitch("offstage_threat_ask", "Ask me before danger comes in", "Off, a threat simply arrives in the next reply.")}
+        ${model("The Offstage", "The same as the Steward")}`)}
+      ${swCard("whispers", "Whispers &amp; Rumours", "Who saw what, and who told whom", `
+        ${swPills("gossip_level", "How much people talk", [
+          ["off", "Off", "What someone knows stays with them."],
+          ["natural", "Natural", "Gossip happens now and then, along friendships."],
+          ["court", "Court", "Information is currency; it travels fast."],
+          ["chaotic", "Chaotic", "Everyone talks, and much of it is wrong."]])}
+        ${swSlider("gossip_distortion", "Changes in the telling", 0, 50, 5)}
+        ${swSwitch("gossip_misinfo", "Rumours can blame the wrong person", "Never the one who did it, and never your character.")}
+        ${swSlider("gossip_decay", "Stops going around after", 2, 30)}`)}
+      ${swCard("apocrypha", "Apocrypha", "The stories you plan", `
+        ${swSwitch("apocrypha_blind", "Play blind", "A chat shows only the scenes already reached. The shelf still opens the whole book, for writing it.")}`)}
+      ${swCard("arms", "Arms", "Coats of arms for houses and factions", `
+        ${swSwitch("heraldry_contrast", "Keep shields readable", "The rule of tincture: no colour on colour.")}
+        ${swPills("heraldry_style", "Draw arms as", [
+          ["auto", "Auto", "Shields, or badges in a modern story."], ["shield", "Shields", "Always shields."], ["badge", "Badges", "Always badges."]])}`)}
       </div>`;
+    // A row of pills sets the <select> it stands for, and tells it, so saving sees a change.
+    for (const pills of box.querySelectorAll(".swpills")) {
+      pills.addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-v]");
+        if (!b) return;
+        const sel = $("#" + pills.dataset.for);
+        sel.value = b.dataset.v;
+        sel.dispatchEvent(new Event("change"));
+      });
+    }
+    // Which cards are open is remembered, on this device only.
+    let opened = {};
+    try { opened = JSON.parse(localStorage.getItem("hearth.swcards") || "{}"); } catch {}
+    for (const card of box.querySelectorAll(".swcard")) {
+      if (card.dataset.card in opened) card.open = !!opened[card.dataset.card];
+      card.addEventListener("toggle", () => {
+        opened[card.dataset.card] = card.open;
+        try { localStorage.setItem("hearth.swcards", JSON.stringify(opened)); } catch {}
+      });
+    }
   }
   const set = (id, v) => { const el = $("#" + id); if (!el) return; if (el.type === "checkbox") el.checked = v === "1"; else el.value = v ?? ""; };
   for (const k of WORLD_KEYS) set(k, s[k]);
   const every = () => {
-    const n = Number($("#steward_every").value); $("#v_steward_every").textContent = `${n} new messages`;
+    const n = Number($("#steward_every").value);
+    $("#v_steward_every").textContent = `${n} messages`;
     $("#v_offstage_per_day").textContent = String(Number($("#offstage_per_day").value || 2));
     $("#v_gossip_distortion").textContent = `${Number($("#gossip_distortion").value || 0)}% a telling`;
     $("#v_gossip_decay").textContent = `${Number($("#gossip_decay").value || 10)} days`;
+    const keep = Number($("#tracker_keep").value || 4);
+    $("#v_tracker_keep").textContent = keep > 30 ? "all of them" : `the last ${keep} message${keep === 1 ? "" : "s"}`;
   };
   const parts = () => { const p = $("#worldParts"); p.classList.toggle("notinuse", !$("#story_world").checked); p.inert = !$("#story_world").checked; };
   every();
   parts();
+  paintWorldChips();
   let timer;
   const save = () => {
     clearTimeout(timer);
@@ -949,7 +1008,8 @@ async function paintWorldSettings() {
     if (!el || el.dataset.wired) continue;
     el.dataset.wired = "1";
     el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => {
-      if (k === "steward_every" || k === "offstage_per_day" || k === "gossip_distortion" || k === "gossip_decay") every();
+      every();
+      paintWorldChips();
       if (k === "apocrypha_blind" && typeof drawTaleScenes === "function") drawTaleScenes();
       if (k === "story_world") { W.enabled = el.checked; parts(); paintWorldLine(); }
       // Redraw the open chat, so the sheets go or come back at once.

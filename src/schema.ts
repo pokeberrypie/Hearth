@@ -606,6 +606,8 @@ export const DEFAULTS: Record<string, string> = {
   offstage_threat_ask: "0",
   /** Whether the model's own tracker sheets (@Status, <status>…) show in replies. Off: they are left out of what you see. */
   show_trackers: "0",
+  /** How many of the latest messages keep their tracker sheets in what is sent to the model; 31 keeps them all. */
+  tracker_keep: "4",
   gossip_distortion: "15",
   gossip_misinfo: "1",
   gossip_decay: "10",

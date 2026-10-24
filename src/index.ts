@@ -53,7 +53,7 @@ import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLO
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
          resolve as resolveAttempt, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
-import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutThinking, type Claim, type Passage, type Person } from "./steward";
+import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutSheets, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -2458,6 +2458,14 @@ export function assemble(
   if ((mode === "continue" || mode === "swipe") && history[history.length - 1]?.role === "assistant") {
     if (mode === "continue") prefill = history[history.length - 1].content;
     history = history.slice(0, -1);
+  }
+
+  // Old tracker sheets leave what is sent after the latest few messages: each was the state as it was then,
+  // and a stack of them is tokens spent on telling the model something no longer true. The chat keeps them.
+  const keepSheets = Number(s.tracker_keep);
+  if (Number.isFinite(keepSheets) && keepSheets > 0 && keepSheets <= 30) {
+    const cut = history.length - keepSheets;
+    history = history.map((h, i) => (i < cut ? { ...h, content: withoutSheets(h.content) } : h));
   }
 
   const parts = buildParts(char, me.name, me.description);

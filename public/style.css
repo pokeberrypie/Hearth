@@ -8329,3 +8329,110 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 .wdhealth { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--lumiverse-border); border-radius: 8px; font-size: 0.88em; color: var(--lumiverse-text-muted); display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
 .wdhealth.bad { border-color: var(--lumiverse-danger); color: var(--lumiverse-text); }
 .wdhealth.off { border-style: dashed; }
+
+/* ---- Story World settings ---------------------------------------------------
+ * Cards, not a form: each part of Story World is one card with its own mark, a
+ * line saying what it is, and a chip saying how it is set — so the panel can
+ * be read shut. Inside, short choices are pills, on/off is a switch, amounts
+ * are sliders with their value beside the name, and each says in a line what
+ * it does. The model settings sit under "…'s model" in each card, out of the way.
+ */
+#worldSettings { display: grid; gap: 0.9rem; }
+#worldSettings b { font-weight: 600; }
+.swbadge {
+  flex: none; display: grid; place-items: center; width: 2.3rem; height: 2.3rem; border-radius: 50%;
+  color: var(--lumiverse-primary);
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--lumiverse-primary) 22%, transparent), color-mix(in srgb, var(--lumiverse-primary) 6%, transparent) 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary) 35%, transparent);
+}
+.swbadge svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.swbadge.big { width: 3rem; height: 3rem; }
+.swbadge.big svg { width: 1.6rem; height: 1.6rem; }
+.swhead { flex: 1; min-width: 0; display: grid; gap: 0.1rem; }
+.swhead b { font-family: var(--lumiverse-font-display); font-size: 1.05rem; color: var(--lumiverse-text); letter-spacing: 0.01em; }
+.swhead small { font-size: 0.84rem; color: var(--lumiverse-text-muted); line-height: 1.35; }
+
+.swhero {
+  display: flex; align-items: center; gap: 0.85rem; padding: 1rem 1rem;
+  border-radius: 16px; border: 1px solid var(--lumiverse-border-hover);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--lumiverse-primary) 16%, transparent), transparent 60%),
+    var(--lumiverse-bg-elevated);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  transition: filter 0.2s ease;
+}
+.swhero.off { filter: saturate(0.4); }
+#worldParts { display: grid; gap: 0.75rem; transition: opacity 0.2s ease; }
+#worldParts.notinuse { opacity: 0.45; }
+
+.swcard {
+  border-radius: 14px; border: 1px solid var(--lumiverse-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lumiverse-bg-elevated) 92%, transparent), var(--lumiverse-bg));
+  overflow: hidden;
+}
+.swcard[open] { border-color: var(--lumiverse-border-hover); }
+.swcard > summary { display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem 0.9rem; cursor: pointer; list-style: none; }
+.swcard > summary::-webkit-details-marker { display: none; }
+.swcard > summary:hover .swhead b { color: var(--lumiverse-primary-hover); }
+.swchip {
+  flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0.18rem 0.6rem; border-radius: 999px; font-size: 0.78rem; letter-spacing: 0.03em;
+  color: var(--lumiverse-primary); border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--lumiverse-primary) 8%, transparent);
+}
+.swcard > summary::after { content: "\25BE"; color: var(--lumiverse-primary-muted); transition: transform 0.2s ease; }
+.swcard:not([open]) > summary::after { transform: rotate(-90deg); }
+.swbody { display: grid; gap: 1rem; padding: 0.3rem 1rem 1.1rem; border-top: 1px solid var(--lumiverse-border); padding-top: 1rem; }
+
+.swtext { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.2rem 0.6rem; }
+.swtext b { color: var(--lumiverse-text); font-size: 0.98rem; }
+.swtext em { font-style: normal; font-size: 0.85rem; color: var(--lumiverse-primary); }
+.swtext small, .swsays { display: block; width: 100%; font-size: 0.82rem; line-height: 1.4; color: var(--lumiverse-text-dim); }
+.swsays span[hidden] { display: none; }
+
+/* Switches: the checkbox itself, drawn as a track and a knob. */
+.swswitch { display: flex; align-items: center; gap: 0.9rem; cursor: pointer; }
+.swswitch .swtext { flex: 1; display: grid; justify-content: stretch; }
+.swswitch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.swknob {
+  flex: none; position: relative; width: 2.6rem; height: 1.5rem; border-radius: 999px;
+  background: var(--lumiverse-bg-deep); box-shadow: inset 0 0 0 1px var(--lumiverse-border-hover);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.swknob::after {
+  content: ""; position: absolute; top: 0.2rem; left: 0.2rem; width: 1.1rem; height: 1.1rem; border-radius: 50%;
+  background: var(--lumiverse-text-dim); transition: transform 0.2s ease, background 0.2s ease;
+}
+.swswitch input:checked + .swknob { background: color-mix(in srgb, var(--lumiverse-primary) 35%, var(--lumiverse-bg-deep)); box-shadow: inset 0 0 0 1px var(--lumiverse-primary); }
+.swswitch input:checked + .swknob::after { transform: translateX(1.1rem); background: var(--lumiverse-primary-hover); }
+.swswitch input:focus-visible + .swknob { outline: 2px solid var(--lumiverse-primary); outline-offset: 2px; }
+.swswitch.bare { flex: none; }
+
+/* Pills: a short choice, all of it in view. */
+.swfield { display: grid; gap: 0.45rem; }
+.swpills { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.25rem; border-radius: 999px; background: var(--lumiverse-bg-deep); box-shadow: inset 0 0 0 1px var(--lumiverse-border); }
+.swpills button {
+  flex: 1 1 auto; min-width: 4.5rem; padding: 0.42rem 0.7rem; border: 0; border-radius: 999px; cursor: pointer;
+  background: transparent; color: var(--lumiverse-text-muted); font-size: 0.92rem; transition: background 0.15s ease, color 0.15s ease;
+}
+.swpills button:hover { color: var(--lumiverse-text); }
+.swpills button[aria-checked="true"] {
+  color: var(--lumiverse-bg-deep); background: linear-gradient(180deg, var(--lumiverse-primary-hover), var(--lumiverse-primary));
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--lumiverse-primary) 35%, transparent);
+}
+
+.swslider { display: grid; gap: 0.35rem; }
+.swslider input[type="range"] { width: 100%; }
+.swplain { display: grid; gap: 0.35rem; font-size: 0.95rem; color: var(--lumiverse-text); }
+
+/* "…'s model": the plumbing, folded under each card. */
+.swmore { border-top: 1px dashed var(--lumiverse-border); padding-top: 0.6rem; }
+.swmore > summary { cursor: pointer; font-size: 0.88rem; color: var(--lumiverse-text-muted); list-style: none; }
+.swmore > summary::-webkit-details-marker { display: none; }
+.swmore > summary::before { content: "\2699  "; color: var(--lumiverse-primary-muted); }
+.swmore[open] { display: grid; gap: 0.7rem; }
+#worldSettings { line-height: 1.35; }
+#worldSettings .swhead b { font-size: 0.98rem; line-height: 1.2; }
+#worldSettings .swhero .swhead b { font-size: 1.05rem; }
+#worldSettings .swtext b { line-height: 1.25; }
+#worldSettings .swchip { max-width: 34%; }

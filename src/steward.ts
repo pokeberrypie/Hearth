@@ -97,6 +97,19 @@ const SCAFFOLD = /<(status|tracker|thinking|think|thoughts|true_thoughts|analysi
  */
 const AT_BLOCK = /(^|\n)@[A-Z][A-Za-z'’]*(?: [A-Za-z'’]+){0,3}[ \t]*:?[ \t]*\n(?:[^\n]*\S[^\n]*(?:\n|$))+/g;
 
+/**
+ * A reply without its tracker sheets — <tracker>/<status> blocks and the
+ * headed @Status kind — and nothing else touched. What the conversation sent
+ * to the model keeps them only on the latest few replies: an old sheet is
+ * the state as it was, which the model reads as the state as it is.
+ */
+const SHEET_TAGS = /<(status|tracker)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+export function withoutSheets(text: string): string {
+  const t = String(text ?? "");
+  if (!/<(status|tracker)\b/i.test(t) && !/(^|\n)@[A-Z]/.test(t)) return t;
+  return t.replace(SHEET_TAGS, "").replace(AT_BLOCK, "$1").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function storyOnly(text: string): string {
   return String(text ?? "")
     .replace(AT_BLOCK, "$1")

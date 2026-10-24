@@ -14,7 +14,7 @@ import { describe, expect, test } from "bun:test";
 
 import { MOONS, UNDATED } from "./calendar";
 import {
-  DEFAULT_LIMITS, STEWARD_SYSTEM, checkAnswer, fieldOf, findEvidence, groupKey, needsFoldedSystem, parseAnswer, storyOnly, stewardRequest, wayOf, whoIs,
+  DEFAULT_LIMITS, STEWARD_SYSTEM, checkAnswer, fieldOf, findEvidence, groupKey, needsFoldedSystem, parseAnswer, storyOnly, stewardRequest, wayOf, whoIs, withoutSheets,
   type Passage, type Person,
 } from "./steward";
 
@@ -394,5 +394,13 @@ describe("trackers written as headed text are bookkeeping, not story", () => {
     expect(seen).not.toContain("Time: afternoon");
     // An address in the middle of a sentence is not a heading.
     expect(storyOnly("She wrote to @Varys in the margin.")).toContain("@Varys");
+  });
+});
+
+describe("old tracker sheets leave what is sent to the model", () => {
+  test("withoutSheets takes the sheets and nothing else", () => {
+    const reply = "@Tracker\nTime: afternoon\n\nJaime smiled. “Worth every copper.”\n\n<status>Jaime: damp</status>\n\n@Status\n- Jaime: playful\n\nThe rain stopped.";
+    expect(withoutSheets(reply)).toBe("Jaime smiled. “Worth every copper.”\n\nThe rain stopped.");
+    expect(withoutSheets("No sheets here.")).toBe("No sheets here.");
   });
 });

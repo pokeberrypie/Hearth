@@ -96,6 +96,8 @@ test("an entry is still taken only once within its own book", () => {
 function seedWithScript(script: Record<string, unknown>) {
   wipe();
   db.query("DELETE FROM regex_scripts").run();
+  // What a script does to the sheets, and only that: Hearth's own trimming of old sheets kept out of it.
+  db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('tracker_keep', '31')").run();
   const t = 3000;
   db.query("INSERT INTO characters (id, name, description, created_at) VALUES (?,?,?,?)")
     .run("C1", "Sable", "A courier.", t);
