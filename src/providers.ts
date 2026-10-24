@@ -280,6 +280,24 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
   }
 }
 
+/**
+ * "No thinking", said the way each model family actually listens.
+ *
+ * Most services have no setting that stops an open model thinking — they
+ * ignore reasoning_effort, or only hide the thinking — but the models
+ * themselves were trained on an off switch in the prompt. Nemotron reads
+ * "/no_think" (its first versions, "detailed thinking off"), Qwen3 reads
+ * "/no_think", GLM reads "/nothink". Written into the prompt, it works
+ * wherever the model is served. A family with no switch gets nothing.
+ */
+export function thinkingOffSwitch(model: string): string | null {
+  const m = String(model ?? "").toLowerCase();
+  if (/nemotron/.test(m)) return "detailed thinking off\n/no_think";
+  if (/qwen-?3|qwq/.test(m)) return "/no_think";
+  if (/glm-?4\.[5-9]|glm-?z1|glm-?5/.test(m)) return "/nothink";
+  return null;
+}
+
 function callOpenAI(a: GenerateArgs, base: string) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -310,6 +328,16 @@ function callOpenAI(a: GenerateArgs, base: string) {
       ...(a.prefill ? [{ role: "assistant", content: a.prefill }] : []),
     ],
   };
+  // Thinking off, in the model's own words: at the end of the system message, or of the last thing
+  // the user said when there is no system message to put it in.
+  const offSwitch = s.reasoningEffort === "off" ? thinkingOffSwitch(a.model) : null;
+  if (offSwitch) {
+    const msgs = body.messages as { role: string; content: unknown }[];
+    const sys = msgs.find((m) => m.role === "system" && typeof m.content === "string");
+    const lastUser = [...msgs].reverse().find((m) => m.role === "user" && typeof m.content === "string");
+    const target = sys ?? lastUser;
+    if (target) target.content = `${target.content}\n\n${offSwitch}`;
+  }
   // Only meaningful on a stream; some servers reject it on a plain request.
   if (s.stream) body.stream_options = { include_usage: true };
   // Not universally supported, so only sent when moved off neutral.
@@ -324,7 +352,10 @@ function callOpenAI(a: GenerateArgs, base: string) {
    * the setting is empty, which leaves the model's own default alone.
    */
   if (s.reasoningEffort === "off") {
-    if (a.provider === "openrouter") body.reasoning = { exclude: true, effort: "low" };
+    // OpenRouter can be told not to think at all, not just to hide it; a server on this machine
+    // (llama.cpp, vLLM) takes the chat template's own switch.
+    if (a.provider === "openrouter") body.reasoning = { enabled: false, exclude: true };
+    if (a.provider === "custom") body.chat_template_kwargs = { enable_thinking: false };
   } else if (s.reasoningEffort) {
     if (a.provider === "openrouter") body.reasoning = { effort: s.reasoningEffort };
     else body.reasoning_effort = s.reasoningEffort;
