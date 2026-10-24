@@ -31,7 +31,7 @@
  * Pure: calling the model and storing what survives is index.ts's business.
  */
 
-import { readSpan, type Calendar, type Moment } from "./calendar";
+import { later, readSpan, type Calendar, type Moment } from "./calendar";
 import { BOND_STEP, STATUS_FIELDS, type StatusField } from "./chronicle";
 
 /** Someone the Steward may refer to, by number. */
@@ -90,8 +90,16 @@ export type Options = {
 const SCAFFOLD = /<(status|tracker|thinking|think|thoughts|true_thoughts|analysis|reasoning|scene_plan|scene-plan|sceneplan|plan|notes|momentum|threads|summary|details)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 
 /** A message as the Steward should read it: the story, without the scaffolding. */
+/**
+ * A tracker written as headed text rather than tags — `@Status` on a line of
+ * its own and the entries under it, to the next blank line. The model's own
+ * bookkeeping, which can be wrong, and never the story it is keeping.
+ */
+const AT_BLOCK = /(^|\n)@[A-Z][A-Za-z'’]*(?: [A-Za-z'’]+){0,3}[ \t]*:?[ \t]*\n(?:[^\n]*\S[^\n]*(?:\n|$))+/g;
+
 export function storyOnly(text: string): string {
   return String(text ?? "")
+    .replace(AT_BLOCK, "$1")
     .replace(SCAFFOLD, " ")
     .replace(/<\/?[a-z][\w-]*[^>]*>/gi, " ")
     .replace(/[ \t]+/g, " ")
@@ -116,7 +124,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     "",
     "Rules:",
     "- The quote must be copied exactly from the story: four to twenty-five words, in the story's own language.",
-    "- TIME only when the story says time passed: \"three days later\", \"they rode until dawn\". Say how long in plain words (\"3 days\", \"until dawn\").",
+    "- TIME when the story shows time passing: \"three days later\", \"they rode until dawn\" — and also when it simply moves on to a later part of the day or the next one without saying how long: they wake to morning light (\"the next morning\"), the sun has set (\"until dusk\"), they sleep the night (\"until dawn\"). Say how long in plain words (\"3 days\", \"until dawn\", \"the next morning\"). One line for each step, in the order they happen.",
     "- EVENT only for something that actually happened in this part. Not plans, threats, guesses, dreams, or memories of the past.",
     ...(o.tracking ? [
       "- STATUS only for people marked (here), using their number from the list, and only when the story changes something about them or shows it for the first time.",
@@ -127,7 +135,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     "- THREAD open for something the story leaves hanging that should come back: a promise, a secret, a debt, a question, a letter not yet answered. THREAD settled when one of the open threads listed is resolved here — use its name exactly as listed.",
     ...(o.scene ? ["- SCENE done only when this part of the story actually reaches the end of the planned scene given below. Not when it is merely heading there. If reaching it also settles one of the open threads, write that THREAD settled line too, with its own quote."] : []),
     ...(o.scene?.ahead?.length ? ["- SCENE with a number only when the story has clearly already moved into one of the scenes planned later — its people, its place and what it is about are happening now."] : []),
-    "- At most one TIME line and five EVENT lines.",
+    "- At most three TIME lines and five EVENT lines.",
     "- If nothing worth recording happened, write only: NONE",
   ].join("\n");
 }
@@ -389,15 +397,26 @@ export function checkAnswer(
   const claims: Claim[] = [];
   const dropped = [...p.dropped];
 
+  // Time, in the order the story tells it: a night and then a morning in one stretch are two steps,
+  // each counted from where the last one left the clock — never both from the start.
+  let clock = now;
+  let lastAt = -1;
   for (const t of p.time) {
     const line = `TIME | ${t.said} | "${t.evidence}"`;
-    if (claims.some((c) => c.kind === "time")) { dropped.push({ line, why: "more than one TIME line" }); continue; }
-    const span = readSpan(cal, t.said, now);
+    const times = claims.filter((c) => c.kind === "time");
+    if (times.length >= 3) { dropped.push({ line, why: "more than three TIME lines" }); continue; }
+    if (times.some((c) => c.kind === "time" && c.proposed)) { dropped.push({ line, why: "after a jump that has to be asked about first" }); continue; }
+    const span = readSpan(cal, t.said, clock);
     if (!span) { dropped.push({ line, why: "how long could not be read" }); continue; }
     const at = findEvidence(t.evidence, passages);
     if (!at) { dropped.push({ line, why: "the quote is not in the story" }); continue; }
+    if (times.some((c) => c.kind === "time" && words(c.evidence).join(" ") === words(t.evidence).join(" "))) { dropped.push({ line, why: "the same words counted twice" }); continue; }
+    const where = passages.findIndex((x) => x.id === at);
+    if (where < lastAt) { dropped.push({ line, why: "earlier in the story than the time before it" }); continue; }
     const proposed = limits.askAboveMinutes >= 0 && span > limits.askAboveMinutes;
     claims.push({ kind: "time", span, said: t.said, evidence: t.evidence, message_id: at, proposed });
+    clock = later(cal, clock, span);
+    lastAt = where;
   }
 
   const seen = new Set<string>();

@@ -3619,6 +3619,9 @@ function chronicleState(chatId: string) {
     factions: factionsOf(entries).map(({ entry, ...f }) => f),
     // Loose ends: open first, then the settled.
     threads: threadsOf(entries),
+    // How the Steward is doing here: on or off, whether its last reading failed, and when it reads next —
+    // so a calendar that is not moving says why instead of just not moving.
+    steward: stewardHealth(chatId),
     // Waiting on the host. A hidden one is still hidden here: accepting it is
     // not the same as reading it.
     proposals: [
@@ -4099,7 +4102,14 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   let entries = chronicleOf(chatId);
   const at = clockOf(cal, entries);
   const goals = agendasOf(entries).filter((g) => g.status === "active" && g.who);
-  if (!goals.length) return { acted: 0, quiet: 0, threats: 0, note: "Nobody has a goal yet." };
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  // Who is in the scene right now — named in the last few messages, or speaking in them — is with the
+  // player, not offstage. Everyone else in the story may act: those with goals first, then the cast.
+  const recentRows = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 4").all(chatId) as any[];
+  const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId)])].filter((p) => p && p !== player);
+  const onstage = new Set([...namedIn(recentRows.map((r) => r.content).join("\n"), cast), ...recentRows.map((r) => r.name).filter(Boolean)]);
+  const offstage = cast.filter((p) => !onstage.has(p));
+  if (!offstage.length) return { acted: 0, quiet: 0, threats: 0, note: cast.length ? "Everyone is in the scene with you right now: there is nobody offstage to act." : "There is nobody in this story yet but you." };
   const status = statusOf(entries);
   const lastActed = new Map<string, number>();
   for (const e of liveEntries(entries)) if (e.kind === "offstage" && e.subject) lastActed.set(e.subject, e.created_at);
@@ -4107,13 +4117,15 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   const today = liveEntries(entries).filter((e) => e.kind === "offstage" && dataOf(e).day === at.day && dataOf(e).outcome !== "dropped").length;
   const room = Math.max(0, perDay - today);
   if (!room) return { acted: 0, quiet: 0, threats: 0, note: "Everyone who could act today already has." };
-  // Who goes: those with a goal, longest idle first, and able to act at all.
-  const who = [...new Set(goals.map((g) => g.who))]
+  // Who goes: those with a goal before those without, longest idle first, and able to act at all.
+  const hasGoal = new Set(goals.map((g) => g.who));
+  const members = new Set(membersOf(chat).map((m: any) => m.name));
+  const rank = (w: string) => (hasGoal.has(w) ? 0 : members.has(w) ? 1 : 2);
+  const who = offstage
     .filter((w) => !cannotAct(status[w] as any))
-    .sort((a, b) => (lastActed.get(a) ?? 0) - (lastActed.get(b) ?? 0))
+    .sort((a, b) => rank(a) - rank(b) || (lastActed.get(a) ?? 0) - (lastActed.get(b) ?? 0))
     .slice(0, Math.min(room, Math.max(1, ACTORS_PER_RUN[level] || (o.manual ? 1 : 0))));
   const trigger = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
-  const player = whoAmI(chat.persona_id)?.name ?? "";
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
   const protection = protectionOf(s.offstage_protection);
@@ -4245,6 +4257,9 @@ function knowingsOf(entries: ChronicleEntry[]): Knowing[] {
 }
 
 /** After a reply: when the story's day has turned, the Offstage takes its turn — once per day, never per message. */
+/** Messages in one long day before the world offstage moves again. */
+const OFFSTAGE_EVERY = 20;
+
 export async function offstageTurn(chatId: string) {
   const s = getSettings();
   if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
@@ -4252,12 +4267,18 @@ export async function offstageTurn(chatId: string) {
   if (!chat) return;
   const day = clockOf(calendarOf(chatId), chronicleOf(chatId)).day;
   // The first time, the day is only noted: turning this on does not set the world moving behind a scene already under way.
-  if (chat.offstage_day < 0 || day <= chat.offstage_day) {
-    if (chat.offstage_day < 0) db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
+  if (chat.offstage_day < 0) { db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId); return; }
+  if (day > chat.offstage_day) {
+    db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
+    await offstageRun(chatId);
     return;
   }
-  db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
-  await offstageRun(chatId);
+  // A long stretch of one day — a feast, a siege, a slow evening — still gives the world its turn:
+  // once enough has been said since anyone offstage last moved. Never before the world has moved once.
+  const last = db.query("SELECT MAX(created_at) t FROM chronicle WHERE chat_id = ? AND kind = 'offstage' AND undone_at IS NULL").get(chatId) as any;
+  if (!last?.t) return;
+  const since = (db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND created_at > ?").get(chatId, last.t) as any)?.n ?? 0;
+  if (since >= OFFSTAGE_EVERY) await offstageRun(chatId);
 }
 
 /**
@@ -4607,6 +4628,32 @@ export async function stewardTurn(chatId: string) {
   // A long silence is read in its latest stretch, not handed over whole.
   await stewardRun(chat, fresh.slice(-40), s);
 }
+
+/** Whether the Steward is on, what became of its last reading, and how many messages until the next. */
+function stewardHealth(chatId: string) {
+  const s = getSettings();
+  const chat = db.query("SELECT steward_at FROM chats WHERE id = ?").get(chatId) as any;
+  const last = db.query("SELECT kept, proposed, problem, created_at FROM steward_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 1").get(chatId) as any;
+  const fresh = (db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND created_at > ?").get(chatId, chat?.steward_at ?? 0) as any)?.n ?? 0;
+  const every = Number(s.steward_every) || 0;
+  return { on: s.steward_on === "1" && s.story_world !== "0", every, unread: fresh, next: every > 0 ? Math.max(0, every - fresh) : null,
+    last: last ? { at: last.created_at, kept: last.kept, proposed: last.proposed, problem: last.problem || "" } : null };
+}
+
+/** Reading now, whatever the count: what has been said since it last read. */
+api.post("/chats/:id/steward/now", async (c) => {
+  const chatId = c.req.param("id");
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return c.json({ error: "No such chat." }, 404);
+  const s = getSettings();
+  if (s.story_world === "0") return c.json({ error: "Story World is off." }, 400);
+  const fresh = db.query("SELECT id, role, name, content, created_at FROM messages WHERE chat_id = ? AND created_at > ? ORDER BY created_at, rowid")
+    .all(chatId, chat.steward_at ?? 0) as any[];
+  if (!fresh.length) return c.json({ ...chronicleState(chatId), note: "Nothing new since it last read." });
+  const r = await stewardRun(chat, fresh.slice(-40), s);
+  if (!r.problem) await offstageTurn(chatId).catch(() => {});
+  return c.json({ ...chronicleState(chatId), read: r });
+});
 
 /** What the Steward has done in a chat lately, for whoever wants to know why Story World says what it says. */
 api.get("/chats/:id/steward", (c) => {

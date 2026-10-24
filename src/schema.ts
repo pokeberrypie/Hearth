@@ -566,7 +566,7 @@ export const DEFAULTS: Record<string, string> = {
   steward_provider: "",
   steward_model: "",
   steward_on: "1",
-  steward_every: "10",
+  steward_every: "4",
   steward_ask_days: "7",
   /*
    * Who keeps track of how everyone is: "hearth" (the Steward, natively) or
@@ -589,7 +589,7 @@ export const DEFAULTS: Record<string, string> = {
   // Offstage, no date read from replies, nothing of it in the prompt.
   story_world: "1",
   // The Living World (src/offstage.ts): off until asked for.
-  offstage_level: "off",
+  offstage_level: "balanced",
   offstage_protection: "fair",
   offstage_per_day: "2",
   offstage_provider: "",

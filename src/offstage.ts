@@ -113,7 +113,8 @@ export function offstagePrompt(v: View): string {
     `Today in the story: ${v.today}`,
     part("How they are now:", v.state),
     part("How they feel about people:", v.feelings),
-    part("What they want:", v.goals.map((g) => `${g.goal}${g.why ? ` — ${g.why}` : ""}`)),
+    v.goals.length ? part("What they want:", v.goals.map((g) => `${g.goal}${g.why ? ` — ${g.why}` : ""}`))
+      : "Nobody has set them an aim. Decide from who they are and what they know what they want now — on most days, nothing out of the ordinary. If they set themselves something that will take more than a day, take it up with a GOAL line.",
     part("What they know (and only this):", v.known),
     part("How their own recent attempts went:", v.lately),
     part("Unresolved matters they are caught up in — these weigh on what they do next:", v.threads ?? []),

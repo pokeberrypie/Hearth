@@ -144,13 +144,31 @@ describe("time", () => {
     expect(check('TIME | until the 13th day of the eighth moon | "Three days later, the court gathered"').claims).toEqual([]);
   });
 
-  test("only the first readable TIME line is kept", () => {
+  test("the same words are never counted as two jumps", () => {
     const r = check([
       'TIME | 3 days | "Three days later, the court gathered"',
       'TIME | 4 days | "Three days later, the court gathered"',
     ].join("\n"));
     expect(r.claims).toHaveLength(1);
-    expect(r.dropped[0].why).toBe("more than one TIME line");
+    expect(r.dropped[0].why).toBe("the same words counted twice");
+  });
+
+  test("a night and then a morning in one stretch: two steps, each from where the last left the clock", () => {
+    const story: Passage[] = [
+      { id: "a", who: "Narrator", text: "They made camp by the river and slept until dawn, wrapped in their cloaks." },
+      { id: "b", who: "Narrator", text: "They rode hard all that day and by the next morning the walls of the Vale were in sight." },
+    ];
+    const r = check(['TIME | until dawn | "slept until dawn, wrapped in their cloaks"', 'TIME | the next morning | "by the next morning the walls of the Vale were in sight"'].join("\n"), story);
+    const times = r.claims.filter((c) => c.kind === "time") as any[];
+    expect(times.map((c) => c.message_id)).toEqual(["a", "b"]);
+    // Noon on day 10 → dawn on day 11 (18 hours) → the morning of day 12 (a further day and a little).
+    const dawn = (MOONS.parts.find((p) => p.name === "dawn")!.hour) * 60;
+    const morning = (MOONS.parts.find((p) => p.name === "morning")!.hour) * 60;
+    expect(times[0].span).toBe(1440 - 12 * 60 + dawn);
+    expect(times[1].span).toBe(1440 + morning - dawn);
+    // Told out of order, the later step is not counted as coming first.
+    const back = check(['TIME | the next morning | "by the next morning the walls of the Vale were in sight"', 'TIME | until dawn | "slept until dawn, wrapped in their cloaks"'].join("\n"), story);
+    expect(back.dropped.map((d) => d.why)).toContain("earlier in the story than the time before it");
   });
 
   test("a jump past the limit is proposed, not applied", () => {
@@ -363,5 +381,18 @@ describe("a matter moving out of sight, brought into the open by the story", () 
     // And never without the story's own words for it.
     const none = checkAnswer('THREAD | open | The Betrothal Question | "Jaime confessed everything"', STORY, PEOPLE, MOONS, NOW, DEFAULT_LIMITS, { tracking: true, surfacing: ["The Betrothal Question"] });
     expect(none.claims).toEqual([]);
+  });
+});
+
+describe("trackers written as headed text are bookkeeping, not story", () => {
+  test("@Status and its kin are left out of what the Steward reads; the prose around them stays", () => {
+    const reply = "Jaime smiled. \u201cWorth every copper.\u201d\n\n@Status\n- Jaime Lannister: Clean, damp, playful\n- Time: afternoon\n\n@Story Threads\n- Rescue of Tyrion: Road to Vale blocked\n\nOutside, the rain had stopped.";
+    const seen = storyOnly(reply);
+    expect(seen).toContain("Worth every copper");
+    expect(seen).toContain("Outside, the rain had stopped.");
+    expect(seen).not.toContain("Rescue of Tyrion");
+    expect(seen).not.toContain("Time: afternoon");
+    // An address in the middle of a sentence is not a heading.
+    expect(storyOnly("She wrote to @Varys in the margin.")).toContain("@Varys");
   });
 });

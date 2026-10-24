@@ -495,8 +495,49 @@ function foldEl(tag, inner) {
     `<div class="planbody">${segment(body)}</div></details>`;
 }
 
+/**
+ * Trackers written as headed blocks instead of tags.
+ *
+ * Some presets, and some models left to themselves, write their sheets as
+ * plain text — `@Status`, `@Tracker`, `@Story Threads` on a line of their own
+ * with the entries under it — and with no tag around them there was nothing
+ * to fold, so the whole apparatus sat in the reply as if it were the scene.
+ * A heading is a line that is only `@` and a few capitalised words; its block
+ * runs to the next blank line. Neighbouring blocks become one fold, labelled
+ * with their headings, through the same <tracker> path the tagged kind takes.
+ */
+const AT_HEADING = /^@([A-Z][A-Za-z'’]*(?: [A-Za-z'’]+){0,3})\s*:?\s*$/;
+function foldAtBlocks(src) {
+  if (!/(^|\n)@[A-Z]/.test(src)) return src;
+  const lines = src.split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length;) {
+    if (!AT_HEADING.test(lines[i].trim())) { out.push(lines[i++]); continue; }
+    const heads = [];
+    const body = [];
+    let j = i;
+    // One or more headed blocks, blank lines between them allowed.
+    while (j < lines.length && AT_HEADING.test(lines[j].trim())) {
+      const head = lines[j].trim().match(AT_HEADING)[1];
+      let k = j + 1;
+      const rows = [];
+      while (k < lines.length && lines[k].trim()) rows.push(lines[k++]);
+      if (!rows.length) break;
+      heads.push(head);
+      body.push(`**${head}**`, ...rows, "");
+      j = k;
+      while (j < lines.length && !lines[j].trim() && j + 1 < lines.length && AT_HEADING.test(lines[j + 1].trim())) j++;
+    }
+    if (!heads.length) { out.push(lines[i++]); continue; }
+    const label = heads.join(" · ");
+    out.push(`<tracker>${label.length <= 80 ? `<summary>${label}</summary>` : ""}\n${body.join("\n").trim()}\n</tracker>`);
+    i = j;
+  }
+  return out.join("\n");
+}
+
 function prose(text) {
-  const src = String(text ?? "");
+  const src = foldAtBlocks(String(text ?? ""));
   let out = "";
   let last = 0;
   let m;

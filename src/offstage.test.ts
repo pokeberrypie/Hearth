@@ -230,7 +230,8 @@ describe("a day offstage", () => {
     answers = ["CHOOSE | ABANDON | the wedding is not worth losing Jaime\nACT | lets the matter rest | easy | none"];
     await send("/api/chats/ch/offstage/run", "POST");
     expect((await ledger()).goals[0].status).toBe("abandoned");
-    expect((await (await send("/api/chats/ch/offstage/run", "POST")).json()).note).toBe("Nobody has a goal yet.");
+    // With her goal given up she is no one in particular to this story, and Jaime is in the scene.
+    expect((await (await send("/api/chats/ch/offstage/run", "POST")).json()).note).toBe("Everyone is in the scene with you right now: there is nobody offstage to act.");
   });
 
   test("whether it worked and whether it was seen are rolled apart", async () => {
@@ -613,5 +614,55 @@ describe("Living World, joined up: participants, discretion, the author's plan, 
       await send(`/api/messages/${reply.id}`, "DELETE");
       expect((await ledger()).whispers.map((k: any) => k.holder)).toEqual(["a kitchen maid"]);
     });
+  });
+});
+
+describe("the world moves on its own", () => {
+  const asked = () => sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages));
+  function cast() {
+    seed();
+    setSettings({ gossip_level: "off", offstage_level: "dynamic" });
+    // Tyrion, a captive far away, is one of the chat's own characters; Jaime is in the scene.
+    db.query("INSERT INTO characters (id, name, description, created_at) VALUES ('t', 'Tyrion Lannister', 'A clever dwarf, held captive in the Vale.', 1)").run();
+    db.query("INSERT INTO chat_members (chat_id, character_id, position) VALUES ('ch', 'j', 0), ('ch', 't', 1)").run();
+  }
+
+  test("nobody needs a goal: the cast offstage decide for themselves, and whoever is in the scene does not", async () => {
+    cast();
+    answers = ["CHOOSE | it | x\nACT | bribes a gaoler for paper and ink | uncertain | none\nGOAL | get word to his father | Tywin will not leave a Lannister in a cell"];
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.error).toBeUndefined();
+    expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
+    expect(asked().some((m) => m.includes("deciding for: Jaime"))).toBe(false);
+    expect(asked().find((m) => m.includes("deciding for: Tyrion"))).toContain("Nobody has set them an aim");
+    // What he set himself is now his goal.
+    expect((await ledger()).goals).toMatchObject([{ who: "Tyrion Lannister", goal: "get word to his father", source: "offstage" }]);
+  });
+
+  test("once someone is named in the scene, they are in it — not offstage", async () => {
+    cast();
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m2', 'ch', 'user', 'Yvenna Hightower', 'Tyrion walked in, grinning.', 3)").run();
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.note).toBe("Everyone is in the scene with you right now: there is nobody offstage to act.");
+  });
+
+  test("a long day still gives the world its turn — but only once it has moved at all, and not again too soon", async () => {
+    cast();
+    setSettings({ offstage_per_day: "6" }); // a long day has room for more than two things to happen in it
+    await offstageTurn("ch"); // notes the day
+    const msg = db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', 'user', 'Yvenna Hightower', 'More talk at the feast.', ?)");
+    for (let i = 0; i < 25; i++) msg.run(`a${i}`, 100 + i);
+    sent = [];
+    await offstageTurn("ch");
+    expect(asked()).toEqual([]); // nobody offstage has moved yet: wait for a day, or the button
+    await send("/api/chats/ch/offstage/run", "POST");
+    const after = Date.now();
+    for (let i = 0; i < 19; i++) msg.run(`b${i}`, after + 10 + i);
+    sent = [];
+    await offstageTurn("ch");
+    expect(asked()).toEqual([]);
+    msg.run("b19", after + 40);
+    await offstageTurn("ch");
+    expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
   });
 });

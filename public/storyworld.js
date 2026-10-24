@@ -345,7 +345,16 @@ function timelineHtml(s, who) {
   }).join("");
   const empty = !items ? `<p class="hint">Nothing has been recorded yet. The Steward writes things down as the story goes, or you can.</p>` : "";
   if (!host) return `<ol class="wdline">${items}</ol>${empty}`;
-  return `<ol class="wdline">${items}</ol>${empty}
+  // How the Steward is doing: why the date is or is not moving, said plainly, with a way to make it read now.
+  const st = s.steward;
+  const health = !st ? "" : !st.on
+    ? `<div class="wdhealth off">The Steward is off, so the date and how everyone is change only when you change them. Turn it on in Story World settings → Keeping the records.</div>`
+    : `<div class="wdhealth${st.last?.problem ? " bad" : ""}">${st.last?.problem
+        ? `The Steward's last reading failed, so nothing new was written down: <i>${txt(st.last.problem)}</i>. Check its provider and model in Story World settings.`
+        : st.unread ? `${st.unread} message${st.unread === 1 ? "" : "s"} since the Steward last read${st.next ? `; it reads again after ${st.next} more` : ""}.`
+        : "The Steward is up to date."}
+        ${st.unread ? `<button type="button" class="linkish" id="wdReadNow">Read now</button>` : ""}</div>`;
+  return `${health}<ol class="wdline">${items}</ol>${empty}
     <div class="wdtools">
       <div class="wdrow"><span class="hint">Let time pass</span>
         <button type="button" class="wdround" data-pass="1 day">+1</button>
@@ -770,6 +779,15 @@ function wireBody(who) {
     b.textContent = "Build from this chat's history";
     if (r && !r.error) toast(`Read in ${r.runs} stretch${r.runs === 1 ? "" : "es"}: ${r.kept} kept${r.failed ? `, ${r.failed} could not be read` : ""}.`);
   });
+  $("#wdReadNow")?.addEventListener("click", async () => {
+    const b = $("#wdReadNow");
+    b.disabled = true;
+    b.textContent = "Reading…";
+    const r = await post(`/chats/${S.chatId}/steward/now`, {});
+    if (r?.read?.problem) toast(`It could not read: ${r.read.problem}`);
+    else if (r?.read) toast(`Read: ${r.read.kept} written down${r.read.proposed ? `, ${r.read.proposed} waiting for you` : ""}.`);
+    else if (r?.note) toast(r.note);
+  });
   $("#wdLogBox")?.addEventListener("toggle", async (e) => {
     if (!e.target.open) return;
     const runs = await api(`/chats/${S.chatId}/steward`).catch(() => []);
@@ -910,9 +928,14 @@ async function paintWorldSettings() {
   const save = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
+      // Only what was changed. Saving every key on any change wrote each default down as if it were a
+      // choice, so a better default later never reached a library that had once touched this panel.
       const patch = {};
-      for (const k of WORLD_KEYS) patch[k] = WORLD_CHECKS.has(k) ? ($("#" + k).checked ? "1" : "0") : $("#" + k).value.trim();
-      api("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
+      for (const k of WORLD_KEYS) {
+        const v = WORLD_CHECKS.has(k) ? ($("#" + k).checked ? "1" : "0") : $("#" + k).value.trim();
+        if (v !== String(s[k] ?? "")) { patch[k] = v; s[k] = v; }
+      }
+      if (Object.keys(patch).length) api("/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
     }, 400);
   };
   for (const k of WORLD_KEYS) {
