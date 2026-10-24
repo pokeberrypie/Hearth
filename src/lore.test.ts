@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { activate, normaliseBook, normaliseEntry, place, type LoreEntry } from "./lore";
+import { activate, normaliseBook, normaliseEntry, place, bornOf, recencyOf, stampEntries, type LoreEntry } from "./lore";
 
 /** A complete entry with sane defaults, so each test only states what it means. */
 const mk = (raw: Record<string, unknown>): LoreEntry =>
@@ -298,5 +298,41 @@ describe("placement", () => {
       ),
     );
     expect(got.afterChar).toBe("first\n\nsecond");
+  });
+});
+
+describe("when entries came in and changed", () => {
+  const e = (id: string, content: string, extra: any = {}) => normaliseEntry({ id, keys: [id], content, ...extra });
+
+  test("a new id is new now; changed words change it now; the rest keep what they had", () => {
+    const before = [e("a", "one", { added_at: 5, changed_at: 5 }), e("b", "two", { added_at: 6, changed_at: 6 })];
+    const after = stampEntries(before, [e("a", "one"), e("b", "two, changed"), e("c", "three")], 100);
+    expect(after.map((x) => [x.id, x.added_at, x.changed_at])).toEqual([["a", 5, 5], ["b", 6, 100], ["c", 100, 100]]);
+  });
+
+  test("whatever the client sent for the stamps, the stored ones stand", () => {
+    const before = [e("a", "one", { added_at: 5, changed_at: 5 })];
+    const after = stampEntries(before, [e("a", "one", { added_at: 999, changed_at: 999 })], 100);
+    expect([after[0].added_at, after[0].changed_at]).toEqual([5, 5]);
+  });
+
+  test("recency is the later of the two; an undated entry has none", () => {
+    expect(recencyOf(e("a", "x", { added_at: 5, changed_at: 9 }))).toBe(9);
+    expect(recencyOf(e("a", "x"))).toBe(0);
+  });
+});
+
+describe("when an undated entry was made, from its id", () => {
+  test("a note's id and an editor entry's id carry the time; an imported one's does not", () => {
+    const t = Date.UTC(2026, 5, 1);
+    expect(bornOf(`e${t.toString(36)}3`)).toBe(t);
+    expect(bornOf(`book:new${t}`)).toBe(t);
+    expect(bornOf("0")).toBe(0);
+    expect(bornOf("book:17")).toBe(0);
+    expect(bornOf("e1")).toBe(0);
+  });
+  test("an undated entry is as recent as its id says", () => {
+    const t = Date.UTC(2026, 5, 1);
+    expect(recencyOf(normaliseEntry({ id: `new${t}`, content: "x" }))).toBe(t);
   });
 });

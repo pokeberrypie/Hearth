@@ -69,7 +69,7 @@ import { packIsUsable, readPackManifest, slugId } from "./avatar";
 import { listModels } from "./models";
 import { readZip, planBackup, eachZipEntry, type Entry } from "./backup";
 import { listDir, inspect, collect, places, isWanted } from "./localfs";
-import { normaliseBook, normaliseEntry, activate, place, type LoreEntry } from "./lore";
+import { normaliseBook, normaliseEntry, activate, place, stampEntries, recencyOf, type LoreEntry } from "./lore";
 import {
   PRESET_FIELDS, DEFAULT_BLOCKS, fromHearth, fromSillyTavern, isHearthPreset, keptOnly, normaliseBlocks,
   toSillyTavernPreset, type PresetData, type PromptBlock,
@@ -2087,9 +2087,8 @@ api.post("/chats/:id/carry-on", async (c) => {
 
   const book = db.query("SELECT * FROM lorebooks WHERE id = ?").get(bookId) as any;
   const entries = readEntries(book);
-  entries.push(normaliseEntry(carryEntry(summary, src.title || char.name)));
   db.query("UPDATE lorebooks SET entries = ? WHERE id = ?")
-    .run(JSON.stringify(entries), bookId);
+    .run(JSON.stringify(stampEntries(entries, [...entries, normaliseEntry(carryEntry(summary, src.title || char.name))], now())), bookId);
 
   /*
    * And the last thing that was said, word for word.
@@ -4180,8 +4179,9 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     const theirs = goals.filter((g) => g.who === person);
     const base0 = viewFor(chat, person, entries, cal, theirs);
     // What the lorebook says about them: the world's knowledge, which they have as much as anyone.
-    const theirLore = lore.filter((e) => namedIn(e.content, [person]).length).slice(0, 3);
-    base0.known.push(...theirLore.map((e) => `What the world knows: ${e.content.replace(/\s+/g, " ").slice(0, 400)}`));
+    // The latest first; an older note only to fill out, and said to be older.
+    const theirLore = lore.filter((e) => namedIn(e.content, [person]).length).slice(0, 4);
+    base0.known.push(...theirLore.map((e) => `${e.latest ? "What the world knows now" : "An older note, which may no longer be so"}: ${e.content.replace(/\s+/g, " ").slice(0, 400)}`));
     const view = { ...base0, plan: planned.map(({ n, title, about }) => ({ n, title, about })) };
     const prompt = offstagePrompt(view);
     let said = "";
@@ -4325,13 +4325,47 @@ function samePlace(a: string, b: string): boolean {
   return [...words(b)].some((w) => wa.has(w));
 }
 
-/** The lorebook entries the latest part of the story calls up, as the narrator would have them. */
+/** How many of the newest lorebook entries the world offstage reads as how things stand now. */
+export const LATEST_LORE = 10;
+
+/**
+ * The newest entries in play for this chat, newest first, by when each was saved or changed — or, for one
+ * from before entries were dated, made, which its id records. An imported entry with no date is setting,
+ * not news, and is never among the latest.
+ */
+export function latestLore(chat: any, n = LATEST_LORE): LoreEntry[] {
+  return loreFor(chat).filter((e) => e.enabled && e.content.trim() && recencyOf(e))
+    .sort((a, b) => recencyOf(b) - recencyOf(a)).slice(0, n);
+}
+
+/**
+ * What the world's notes say right now: the newest entries first, as how things stand, and after them any
+ * older entry the latest part of the story calls up by its keywords — marked as older, because a note of
+ * where someone was two weeks ago is not where they are.
+ */
 function loreNow(chat: any, s: Record<string, string>, rows: { name?: string; content: string; role?: string }[]) {
+  const named = (e: LoreEntry) => e.comment || e.keys[0] || "an entry";
   try {
-    return activate(loreFor(chat), rows.map((r) => ({ role: r.role ?? "assistant", content: r.content })), {
+    const latest = latestLore(chat);
+    const seen = new Set(latest.map((e) => e.id));
+    const called = activate(loreFor(chat), rows.map((r) => ({ role: r.role ?? "assistant", content: r.content })), {
       scanDepth: Number(s.lore_scan_depth) || 4, maxChars: 4000,
-    }).map((a) => ({ name: a.entry.comment || a.entry.keys[0] || "an entry", content: a.entry.content }));
+    }).map((a) => a.entry).filter((e) => !seen.has(e.id));
+    return [
+      ...latest.map((e) => ({ name: named(e), content: e.content, latest: true })),
+      ...called.map((e) => ({ name: named(e), content: e.content, latest: false })),
+    ];
   } catch { return []; }
+}
+
+/** The notes as a prompt reads them: the latest as how things stand, the rest as older and maybe past. */
+function notesFor(lore: { content: string; latest: boolean }[], cap: number) {
+  const line = (e: { content: string }) => `- ${e.content.replace(/\s+/g, " ").slice(0, cap)}`;
+  const latest = lore.filter((e) => e.latest), older = lore.filter((e) => !e.latest).slice(0, 4);
+  return [
+    latest.length ? `The latest notes, newest first — how things stand now:\n${latest.map(line).join("\n")}` : "",
+    older.length ? `Older notes — they may be out of date; where they disagree with the latest notes or the story, the latest is true:\n${older.map(line).join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 /** Who was read as in the scene, for the message it was read at: asked once per turn of the story, not per run. */
@@ -4345,7 +4379,7 @@ export const forgetPresence = () => presence.clear();
  * was named lately. Null when it cannot be read, so the caller falls back to a rule.
  */
 async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnection>, fold: boolean, cast: string[], player: string,
-  recent: { name?: string; content: string }[], lore: { name: string; content: string }[]): Promise<string[] | null> {
+  recent: { name?: string; content: string }[], lore: { name: string; content: string; latest: boolean }[]): Promise<string[] | null> {
   const at = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? "";
   const known = presence.get(chatId);
   if (known && known.at === at) return known.here;
@@ -4353,9 +4387,9 @@ async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnect
   const prompt = [
     `People: ${cast.join("; ")}`,
     `The player's character: ${player || "the player"}`,
-    lore.length ? `What the story's notes say:\n${lore.slice(0, 8).map((e) => `- ${e.content.replace(/\s+/g, " ").slice(0, 500)}`).join("\n")}` : "",
+    notesFor(lore, 500),
     `The story, latest part:\n\n${[...recent].reverse().map((r) => `${r.name ? `${r.name}: ` : ""}${storyOnly(r.content)}`).join("\n\n").slice(-6000)}`,
-    `For each person in the list write one line: HERE | name — if they are physically in the scene with ${player || "the player"} right now — or AWAY | name | where they are, as far as the story or the notes say. Nothing else.`,
+    `For each person in the list write one line: HERE | name — if they are physically in the scene with ${player || "the player"} right now — or AWAY | name | where they are, as far as the story or the notes say. The story itself is the surest word, then the latest notes. Nothing else.`,
   ].filter(Boolean).join("\n\n");
   let said = "", thought = "";
   try {
@@ -4471,6 +4505,12 @@ api.get("/chats/:id/offstage", (c) => {
     threads: threadsOf(entries, { hidden: true }).filter((t) => t.hidden || t.notes.some((n) => n.private))
       .map((t) => ({ key: t.key, title: t.title, open: t.open, hidden: t.hidden, notes: t.notes.filter((n) => n.private).map((n) => ({ ...n, when: n.day === null ? "" : formatDate(cal, { day: n.day, minute: 0 }) })) })),
     people: [...new Set([...peopleOfChat(chatId), ...agendasOf(entries).map((g) => g.who)])].filter(Boolean),
+    // The lorebook entries it reads as how things stand now, newest first.
+    latest: (() => {
+      const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+      return chat ? latestLore(chat).map((e) => ({ name: e.comment || e.keys[0] || "an entry", at: recencyOf(e),
+        text: e.content.replace(/\s+/g, " ").slice(0, 200) })) : [];
+    })(),
   });
 });
 
@@ -5097,7 +5137,7 @@ api.put("/lorebooks/:id", async (c) => {
   if (!cur) return c.json({ error: "Lorebook not found." }, 404);
   db.query("UPDATE lorebooks SET name = ?, entries = ? WHERE id = ?").run(
     (b.name ?? cur.name).trim() || cur.name,
-    b.entries ? JSON.stringify(b.entries.map(normaliseEntry)) : cur.entries,
+    b.entries ? JSON.stringify(stampEntries(readEntries(cur), b.entries.map(normaliseEntry), now())) : cur.entries,
     cur.id,
   );
   return c.json({ ok: true });
@@ -5264,9 +5304,8 @@ async function takeNote(chatId: string) {
   }
 
   const entries = readEntries(book);
-  entries.push(entryFromNote(note));
   db.query("UPDATE lorebooks SET entries = ? WHERE id = ?")
-    .run(JSON.stringify(entries), book.id);
+    .run(JSON.stringify(stampEntries(entries, [...entries, entryFromNote(note)], now())), book.id);
 }
 
 /**

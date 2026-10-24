@@ -503,7 +503,14 @@ async function paintOffstage() {
     <p class="hint">How often what they do leaves a trace someone could find. A master spy and a first-time thief are not alike.</p>
     <ul class="wdledger">${schemers.map((w) => `<li class="wdrow"><span>${txt(w)}</span>
       <select data-manner="${txt(w)}">${Object.entries(MANNER).map(([k, v]) => `<option value="${k}"${(l.discretion?.[w] ?? "ordinary") === k ? " selected" : ""}>${v}</option>`).join("")}</select></li>`).join("")}</ul>` : "";
-  const run = `<button type="button" class="solid wide" id="wdRunDay">Run a day offstage</button>`;
+  // The newest lorebook notes, which it takes as how things stand: not a secret, so shown sealed or not.
+  const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${Math.max(1, m)} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const notes = (l.latest ?? []).map((e) => `<li><div><b>${txt(e.name)}</b> <span class="wdwhen">${ago(e.at)}</span></div>
+      <div class="wdwhen">${txt(e.text)}${e.text.length >= 200 ? "…" : ""}</div></li>`).join("");
+  const run = `<button type="button" class="solid wide" id="wdRunDay">Run a day offstage</button>
+    <details class="wdlatest"><summary>The notes it reads as now${l.latest?.length ? ` (${l.latest.length})` : ""}</summary>
+      <p class="hint">The ${l.latest?.length || 10} newest lorebook entries, newest first. Everyone offstage — and the check of who is in the scene with you — takes these as how things stand; an older entry the story calls up is read as possibly out of date. Entries imported from elsewhere carry no date until they are edited here, so they are never counted among the newest.</p>
+      ${notes ? `<ul class="wdledger">${notes}</ul>` : `<p class="hint">No lorebook entries in play for this chat.</p>`}</details>`;
   if (!W.ledgerOpen) {
     const did = l.actions.filter((a) => a.outcome !== "dropped" && a.outcome !== "routine").length;
     body.innerHTML = `${off}

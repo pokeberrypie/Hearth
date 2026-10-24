@@ -28,6 +28,8 @@ export type LoreEntry = {
   scanDepth: number | null;
   excludeRecursion: boolean;  // never triggered by another entry's content
   preventRecursion: boolean;  // its own content never triggers others
+  added_at: number;       // when it was first saved here; 0 for entries from before this was kept, or imported
+  changed_at: number;     // when what it says last changed; 0 likewise
 };
 
 const ST_LOGIC: Record<number, Logic> = {
@@ -69,8 +71,39 @@ export function normaliseEntry(raw: any): LoreEntry {
     scanDepth: raw.scanDepth === null || raw.scanDepth === undefined ? null : num(raw.scanDepth, 4),
     excludeRecursion: !!(raw.excludeRecursion ?? false),
     preventRecursion: !!(raw.preventRecursion ?? false),
+    added_at: num(raw.added_at, 0),
+    changed_at: num(raw.changed_at, 0),
   };
 }
+
+/**
+ * When each entry came in and last changed, kept by the server against what was stored before — so it is
+ * right whichever page or feature saved the book, and whatever the client sent for these fields. A new id
+ * is new now; one whose words or title changed has changed now; the rest keep what they had.
+ */
+export function stampEntries(before: LoreEntry[], after: LoreEntry[], t: number): LoreEntry[] {
+  const was = new Map(before.map((e) => [e.id, e]));
+  return after.map((e) => {
+    const old = was.get(e.id);
+    if (!old) return { ...e, added_at: t, changed_at: t };
+    const changed = old.content !== e.content || old.comment !== e.comment;
+    return { ...e, added_at: old.added_at, changed_at: changed ? t : old.changed_at };
+  });
+}
+
+/**
+ * When an entry was made, from its id, for entries saved before they were dated: Hearth's own ids carry the
+ * time — a note's is "e" and the time in base 36, one added in the editor "new" and the time. An imported
+ * entry's (SillyTavern numbers them 0, 1, 2…) does not, and gives 0. Ids may be prefixed by their book.
+ */
+export function bornOf(id: string): number {
+  const own = id.slice(id.lastIndexOf(":") + 1);
+  const t = /^e([0-9a-z]{8})/.exec(own) ? parseInt(own.slice(1, 9), 36) : /^new(\d{13})$/.exec(own) ? Number(own.slice(3)) : 0;
+  return t > Date.UTC(2020, 0, 1) && t < Date.now() + 86_400_000 ? t : 0;
+}
+
+/** How recent an entry is, for "the latest notes": when it last changed or came in, or was made; 0 if unknown. */
+export const recencyOf = (e: LoreEntry) => Math.max(e.changed_at || 0, e.added_at || 0) || bornOf(e.id);
 
 export function normaliseBook(raw: any): LoreEntry[] {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.entries) ? raw.entries
