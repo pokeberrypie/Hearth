@@ -4124,12 +4124,22 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   const player = whoAmI(chat.persona_id)?.name ?? "";
   // Who is in the scene right now — named in the last few messages, or speaking in them — is with the
   // player, not offstage. Everyone else in the story may act: those with goals first, then the cast.
-  const recentRows = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 4").all(chatId) as any[];
+  const recentRows = db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 6").all(chatId) as any[];
   const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId)])].filter((p) => p && p !== player);
+  const status = statusOf(entries);
   const onstage = new Set([...namedIn(recentRows.map((r) => r.content).join("\n"), cast), ...recentRows.map((r) => r.name).filter(Boolean)]);
+  // The party: the chat's own characters are in the scene with the player unless muted (which is how a
+  // member is marked away) or the tracker has them somewhere else — Tyrion on the road as a captive is not
+  // at the inn, whatever the cast bar says. Not mentioned lately is not the same as not there.
+  const whereIs = (who: string) => (status[who] as any)?.location?.title ?? "";
+  const here = whereIs(player);
+  for (const m of membersOf(chat) as any[]) {
+    if (!m.name || m.name === player || m.muted) continue;
+    const there = whereIs(m.name);
+    if (!there || !here || samePlace(there, here)) onstage.add(m.name);
+  }
   const offstage = cast.filter((p) => !onstage.has(p));
   if (!offstage.length) return { acted: 0, quiet: 0, threats: 0, note: cast.length ? "Everyone is in the scene with you right now: there is nobody offstage to act." : "There is nobody in this story yet but you." };
-  const status = statusOf(entries);
   const lastActed = new Map<string, number>();
   for (const e of liveEntries(entries)) if (e.kind === "offstage" && e.subject) lastActed.set(e.subject, e.created_at);
   const perDay = Math.max(1, Number(s.offstage_per_day) || 2);
@@ -4296,6 +4306,13 @@ function knowingsOf(entries: ChronicleEntry[]): Knowing[] {
 }
 
 /** After a reply: when the story's day has turned, the Offstage takes its turn — once per day, never per message. */
+/** Whether two tracked locations are the same place: "the Wicker Inn" and "The Wicker Inn common room" are. */
+function samePlace(a: string, b: string): boolean {
+  const words = (x: string) => new Set(groupKey(x).split(" ").filter((w) => w.length > 3 && !["room", "common", "outside", "inside", "near", "with", "their", "hall"].includes(w)));
+  const wa = words(a);
+  return [...words(b)].some((w) => wa.has(w));
+}
+
 /** Messages in one long day before the world offstage moves again. */
 const OFFSTAGE_EVERY = 20;
 

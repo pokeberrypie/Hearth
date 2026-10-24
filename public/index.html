@@ -93,93 +93,16 @@
   </div>
 </div>
 
-<div id="boot" aria-hidden="true">
-  <div class="bh l"><div class="bs">
-      <div class="glow"></div>
-      <svg viewBox="0 -128 108 216" preserveAspectRatio="xMidYMax meet" focusable="false">
-        <!-- The hollow, so the opening reads as a hole and not as lit stone. -->
-        <path fill="#120d0a" d="M41,80 L41,60 A13,13 0 0 1 67,60 L67,80 Z"/>
-
-        <!-- The surround: one mass of stone with the arch cut out of it. -->
-        <path fill="#6b6055" fill-rule="evenodd"
-              d="M27,42 L81,42 L81,79 L27,79 Z M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
-        <path fill="#342d27" d="M27,53 L41,53 L41,55 L27,55 Z M27,66 L41,66 L41,68 L27,68 Z
-                                M67,48 L81,48 L81,50 L67,50 Z M67,61 L81,61 L81,63 L67,63 Z
-                                M67,73 L81,73 L81,75 L67,75 Z"/>
-        <!-- The inner faces catch the fire. -->
-        <path fill="#8a7d6e" d="M41,60 L41,79 L38.5,79 L38.5,60 Z M67,60 L67,79 L69.5,79 L69.5,60 Z"/>
-
-        <!-- Mantel, tapered so it does not end in a corner. -->
-        <path fill="#8a7d6e" d="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z"/>
-        <path fill="#4a4139" d="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z"/>
-
-        <!-- The slab it stands on. -->
-        <path fill="#6b6055" d="M29,79 L79,79 L76,85 L32,85 Z"/>
-        <path fill="#4a4139" d="M29,79 L79,79 L78,81 L30,81 Z"/>
-
-        <!-- Embers in the grate, and the kindling laid across them. -->
-        <path class="embers" fill="#c2661f" d="M43,76 L65,76 L65,79 L43,79 Z"/>
-        <path fill="#3d2b22" d="M45,74 L61,69 L63,73 L47,78 Z M47,69 L63,74 L61,78 L45,73 Z"/>
-
-        <!-- The fire, drawn over the stone: it starts inside the opening and
-             climbs out of it until it has the whole screen. -->
-        <g class="fire">
-          <path class="fl deep" d="M54,79 C34,46 28,18 36,-20 C41,-46 50,-74 54,-118
-                                   C59,-72 68,-44 73,-18 C80,18 72,48 54,79 Z"/>
-          <path class="fl mid"  d="M54,79 C42,52 39,32 44,4 C47,-14 52,-34 54,-62
-                                   C57,-32 62,-12 65,6 C70,34 65,54 54,79 Z"/>
-          <path class="fl hot"  d="M54,79 C48,60 47,46 50,28 C52,16 53,4 54,-16
-                                   C56,2 58,15 60,27 C63,45 60,60 54,79 Z"/>
-        </g>
-      </svg>
-  </div></div>
-  <div class="bh r"><div class="bs">
-      <div class="glow"></div>
-      <svg viewBox="0 -128 108 216" preserveAspectRatio="xMidYMax meet" focusable="false">
-        <!-- The hollow, so the opening reads as a hole and not as lit stone. -->
-        <path fill="#120d0a" d="M41,80 L41,60 A13,13 0 0 1 67,60 L67,80 Z"/>
-
-        <!-- The surround: one mass of stone with the arch cut out of it. -->
-        <path fill="#6b6055" fill-rule="evenodd"
-              d="M27,42 L81,42 L81,79 L27,79 Z M41,79 L41,60 A13,13 0 0 1 67,60 L67,79 Z"/>
-        <path fill="#342d27" d="M27,53 L41,53 L41,55 L27,55 Z M27,66 L41,66 L41,68 L27,68 Z
-                                M67,48 L81,48 L81,50 L67,50 Z M67,61 L81,61 L81,63 L67,63 Z
-                                M67,73 L81,73 L81,75 L67,75 Z"/>
-        <!-- The inner faces catch the fire. -->
-        <path fill="#8a7d6e" d="M41,60 L41,79 L38.5,79 L38.5,60 Z M67,60 L67,79 L69.5,79 L69.5,60 Z"/>
-
-        <!-- Mantel, tapered so it does not end in a corner. -->
-        <path fill="#8a7d6e" d="M27,32 L81,32 L84,36 L84,40 L81,43 L27,43 L24,40 L24,36 Z"/>
-        <path fill="#4a4139" d="M24,40 L84,40 L84,40.5 L81,43 L27,43 L24,40.5 Z"/>
-
-        <!-- The slab it stands on. -->
-        <path fill="#6b6055" d="M29,79 L79,79 L76,85 L32,85 Z"/>
-        <path fill="#4a4139" d="M29,79 L79,79 L78,81 L30,81 Z"/>
-
-        <!-- Embers in the grate, and the kindling laid across them. -->
-        <path class="embers" fill="#c2661f" d="M43,76 L65,76 L65,79 L43,79 Z"/>
-        <path fill="#3d2b22" d="M45,74 L61,69 L63,73 L47,78 Z M47,69 L63,74 L61,78 L45,73 Z"/>
-
-        <!-- The fire, drawn over the stone: it starts inside the opening and
-             climbs out of it until it has the whole screen. -->
-        <g class="fire">
-          <path class="fl deep" d="M54,79 C34,46 28,18 36,-20 C41,-46 50,-74 54,-118
-                                   C59,-72 68,-44 73,-18 C80,18 72,48 54,79 Z"/>
-          <path class="fl mid"  d="M54,79 C42,52 39,32 44,4 C47,-14 52,-34 54,-62
-                                   C57,-32 62,-12 65,6 C70,34 65,54 54,79 Z"/>
-          <path class="fl hot"  d="M54,79 C48,60 47,46 50,28 C52,16 53,4 54,-16
-                                   C56,2 58,15 60,27 C63,45 60,60 54,79 Z"/>
-        </g>
-      </svg>
-  </div></div>
-</div>
+<!-- The hearth, lit while Hearth loads: public/hearthfire.js draws it, the
+     same file the phone's boot.html uses, so the fire that has been burning
+     there carries on here without a jump. -->
+<div id="boot" aria-hidden="true"></div>
+<script src="/hearthfire.js"></script>
 <script>
   /* Before anything paints. The activity hands over with #lit once its own
-     copy has been burning through the server's wake-up, and this has to be on
-     the element in the first frame — deciding it at the end of loading meant
-     the fire climbed a second time while the app was still starting, which is
-     the one thing the hand-over exists to prevent. */
-  if (location.hash === "#lit") document.getElementById("boot").classList.add("lit");
+     copy has been burning through the server's wake-up: the fire starts at
+     full height rather than climbing a second time. */
+  HearthFire.light(document.getElementById("boot"), { lit: location.hash === "#lit" });
 </script>
 
 

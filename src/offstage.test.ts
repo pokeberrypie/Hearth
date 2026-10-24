@@ -653,7 +653,8 @@ describe("the world moves on its own", () => {
     setSettings({ gossip_level: "off", offstage_level: "dynamic" });
     // Tyrion, a captive far away, is one of the chat's own characters; Jaime is in the scene.
     db.query("INSERT INTO characters (id, name, description, created_at) VALUES ('t', 'Tyrion Lannister', 'A clever dwarf, held captive in the Vale.', 1)").run();
-    db.query("INSERT INTO chat_members (chat_id, character_id, position) VALUES ('ch', 'j', 0), ('ch', 't', 1)").run();
+    // Away from the scene: muted, as a captive in another place would be.
+    db.query("INSERT INTO chat_members (chat_id, character_id, position, muted) VALUES ('ch', 'j', 0, 0), ('ch', 't', 1, 1)").run();
   }
 
   test("nobody needs a goal: the cast offstage decide for themselves, and whoever is in the scene does not", async () => {
@@ -762,5 +763,36 @@ describe("a thinking model that leaves the answer empty", () => {
     reply("NONE");
     await send("/api/chats/ch/steward/now", "POST", {});
     expect((db.query("SELECT steward_at FROM chats WHERE id = 'ch'").get() as any).steward_at).toBe(2);
+  });
+});
+
+describe("the party is in the scene, mentioned lately or not", () => {
+  function party() {
+    seed();
+    setSettings({ gossip_level: "off", offstage_level: "dynamic" });
+    db.query("INSERT INTO characters (id, name, created_at) VALUES ('d', 'Davren Baratheon', 1), ('t', 'Tyrion Lannister', 1)").run();
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('x1', 'ch', 'j', 0), ('x2', 'ch', 'd', 1), ('x3', 'ch', 't', 2)").run();
+    for (let i = 0; i < 8; i++) db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', 'user', 'Yvenna Hightower', 'The fire crackled.', ?)").run(`q${i}`, 10 + i);
+  }
+  const asked = () => sent.filter((b) => !b.stream).map((b) => JSON.stringify(b.messages));
+  const at = (who: string, where: string) => send("/api/chats/ch/chronicle", "POST", { kind: "status", subject: who, field: "location", value: where });
+
+  test("Davren, at the table and not mentioned for a while, does not go off and act; Tyrion, tracked far away, does", async () => {
+    party();
+    await at("Yvenna Hightower", "The Wicker Inn common room");
+    await at("Davren Baratheon", "The Wicker Inn");
+    await at("Tyrion Lannister", "a Stark camp in the mountains");
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
+    expect(asked().some((m) => m.includes("deciding for: Davren"))).toBe(false);
+    expect(asked().some((m) => m.includes("deciding for: Jaime"))).toBe(false);
+  });
+
+  test("a member muted — away from the scene — may act; with nobody tracked anywhere, the party stays put", async () => {
+    party();
+    db.query("UPDATE chat_members SET muted = 1 WHERE id = 'x3'").run();
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
+    expect(asked().some((m) => m.includes("deciding for: Davren"))).toBe(false);
   });
 });
