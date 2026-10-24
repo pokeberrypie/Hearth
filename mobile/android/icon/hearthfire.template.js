@@ -13,11 +13,15 @@
  * Each layer is a row of pointed tongues that flicker and sway on their own
  * time; licks break off the tips and rise, and embers drift up.
  *
- * It burns behind the hearth, not on it: the firebox is left open, so the
- * fire is seen through the opening behind the logs, and as it grows it rises
- * up past the mantel and the chimney from behind the stone — the hearth hides
- * where it starts. Spreading wider than the hearth, its foot is the floor; at
- * full height it swallows the hearth and is a wall of flame across the screen.
+ * It comes out of the hearth. It burns in the firebox, behind the logs, seen
+ * through the open mouth of it; and as it grows it pours out of that mouth —
+ * a second fire in front of the stone, whose foot is the arch of the opening
+ * itself, reaching down into the top of the opening so the fire inside and the
+ * fire pouring out are one, fanning up and out over the chimney breast and the
+ * mantel. Then the room catches: flames rise from the floor across the whole
+ * width, from below the screen, and climb to meet it until the hearth and the
+ * screen are fire. Never a flat edge: the one fire starts in the grate, and the
+ * other below the bottom of the screen.
  *
  * And then it parts, the way water would: an opening wells up in the middle of
  * the flames — a rippling oval with a thick rim, each colour drawn back by its
@@ -32,6 +36,8 @@
   "use strict";
 
   const HEARTH = `__HEARTH__`;
+  // The logs and embers, drawn over the fire so it burns in the grate.
+  const GRATE_ART = `__GRATE__`;
   // Where the fire sits in the drawing: the grate, in the icon's 108-unit viewBox, and how high the opening is.
   const GRATE = { x: 54, y: 78.5, half: 11, top: 52 };
   const RISE_MS = 2600;
@@ -76,7 +82,8 @@
   background: radial-gradient(70% 55% at 50% 80%, rgba(255, 170, 80, .28), rgba(194, 90, 30, .10) 55%, transparent 80%);
   opacity: calc(0.3 + var(--heat, 0) * 0.7); }
 #boot.hf.parting { background: transparent; }
-#boot.hf.parting .hf-room, #boot.hf.parting .hf-hearth, #boot.hf.parting .hf-light { display: none; }`;
+#boot.hf.parting .hf-room, #boot.hf.parting .hf-hearth, #boot.hf.parting .hf-light, #boot.hf.parting .hf-back { display: none; }
+#boot.hf .hf-logs { filter: none; }`;
 
   let state = null;
 
@@ -91,13 +98,20 @@
     const still = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
     root.classList.add("hf");
     // The fire is behind the hearth: the stone in front hides where it starts, and the open firebox shows it.
-    root.innerHTML = `<div class="hf-room"></div><canvas class="hf-fire"></canvas>
+    // Two fires: the one in the firebox, behind the stone and the logs; and the one pouring out of its
+    // mouth, in front of the stone.
+    root.innerHTML = `<div class="hf-room"></div><canvas class="hf-fire hf-back"></canvas>
       <svg class="hf-hearth" viewBox="14 16 80 74" preserveAspectRatio="xMidYMax meet" aria-hidden="true">${HEARTH}</svg>
+      <canvas class="hf-fire hf-front"></canvas>
+      <svg class="hf-hearth hf-logs" viewBox="14 16 80 74" preserveAspectRatio="xMidYMax meet" aria-hidden="true">${GRATE_ART}</svg>
       <div class="hf-light"></div>`;
     const svg = root.querySelector(".hf-hearth");
-    const canvas = root.querySelector(".hf-fire");
+    const logs = root.querySelector(".hf-logs");
+    const canvas = root.querySelector(".hf-front");
+    const back = root.querySelector(".hf-back");
     const s = {
-      root, svg, canvas, ctx: canvas.getContext("2d"), still,
+      root, svg, logs, canvas, ctx: canvas.getContext("2d"), back, bctx: back.getContext("2d"), still,
+      unit: 4, archTop: 0, mouth: 50,
       start: performance.now() - (opts.lit ? RISE_MS : 0),
       split: 0, splitStart: 0, last: performance.now(), raf: 0, done: null,
       licks: [], embers: [], w: 0, h: 0, dpr: 1, grate: { x: 0, y: 0, half: 10, open: 40 }, hearthHalf: 100, hearthBottom: 0,
@@ -106,7 +120,7 @@
     const size = () => {
       s.dpr = Math.min(window.devicePixelRatio || 1, 2);
       s.w = window.innerWidth; s.h = window.innerHeight;
-      canvas.width = Math.round(s.w * s.dpr); canvas.height = Math.round(s.h * s.dpr);
+      canvas.width = back.width = Math.round(s.w * s.dpr); canvas.height = back.height = Math.round(s.h * s.dpr);
       const m = svg.getScreenCTM();
       if (m) {
         const pt = (x, y) => { const p = svg.createSVGPoint(); p.x = x; p.y = y; return p.matrixTransform(m); };
@@ -114,6 +128,11 @@
         s.grate = { x: at.x, y: at.y, half: Math.max(8, edge.x - at.x), open: Math.max(20, at.y - top.y) };
         s.hearthHalf = Math.max(s.grate.half * 2, pt(84, GRATE.y).x - at.x);
         s.hearthBottom = pt(GRATE.x, 84).y;
+        // The mouth of the firebox: its arch, in screen pixels — 14 units either side of the middle, its
+        // crown 50 units down, its springing 58.
+        s.unit = pt(1, 0).x - pt(0, 0).x;
+        s.archTop = pt(GRATE.x, 50).y;
+        s.mouth = 14 * s.unit;
       } else {
         s.grate = { x: s.w / 2, y: s.h * 0.8, half: s.w * 0.07, open: s.h * 0.1 };
         s.hearthBottom = s.h * 0.9;
@@ -148,20 +167,47 @@
 
   /** One frame of the fire, at a given heat and parting. */
   function draw(s, heat, t, split) {
-    const { ctx, w, h, dpr, grate } = s;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    // It climbs out of the firebox first, then spreads: narrow and rising until it is over the mantel, then
-    // wide — and by the time it is as wide as the hearth its foot is the floor, so it never hangs in the air.
-    const half = lerp(grate.half * 1.15, w * 0.95, Math.pow(heat, 2.4));
-    const spread = clamp((half - grate.half * 1.15) / Math.max(1, s.hearthHalf * 1.1 - grate.half * 1.15), 0, 1);
-    // Its foot sinks from the grate to behind the hearthstone as it grows — out of sight either way — and
-    // then, as it spreads past the hearth, to the floor.
-    const behind = lerp(grate.y, s.hearthBottom || grate.y, ease(clamp(heat / 0.35, 0, 1)));
-    const baseY = lerp(behind, h + 6, ease(spread));
-    const tall = lerp(grate.open * 1.2, h * 1.5, Math.pow(heat, 1.15));
+    const { ctx, bctx, w, h, dpr, grate } = s;
+    for (const c of [ctx, bctx]) { c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h); }
     const cx = grate.x;
     const N = 96;
+    const u0 = s.unit || 4;
+    const mouth = s.mouth || grate.half * 1.3;
+    const archTop = s.archTop || grate.y - grate.open;
+
+    // The fire in the firebox, behind the logs: as wide as the mouth, reaching up into the arch — and, once
+    // it is spilling out, filling it to the crown and past, so the fire inside and the fire pouring out are
+    // one fire (what reaches past the arch is behind the stone, and unseen).
+    if (!split) {
+      const tallIn = (grate.y - archTop) * lerp(0.8, 1.6, clamp(heat / 0.14, 0, 1));
+      for (let li = 0; li < LAYERS.length; li++) {
+        bctx.fillStyle = LAYERS[li].colour;
+        bctx.beginPath();
+        bctx.moveTo(cx - mouth * 1.1, grate.y + 2 * u0);
+        for (let i = 0; i <= N; i++) {
+          const u = -1.15 + (2.3 * i) / N;
+          bctx.lineTo(cx + u * mouth, grate.y - tallIn * heightAt(li, u, t, 0.15));
+        }
+        bctx.lineTo(cx + mouth * 1.1, grate.y + 2 * u0);
+        bctx.closePath();
+        bctx.fill();
+      }
+    }
+
+    // The fire out of the mouth. Its foot is the arch of the opening; beyond the opening its lower edge
+    // rises, so the flames fan up and out over the stone; as it grows that edge sweeps down to the floor.
+    const out = clamp((heat - 0.12) / 0.88, 0, 1);              // nothing outside until the firebox is full
+    const half = lerp(mouth * 1.05, w * 0.95, Math.pow(out, 1.9));
+    const tall = lerp((grate.y - archTop) * 0.5, h * 1.55, Math.pow(out, 1.2));
+    // The room catching: flames from the floor, rising to meet the fire from the hearth.
+    const floor = ease(clamp((heat - 0.36) / 0.56, 0, 1));
+    const floorTall = lerp(0, h * 1.6, floor);
+    // The foot of the fire pouring out: across the mouth it is the grate itself — one fire from the logs up
+    // and out, the logs drawn over it — and at the sides of the mouth it meets the arch's springing.
+    const archAt = (dx) => {
+      const k = Math.min(1, dx / mouth);
+      return k < 0.97 ? grate.y + u0 : archTop + 8 * u0 + 0.6 * u0;
+    };
     // The opening: an oval welling up in the middle of the fire, taller than it is wide, rippling at its rim.
     // It spreads until it is past every edge of the screen. Each colour is drawn back by its own amount, the
     // brightest most, so the rim is a layered wall of fire around the gap.
@@ -181,20 +227,56 @@
       }
       ctx.closePath();
     };
-    for (let li = 0; li < LAYERS.length; li++) {
-      ctx.save();
-      if (split > 0) { ctx.beginPath(); opening(li * rim); ctx.clip("evenodd"); }
-      ctx.fillStyle = LAYERS[li].colour;
-      ctx.beginPath();
-      ctx.moveTo(cx - half * 1.2, baseY + 2);
-      for (let i = 0; i <= N; i++) {
-        const u = -1.15 + (2.3 * i) / N;
-        ctx.lineTo(cx + u * half, baseY - tall * heightAt(li, u, t, heat));
+    if (out > 0) {
+      for (let li = 0; li < LAYERS.length; li++) {
+        ctx.save();
+        if (split > 0) { ctx.beginPath(); opening(li * rim); ctx.clip("evenodd"); }
+        ctx.fillStyle = LAYERS[li].colour;
+        const tops = [], lows = [];
+        // The brighter the colour, the narrower: in the mouth the fire is deep orange at its sides and gold
+        // to pale at its heart, as a fire in a grate is.
+        const narrow = 1 - li * 0.13;
+        for (let i = 0; i <= N; i++) {
+          const u = -1.15 + (2.3 * i) / N;
+          const x = cx + u * half * narrow;
+          const dx = Math.abs(x - cx);
+          // Beyond the mouth the foot lifts away from it — more for the inner, brighter colours — so the
+          // flames leave the arch and climb the stone rather than sit on it.
+          const lift = dx <= mouth ? 0 : Math.pow((dx - mouth) / Math.max(1, half - mouth), 1.6) * tall * lerp(0.62, 0.3, out) * (1 + li * 0.18);
+          const wave = (Math.sin(x * 0.045 + t * 3.1 + li) * 1.2 + Math.sin(x * 0.11 - t * 4.7 + li * 2) * 0.8) * u0 * Math.min(1, dx / mouth);
+          const low = archAt(dx) - lift + wave;
+          // Inside the mouth the brighter colours sit lower, and rise out of it as tongues.
+          const sink = dx < mouth ? (grate.y - archTop) * 0.22 * li * (1 - out) : 0;
+          const top = Math.min(low, archTop + sink - tall * heightAt(li, u, t, out) + (1 - out) * 4 * u0);
+          tops.push([x, top]); lows.push([x, low]);
+        }
+        ctx.beginPath();
+        ctx.moveTo(lows[0][0], lows[0][1]);
+        for (const [x, y] of tops) ctx.lineTo(x, y);
+        for (let i = lows.length - 1; i >= 0; i--) ctx.lineTo(lows[i][0], lows[i][1]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
       }
-      ctx.lineTo(cx + half * 1.2, baseY + 2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+    }
+    // And the room's, climbing from below the bottom of the screen over everything — the hearth and its
+    // fire — until it is the whole screen.
+    if (floorTall > 0) {
+      for (let li = 0; li < LAYERS.length; li++) {
+        ctx.save();
+        if (split > 0) { ctx.beginPath(); opening(li * rim); ctx.clip("evenodd"); }
+        ctx.fillStyle = LAYERS[li].colour;
+        ctx.beginPath();
+        ctx.moveTo(-20, h + 20);
+        for (let i = 0; i <= N; i++) {
+          const u = -1 + (2 * i) / N;
+          ctx.lineTo(w / 2 + u * (w / 2 + 20), h + 8 - floorTall * heightAt(li, u * 0.92, t + 7.3, 0.6));
+        }
+        ctx.lineTo(w + 20, h + 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
     }
     // Licks broken off the tongues, and thrown off the walls as they part; embers above them.
     for (const k of s.licks) {
@@ -220,7 +302,8 @@
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-    return { half, baseY, tall, cx, cy, rx, ry };
+    // The tongues' tips, for the licks and embers, are measured from the crown of the arch.
+    return { half, baseY: archTop, tall, cx, cy, rx, ry };
   }
 
   function frame(now) {
@@ -232,9 +315,10 @@
     const heat = ease(clamp((now - s.start) / RISE_MS, 0, 1));
     if (s.splitStart) s.split = ease(clamp((now - s.splitStart) / PART_MS, 0, 1));
     s.root.style.setProperty("--heat", heat.toFixed(3));
-    // At the last of its climb the fire swallows the hearth.
-    const gone = clamp((heat - 0.74) / 0.22, 0, 1);
-    s.svg.style.opacity = String(1 - gone * gone * (3 - 2 * gone));
+    // The hearth and its logs go as the fire from the floor reaches them, not before and not after.
+    const floorNow = ease(clamp((heat - 0.36) / 0.56, 0, 1));
+    const gone = clamp((floorNow - 0.18) / 0.3, 0, 1);
+    s.svg.style.opacity = s.logs.style.opacity = String(1 - gone * gone * (3 - 2 * gone));
     const g = draw(s, heat, t, s.split);
 
     // New licks off the tips of the brighter layers, and — parting — off the walls, thrown outward.

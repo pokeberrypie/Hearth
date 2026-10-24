@@ -8,9 +8,10 @@ sparks, and the pot on its crane, which would hang in the middle of the fire.
 
   python3 mobile/android/icon/gen_icon.py --literal --out /tmp/lit
   python3 mobile/android/icon/boot_hearth.py /tmp/lit/ic_launcher_foreground.xml > /tmp/hearth.svg
+  python3 mobile/android/icon/boot_hearth.py /tmp/lit/ic_launcher_foreground.xml front > /tmp/grate.svg
 
-hearthfire.template.js beside this file is public/hearthfire.js with the drawing
-taken out (__HEARTH__); put the output in its place to write the fire again, and
+hearthfire.template.js beside this file is public/hearthfire.js with the drawings
+taken out (__HEARTH__ and __GRATE__); put the outputs in their places to write the fire again, and
 copy the result to mobile/android/app/src/main/assets/hearthfire.js as well.
 """
 
@@ -25,6 +26,10 @@ POT = {"#FF2A2420", "#FF3A332D"}
 # The inside of the firebox: left open, so the fire — drawn behind the hearth — shows through the opening,
 # behind the logs, and the stone in front of it hides where it starts.
 HOLLOW = {"#FF190C07", "#FF7A2F10"}
+# The logs and the embers under them: drawn on their own, in front of the fire, so the fire burns in the
+# grate rather than over it. `front` writes only these; the hearth leaves them out.
+GRATE = {"#FF5B3B26", "#FF47301F", "#FF8A6442", "#FF79573A", "#FFFF7A2E", "#FFFFC46A"}
+FRONT = len(sys.argv) > 2 and sys.argv[2] == "front"
 CRANE_STROKES = {"#FF241D18", "#FF6E6159"}
 
 
@@ -36,6 +41,9 @@ def colour(argb):
 def keep(el):
     fill = (el.get(A + "fillColor") or "").upper()
     stroke = (el.get(A + "strokeColor") or "").upper()
+    grate = fill in GRATE or stroke in GRATE
+    if FRONT != grate:
+        return False
     if fill in FLAME or fill in POT or fill in HOLLOW:
         return False
     if stroke and stroke in CRANE_STROKES:
