@@ -602,6 +602,10 @@ export const DEFAULTS: Record<string, string> = {
    * not a court.
    */
   gossip_level: "natural",
+  /** Whether a threat to the player's character waits for a yes before it comes into the story. Off: it just arrives. */
+  offstage_threat_ask: "0",
+  /** Whether the model's own tracker sheets (@Status, <status>…) show in replies. Off: they are left out of what you see. */
+  show_trackers: "0",
   gossip_distortion: "15",
   gossip_misinfo: "1",
   gossip_decay: "10",

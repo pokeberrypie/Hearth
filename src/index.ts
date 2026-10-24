@@ -1295,7 +1295,7 @@ api.post("/chats/:id/generate", async (c) => {
         if (!failed && !ac.signal.aborted) stewardTurn(chatId).catch(() => {});
         // A threat that was let in has had its reply; it was a scene to start, not a standing order.
         if (!failed && !ac.signal.aborted) {
-          db.query("UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'threat' AND proposed = 0 AND undone_at IS NULL AND created_at < ?")
+          db.query(`UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'threat' AND undone_at IS NULL AND created_at < ?${getSettings().offstage_threat_ask === "1" ? " AND proposed = 0" : ""}`)
             .run(now(), chatId, t0);
         }
         // And the Offstage, when a day has turned: what the people nobody is watching do.
@@ -3627,7 +3627,9 @@ function chronicleState(chatId: string) {
     proposals: [
       ...chronicleView(pending(entries).filter(onStage).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
       // A threat is asked about without being told: who is coming, and how, stays in the ledger.
-      ...pending(entries).filter((e) => e.kind === "threat").map((e) => ({ id: e.id, kind: "threat", title: "", data: e.data })),
+      // Only when the author has asked to be asked: otherwise one waiting from before simply comes in, like a new one.
+      ...(getSettings().offstage_threat_ask === "1" ? pending(entries).filter((e) => e.kind === "threat") : [])
+        .map((e) => ({ id: e.id, kind: "threat", title: "", data: e.data })),
       // So is a conflict with the plan: which scene, and nothing of what happened. A scene not yet reached
       // in a book read blind is not named either.
       ...pending(entries).filter((e) => e.kind === "conflict").map((e) => ({ id: e.id, kind: "conflict", scene_id: e.scene_id,
@@ -4213,7 +4215,8 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     }
     if (r.threat) {
       add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "threat", subject: person, title: r.act, body: r.why,
-        created_at: t++, proposed: true, data: { player, harm: r.harm } }));
+        // Asked about first only if the author wants to be asked; otherwise it simply comes, in the next reply.
+        created_at: t++, proposed: s.offstage_threat_ask === "1", data: { player, harm: r.harm } }));
       threats++;
     }
     if (r.abandons) add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.abandons, status: "abandoned" } }));
@@ -4291,7 +4294,10 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   const day = clockOf(calendarOf(chatId), entries).day;
   const facts = live.filter((e) => e.kind === "consequence").slice(-6).map((e) => e.title);
   const hooks = live.filter((e) => e.kind === "hook" && (dataOf(e).until ?? day) >= day).slice(-4).map((e) => e.title);
-  const threat = live.filter((e) => e.kind === "threat").at(-1);
+  // A threat let in — or, when nobody is to be asked, one still waiting from when they were.
+  const threat = (getSettings().offstage_threat_ask === "1" ? live.filter((e) => e.kind === "threat")
+    : [...live.filter((e) => e.kind === "threat"), ...pending(entries).filter((e) => e.kind === "threat")]
+      .sort((a, b) => a.created_at - b.created_at)).at(-1);
   const out: string[] = [];
   // Rumours held by people in the scene: theirs to bring up, believe or keep — never the truth of it.
   const s = getSettings();

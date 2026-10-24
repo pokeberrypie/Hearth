@@ -536,6 +536,10 @@ function foldAtBlocks(src) {
   return out.join("\n");
 }
 
+/** Whether the model's tracker sheets show in replies at all. Off by default; Story World settings. */
+let showTrackers = false;
+const TRACKER_TAGS = /^(tracker|status)$/i;
+
 function prose(text) {
   const src = foldAtBlocks(String(text ?? ""));
   let out = "";
@@ -551,6 +555,7 @@ function prose(text) {
     out +=
       tag === "prose" ? prose(m[3])
       : tag === "threads" ? threadsEl(m[3])
+      : TRACKER_TAGS.test(tag) && !showTrackers ? ""
       : new RegExp(`^(?:${FOLDED})$`, "i").test(tag) ? foldEl(tag, m[3])
       : thoughtEl(m[2], m[3]);
     last = m.index + m[0].length;
@@ -9638,6 +9643,7 @@ let recoveryNotice = "";
 async function loadSettings() {
   const s = await api("/settings");
   recoveryNotice = s.recovery_notice || "";
+  showTrackers = s.show_trackers === "1";
   providerMeta = s.providers;
   const sel = $("#provider");
   sel.innerHTML = "";

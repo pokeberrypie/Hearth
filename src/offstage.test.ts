@@ -185,8 +185,37 @@ describe("a day offstage", () => {
     expect(l.goals[0]).toMatchObject({ who: "Cersei Lannister", status: "active" });
   });
 
-  test("a threat to the player's character is a question, then a scene for one reply, never an outcome", async () => {
+  test("by default a threat simply arrives: in the next reply, as a scene, with no question first", async () => {
     seed();
+    await goal("Cersei Lannister", "be rid of Yvenna");
+    answers = ["CHOOSE | it | desperate\nACT | sends a man to push Yvenna Hightower from the walls | uncertain | grave\nFACT | Yvenna is dead"];
+    expect((await (await send("/api/chats/ch/offstage/run", "POST")).json()).threats).toBe(1);
+    const state = await (await ask("/api/chats/ch/chronicle")).json();
+    expect(state.proposals).toEqual([]);
+    const told = await narrator();
+    expect(told).toContain("Bring this into the story now");
+    expect(told).toContain("do not decide whether it succeeds");
+    expect(told).not.toContain("Yvenna is dead");
+  });
+
+  test("one already waiting from when asking was on comes in too, once asking is turned off — and is gone after its reply", async () => {
+    seed();
+    setSettings({ offstage_threat_ask: "1" });
+    await goal("Cersei Lannister", "be rid of Yvenna");
+    answers = ["CHOOSE | it | desperate\nACT | sends a man to push Yvenna Hightower from the walls | uncertain | grave"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(await narrator()).not.toContain("Bring this into the story now");
+    setSettings({ offstage_threat_ask: "0" });
+    expect((await (await ask("/api/chats/ch/chronicle")).json()).proposals).toEqual([]);
+    expect(await narrator()).toContain("Bring this into the story now");
+    story = "A shadow moved on the walls.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We walk the walls." })).text();
+    expect(await narrator()).not.toContain("Bring this into the story now");
+  });
+
+  test("asked first, if the author wants: a threat is a question, then a scene for one reply, never an outcome", async () => {
+    seed();
+    setSettings({ offstage_threat_ask: "1" });
     await goal("Cersei Lannister", "be rid of Yvenna");
     answers = ["CHOOSE | it | desperate\nACT | sends a man to push Yvenna Hightower from the walls | uncertain | grave\nFACT | Yvenna is dead"];
     expect((await (await send("/api/chats/ch/offstage/run", "POST")).json()).threats).toBe(1);
@@ -278,7 +307,7 @@ describe("a day offstage", () => {
     ];
     async function dayTurnsOnAReply() {
       seed();
-      setSettings({ offstage_level: "dynamic" });
+      setSettings({ offstage_level: "dynamic", offstage_threat_ask: "1" });
       db.query("INSERT INTO characters (id, name, created_at) VALUES ('t', 'Tywin Lannister', 1)").run();
       await goal("Cersei Lannister", "stop Jaime's marriage to Yvenna");
       await goal("Tywin Lannister", "a better match for Jaime");

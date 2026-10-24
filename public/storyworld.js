@@ -571,7 +571,7 @@ async function paintOffstage() {
     // Said without spoiling: how many did something, not what.
     if (r?.error) toast(r.error);
     else if (r.note) toast(r.note);
-    else toast(r.acted || r.threats ? `${r.acted + r.threats} ${r.acted + r.threats === 1 ? "person" : "people"} did something offstage.${r.threats ? " Something may be coming." : ""}`
+    else toast(r.acted || r.threats ? `${r.acted + r.threats} ${r.acted + r.threats === 1 ? "person" : "people"} did something offstage.`
       : "A quiet day: nobody did anything out of the ordinary.");
     await paintWorldLine();
     paintOffstage();
@@ -830,8 +830,10 @@ function paintSetDate() {
  */
 const WORLD_KEYS = ["story_world", "steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source",
   "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day",
-  "offstage_provider", "offstage_model", "gossip_level", "gossip_distortion", "gossip_misinfo", "gossip_decay"];
-const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind", "gossip_misinfo"]);
+  "offstage_provider", "offstage_model", "gossip_level", "gossip_distortion", "gossip_misinfo", "gossip_decay",
+  "offstage_threat_ask", "show_trackers"];
+const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind", "gossip_misinfo",
+  "offstage_threat_ask", "show_trackers"]);
 
 /** Whether Story World is on at all; until the settings are read, it is. */
 const worldOn = () => W.enabled !== false;
@@ -865,6 +867,8 @@ async function paintWorldSettings() {
         <label>Who keeps track of how everyone is
           <select id="tracker_source"><option value="hearth">Hearth</option><option value="preset">My preset's trackers</option></select></label>
         <p class="hint">Only one ever does. With your preset's, Hearth's own tracker is neither kept nor sent to the model.</p>
+        <label class="check"><input type="checkbox" id="show_trackers"> Show the model's tracker sheets in replies</label>
+        <p class="hint">Off, the @Status, @Tracker and &lt;status&gt; blocks a preset has the model write are left out of what you see — the scene reads as a scene. They are still in the chat, and still sent to the model.</p>
         <label>The Steward's provider <select id="steward_provider">${providers("The same as the story")}</select></label>
         <label>The Steward's model <input id="steward_model" type="text" autocomplete="off" spellcheck="false" placeholder="The same as the story"></label>
         <p class="hint">It can be something cheaper than the one telling the story. Uses the key saved for that provider in Connection.</p>
@@ -881,6 +885,8 @@ async function paintWorldSettings() {
           <select id="offstage_protection"><option value="sheltered">Sheltered — only their name and standing can be harmed</option>
             <option value="fair">Fair — anything, but harm to body or freedom is always played out as a scene</option>
             <option value="grim">Grim — injury can happen offstage; death and maiming are always scenes</option></select></label>
+        <label class="check"><input type="checkbox" id="offstage_threat_ask"> Ask me before danger comes into the story</label>
+        <p class="hint">Off, a threat to your character simply arrives in the next reply, as a scene you can fight, flee or talk your way out of. On, you are asked first.</p>
         <label>Most things done offstage in a day <span class="v" id="v_offstage_per_day"></span>
           <input type="range" id="offstage_per_day" min="1" max="6" step="1"></label>
         <label>The Offstage's provider <select id="offstage_provider">${providers("The same as the Steward")}</select></label>
@@ -946,6 +952,8 @@ async function paintWorldSettings() {
       if (k === "steward_every" || k === "offstage_per_day" || k === "gossip_distortion" || k === "gossip_decay") every();
       if (k === "apocrypha_blind" && typeof drawTaleScenes === "function") drawTaleScenes();
       if (k === "story_world") { W.enabled = el.checked; parts(); paintWorldLine(); }
+      // Redraw the open chat, so the sheets go or come back at once.
+      if (k === "show_trackers") { showTrackers = el.checked; if (S.chatId && typeof openChat === "function") openChat(S.chatId); }
       save();
     });
   }
