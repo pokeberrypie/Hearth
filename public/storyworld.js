@@ -348,7 +348,7 @@ function timelineHtml(s, who) {
   // How the Steward is doing: why the date is or is not moving, said plainly, with a way to make it read now.
   const st = s.steward;
   const health = !st ? "" : !st.on
-    ? `<div class="wdhealth off">The Steward is off, so the date and how everyone is change only when you change them. Turn it on in Story World settings → Keeping the records.</div>`
+    ? `<div class="wdhealth off">The Steward is off, so the date and how everyone is change only when you change them. Turn it on in Story World settings → The Chronicle.</div>`
     : `<div class="wdhealth${st.last?.problem ? " bad" : ""}">${st.last?.problem
         ? `The Steward's last reading failed, so nothing new was written down: <i>${txt(st.last.problem)}</i>. Check its provider and model in Story World settings.`
         : st.unread ? `${st.unread} message${st.unread === 1 ? "" : "s"} since the Steward last read${st.next ? `; it reads again after ${st.next} more` : ""}.`
@@ -519,14 +519,20 @@ async function paintOffstage() {
     const goals = l.goals.map((g) => `<li class="${g.status}"><div><b>${txt(g.who)}</b> — ${txt(g.goal)}${g.why ? `<div class="wdwhen">${txt(g.why)}</div>` : ""}
         <div class="wdwhen">${g.status}${g.source === "offstage" ? " · their own idea" : ""}</div></div>
         ${g.status === "active" ? `<button type="button" class="linkish" data-giveup="${g.id}">Give up</button>` : ""}</li>`).join("");
-    const acts = l.actions.map((a) => `<li><div class="wdwhen">${txt(a.when)} · ${txt(a.who)}</div>
-        <div>${txt(a.what)}</div>
-        <div class="wdwhen">${OUT[a.outcome] ?? ""}${a.roll ? ` · rolled ${a.roll} against ${a.dc}` : ""}${a.trace_roll ? (a.traced ? ` · left a trace (${a.trace_roll} under ${a.trace_dc})` : " · left no trace") : ""}</div>
+    // The quiet days are one line, not a list: a world mostly living its life should read that way,
+    // and a row of identical "an ordinary day"s buried the days anything happened.
+    const quiet = l.actions.filter((a) => a.outcome === "routine");
+    const quietLine = quiet.length ? `<li class="wdact quiet"><span class="wdwhen">Ordinary days</span>
+        <div>${[...new Set(quiet.map((a) => a.who))].map(txt).join(", ")} went about their lives${quiet.length > 1 ? ` <span class="wdwhen">· ${quiet.length} quiet turns</span>` : ""}.</div></li>` : "";
+    const acts = l.actions.filter((a) => a.outcome !== "routine").map((a) => `<li class="wdact">
+        <div class="wdacthead"><span class="wdwhen">${txt(a.when)} · <b>${txt(a.who)}</b></span><span class="wdoutcome ${a.outcome}">${OUT[a.outcome] ?? ""}</span></div>
+        <div class="wdactwhat">${txt(a.what)}</div>
+        <div class="wdwhen">${a.roll ? `rolled ${a.roll} against ${a.dc}` : ""}${a.trace_roll ? (a.traced ? ` · left a trace (${a.trace_roll} under ${a.trace_dc})` : " · left no trace") : ""}</div>
         ${a.traced && a.clue ? `<div class="wdwhen">The trace: ${txt(a.clue)}</div>` : ""}
         ${a.plan?.length ? a.plan.map((p) => `<div class="wdwhen">Your plan — ${txt(p.relation)} “${txt(p.title)}”${p.how ? `: ${txt(p.how)}` : ""}</div>`).join("") : ""}
         ${a.why ? `<div class="wdwhy">“${txt(a.why)}”</div>` : ""}
         ${a.considered?.length ? `<details><summary>What they weighed</summary><ul>${a.considered.map((c) => `<li>${txt(c.option)}${c.stakes ? ` — <i>${txt(c.stakes)}</i>` : ""}</li>`).join("")}</ul>${a.want ? `<p class="hint">Wanted: ${txt(a.want)}${a.fear ? `; afraid of: ${txt(a.fear)}` : ""}</p>` : ""}</details>` : ""}
-        ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("");
+        ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("") + quietLine;
     const MOVE = { open: "began", advance: "moved on", complicate: "grew harder", settle: "settled" };
     const threads = (l.threads ?? []).map((t) => `<li><div><b>${txt(t.title)}</b></div>
         <div class="wdwhen">${t.hidden ? "out of sight — the story does not know of it" : "a thread the story has"} · ${t.open ? "open" : "settled"}</div>
@@ -543,6 +549,7 @@ async function paintOffstage() {
       ${threads ? `<div class="wdkicker">Threads, behind the scenes</div><ul class="wdledger">${threads}</ul>` : ""}
       ${whispers ? `<div class="wdkicker">Who knows what</div><ul class="wdledger">${whispers}</ul>` : ""}
       <div class="wdkicker">What the story has been told</div>${told ? `<ul class="wdledger">${told}</ul>` : `<p class="hint">Nothing yet.</p>`}
+      ${l.problem ? `<div class="wdhealth bad">The Offstage's last run failed, so nobody moved: <i>${txt(l.problem)}</i> If this keeps happening, try a different model under Story World settings → Living World → ⚙ The Offstage's model.</div>` : ""}
       <div class="wdkicker">What they did</div>${acts ? `<ul class="wdledger">${acts}</ul>` : `<p class="hint">Nothing yet.</p>`}`;
   }
   $("#wdUnseal")?.addEventListener("click", () => { W.ledgerOpen = true; paintOffstage(); });

@@ -541,7 +541,7 @@ let showTrackers = false;
 const TRACKER_TAGS = /^(tracker|status)$/i;
 
 function prose(text) {
-  const src = foldAtBlocks(String(text ?? ""));
+  const src = foldAtBlocks(showTrackers ? String(text ?? "") : withoutSheets(String(text ?? "")));
   let out = "";
   let last = 0;
   let m;
@@ -722,8 +722,28 @@ function sanitise(html) {
  * text it is treated as markup and sanitised, otherwise the ordinary escaping
  * path applies and nothing about the app's usual behavior changes.
  */
+/**
+ * The model's tracker sheets, gone — <status>/<tracker> blocks and the headed
+ * @Status kind — before anything else sees the reply. Done here, at the door,
+ * because a preset's display scripts send a reply down a different path from
+ * prose(), and that path never hid them.
+ */
+function withoutSheets(text) {
+  if (!/<(status|tracker)\b/i.test(text) && !/(^|\n)\s*@[A-Z]/.test(text)) return text;
+  const lines = text.replace(/<(status|tracker)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "").split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!AT_HEADING.test(lines[i].trim())) { out.push(lines[i]); continue; }
+    let k = i + 1;
+    while (k < lines.length && lines[k].trim()) k++;
+    if (k === i + 1) { out.push(lines[i]); continue; } // a lone "@Name" line is not a sheet
+    i = k - 1;
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function renderBody(text, placement, depth) {
-  const raw = String(text ?? "");
+  const raw = showTrackers ? String(text ?? "") : withoutSheets(String(text ?? ""));
   if (!regexScripts.length) return prose(raw);
   const scripted = applyDisplayScripts(raw, placement, depth);
   return scripted === raw ? prose(raw) : sanitise(scripted);

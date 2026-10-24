@@ -8436,3 +8436,14 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 #worldSettings .swhero .swhead b { font-size: 1.05rem; }
 #worldSettings .swtext b { line-height: 1.25; }
 #worldSettings .swchip { max-width: 34%; }
+
+/* The ledger's "What they did": one block per deed, the quiet days folded into one line. */
+.wdledger > li.wdact { display: block; }
+.wdacthead { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; }
+.wdacthead b { font-weight: 600; color: var(--lumiverse-text-muted); }
+.wdactwhat { margin: 0.2rem 0 0.15rem; color: var(--lumiverse-text); }
+.wdoutcome { flex: none; font-size: 0.78rem; padding: 0.1rem 0.55rem; border-radius: 999px; border: 1px solid var(--lumiverse-border-hover); color: var(--lumiverse-text-muted); }
+.wdoutcome.succeeded { color: var(--hearth-mend); border-color: color-mix(in srgb, var(--hearth-mend) 50%, transparent); }
+.wdoutcome.failed { color: var(--hearth-hurt); border-color: color-mix(in srgb, var(--hearth-hurt) 50%, transparent); }
+.wdoutcome.threat { color: var(--lumiverse-primary); border-color: color-mix(in srgb, var(--lumiverse-primary) 50%, transparent); }
+.wdledger > li.wdact.quiet { opacity: 0.8; }

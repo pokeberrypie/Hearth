@@ -4148,7 +4148,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
   const protection = protectionOf(s.offstage_protection);
-  let acted = 0, quiet = 0, threats = 0;
+  let acted = 0, quiet = 0, threats = 0, unread = 0;
   let t = now();
   // The author's plan, the scene now and the two after: for the referee, never for the person deciding.
   const { book: taleBook, mark: taleMark } = taleOf(chatId);
@@ -4163,19 +4163,30 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     const view = { ...viewFor(chat, person, entries, cal, theirs), plan: planned.map(({ n, title, about }) => ({ n, title, about })) };
     const prompt = offstagePrompt(view);
     let said = "";
+    let thought = "";
     try {
       for await (const chunk of generate({
         ...conn, system: fold ? "" : OFFSTAGE_SYSTEM,
         messages: [{ role: "user", content: fold ? `${OFFSTAGE_SYSTEM}\n\n---\n\n${prompt}` : prompt }],
-        sampling: { temperature: 0.8, maxTokens: 700, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+        sampling: { temperature: 0.8, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
       })) {
         if (chunk.kind === "text") said += chunk.text;
+        else if (chunk.kind === "reasoning") thought += chunk.text;
         if (said.length > 6000) break;
       }
     } catch (e: any) {
-      return { acted, quiet, threats, error: e?.message || "The Offstage could not be reached." };
+      const error = e?.message || "The Offstage could not be reached.";
+      offstageProblems.set(chatId, error);
+      return { acted, quiet, threats, error };
     }
-    const d = readDecision(withoutThinking(said));
+    let d = readDecision(withoutThinking(said));
+    if (!readable(d) && thought.trim()) d = readDecision(thought.slice(-6000));
+    // An answer with nothing in it is not somebody having an ordinary day: it is the Offstage failing, and said so.
+    if (!readable(d)) {
+      unread++;
+      offstageProblems.set(chatId, said.trim() ? "Its model answered, but not in the lines it was asked for." : "Its model sent back an empty answer.");
+      continue;
+    }
     const card = db.query("SELECT description, personality FROM characters WHERE name = ? LIMIT 1").get(person) as any;
     const theirFactions = factionsOf(entries).filter((f) => f.members.includes(person)).map((f) => f.name);
     const identity = identityOf(person, `${card?.description ?? ""} ${card?.personality ?? ""}`, theirFactions);
@@ -4258,8 +4269,16 @@ async function offstageRun(chatId: string, o: { manual?: boolean } = {}) {
     const base = { message_id: trigger, day: at.day, minute: at.minute, source: "offstage", visibility: "private" };
     if (fresh.length) copyChronicle(fresh.map((k) => knowingEntry(k, base, t++)), chatId);
   }
+  if (unread && !acted && !quiet && !threats) return { acted, quiet, threats, error: `The Offstage could not be read: ${offstageProblems.get(chatId)}` };
+  if (!unread) offstageProblems.delete(chatId);
   return { acted, quiet, threats };
 }
+
+/** The Offstage's last failure in each chat, until a run goes through: shown in the ledger, so a still world says why. */
+const offstageProblems = new Map<string, string>();
+
+/** Whether a decision says anything at all: a want, a choice or an act. An empty answer reads as none of them. */
+const readable = (d: ReturnType<typeof readDecision>) => !!(d.choice || d.act || d.want);
 
 /** Someone knowing something, as a record: private, never the thing itself, pointing back at it. */
 function knowingEntry(k: Knowing, base: Record<string, unknown>, at: number) {
@@ -4355,6 +4374,8 @@ api.get("/chats/:id/offstage", (c) => {
       hooks: live.filter((e) => e.kind === "hook").reverse().slice(0, 20).map((e) => ({ id: e.id, text: e.title, when: when(e) })),
     },
     discretion: discretions(entries),
+    // Why the world may be standing still: the Offstage's last failure here, if the last run had one.
+    problem: offstageProblems.get(chatId) ?? "",
     // Who knows what: every version, where it came from, and whether it is still going around.
     whispers: knowingsOf(entries).reverse().slice(0, 60),
     // Matters moving out of sight, and what was done offstage to the ones the story has.
@@ -4482,9 +4503,19 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
  * it recorded earlier from these same messages is taken back only once a new
  * answer has actually arrived — a failed call never costs a good record.
  */
+/**
+ * What the background models — the Steward, the Offstage, the scene finder — may spend on an answer.
+ * It was 700, which a model that thinks before it answers (and on most services there is no telling
+ * it not to) spends on thinking alone: the answer came back empty, every time, and was read as
+ * "nothing happened". Room to think, and then to answer.
+ */
+const BACKGROUND_TOKENS = 4000;
+
 async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   if (!rows.length) return { kept: 0, proposed: 0, dropped: 0, problem: "" };
-  db.query("UPDATE chats SET steward_at = MAX(steward_at, ?) WHERE id = ?").run(rows[rows.length - 1].created_at, chat.id);
+  const readFrom = Number((db.query("SELECT steward_at FROM chats WHERE id = ?").get(chat.id) as any)?.steward_at ?? 0);
+  const upTo = rows[rows.length - 1].created_at;
+  db.query("UPDATE chats SET steward_at = MAX(steward_at, ?) WHERE id = ?").run(upTo, chat.id);
 
   const me = whoAmI(chat.persona_id);
   const passages: Passage[] = rows.map((m) => ({
@@ -4528,6 +4559,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   const req = stewardRequest(conn.model, people, formatDate(cal, start), passages, { tracking, factions: groups, threads, surfacing, scene });
 
   let said = "";
+  let thought = "";
   let problem = "";
   try {
     for await (const chunk of generate({
@@ -4536,16 +4568,21 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
       // Low and short: it reports, it does not write. No reasoning asked for;
       // what a model thinks anyway arrives as reasoning, or is cut out of the
       // text by steward.ts.
-      sampling: { temperature: 0.1, maxTokens: 700, topP: 1, minP: 0,
+      sampling: { temperature: 0.1, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0,
                   repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0,
                   stream: false, reasoningEffort: "off" },
     })) {
       if (chunk.kind === "text") said += chunk.text;
+      else if (chunk.kind === "reasoning") thought += chunk.text;
       if (said.length > 8000) break;
     }
   } catch (e: any) {
     problem = e?.message || "The Steward could not be reached.";
   }
+  // Some services hand back a thinking model's lines as its thinking and leave the answer empty.
+  // Nothing in them is believed until it has been checked against the story, so they are read too.
+  if (!problem && !said.trim() && thought.trim()) said = thought.slice(-8000);
+  if (!problem && !said.trim()) problem = "Its model sent back an empty answer.";
 
   const askDays = Number(s.steward_ask_days);
   const limits = {
@@ -4560,6 +4597,8 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     ? { claims: [] as Claim[], dropped: [], none: false, noise: 0 }
     : checkAnswer(said, passages, people, cal, start, limits, { tracking, factions: groups, threads, surfacing, scene });
   if (!problem && !checked.claims.length && !checked.none) problem = "Nothing in the answer could be used.";
+  // A reading that failed has not read these messages: they are read again next time, not skipped for good.
+  if (problem) db.query("UPDATE chats SET steward_at = ? WHERE id = ? AND steward_at = ?").run(readFrom, chat.id, upTo);
 
   if (!problem) {
     // Read again, so whatever it made of these messages before is replaced.
@@ -4849,7 +4888,7 @@ async function locateTale(chatId: string): Promise<{ asked: boolean; here?: bool
     for await (const chunk of generate({
       ...conn, system: fold ? "" : system,
       messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
-      sampling: { temperature: 0.1, maxTokens: 300, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+      sampling: { temperature: 0.1, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
     })) {
       if (chunk.kind === "text") said += chunk.text;
       if (said.length > 4000) break;

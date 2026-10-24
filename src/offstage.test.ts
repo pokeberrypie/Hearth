@@ -712,3 +712,55 @@ describe("a different provider for the Offstage gets its own model, not the stor
     expect(sent.filter((b) => !b.stream).map((b) => b.model)).toContain("story/model");
   });
 });
+
+describe("a thinking model that leaves the answer empty", () => {
+  function reply(content: string, reasoning = "") {
+    globalThis.fetch = (async (_u: any, init: any) => {
+      sent.push(JSON.parse(init.body));
+      return Response.json({ choices: [{ message: { content, reasoning } }] });
+    }) as any;
+  }
+
+  test("room to think: the background models are given far more than 700 tokens", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(sent.find((b) => !b.stream).max_tokens).toBeGreaterThanOrEqual(4000);
+  });
+
+  test("an empty answer is a failure, said so — not somebody having an ordinary day", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    reply("");
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.error).toBe("The Offstage could not be read: Its model sent back an empty answer.");
+    const l = await ledger();
+    expect(l.actions).toEqual([]);
+    expect(l.problem).toBe("Its model sent back an empty answer.");
+  });
+
+  test("its lines left in its thinking are read from there", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    reply("", "Let me think about Cersei.\nCHOOSE | it | x\nACT | writes to the High Septon | easy | social");
+    await send("/api/chats/ch/offstage/run", "POST");
+    const l = await ledger();
+    expect(l.actions[0].what).toBe("writes to the High Septon");
+    expect(l.problem).toBe("");
+  });
+
+  test("the Steward's failed reading is not the end of those messages: they are read again next time", async () => {
+    seed();
+    setSettings({ steward_on: "1", steward_every: "1" });
+    reply("");
+    await send("/api/chats/ch/steward/now", "POST", {});
+    expect((db.query("SELECT steward_at FROM chats WHERE id = 'ch'").get() as any).steward_at).toBe(0);
+    const health = (await (await ask("/api/chats/ch/chronicle")).json()).steward;
+    expect(health.last.problem).toBe("Its model sent back an empty answer.");
+    expect(health.unread).toBe(1);
+    // And when it answers, they are read.
+    reply("NONE");
+    await send("/api/chats/ch/steward/now", "POST", {});
+    expect((db.query("SELECT steward_at FROM chats WHERE id = 'ch'").get() as any).steward_at).toBe(2);
+  });
+});
