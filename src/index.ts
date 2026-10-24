@@ -4079,7 +4079,9 @@ function agendasOf(entries: ChronicleEntry[]) {
     const d = dataOf(e);
     if (d.of) {
       const g = out.get(d.of);
-      if (g) { g.status = String(d.status || g.status); g.ended = g.status === "active" ? null : e.day ?? null; g.how = String(d.how ?? ""); }
+      // When it ended in the story; a change made before those were dated counts from when the goal began,
+      // so it is put away in time rather than never.
+      if (g) { g.status = String(d.status || g.status); g.ended = g.status === "active" ? null : e.day ?? g.since; g.how = String(d.how ?? ""); }
       continue;
     }
     out.set(e.id, { id: e.id, who: e.subject ?? "", goal: e.title, why: e.body, status: "active", since: e.day ?? 0, source: e.source, ended: null, how: "" });
@@ -4108,8 +4110,11 @@ function archiveGoals(chatId: string) {
     const book = notesBookFor(chatId);
     if (book) {
       const was = readEntries(book);
+      // Keyed to the person: their whole name, and the first part of it that is theirs — not "Ser", "Lord" or
+      // "Bronze", which would bring the entry up for every knight and lord in the story.
+      const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "bronze", "the", "old", "young", "little", "grand", "high", "sir", "dame"]);
       const add = achieved.map((g) => {
-        const first = g.who.split(/\s+/)[0];
+        const first = g.who.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase())) ?? "";
         return normaliseEntry({
           keys: [...new Set([g.who, first].filter((k) => k && k.length > 2))],
           comment: `${g.who}: ${g.goal}`.slice(0, 120),

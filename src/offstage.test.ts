@@ -1014,6 +1014,22 @@ describe("goals that end, and are put away", () => {
     expect(entry.keys).toContain("Cersei");
   });
 
+  test("keyed to the person, never to a title; and a goal given up before ends were dated is still put away", async () => {
+    court();
+    await goal("Ser Arys Oakheart", "keep his vows");
+    const id = (await goals())[0].id;
+    await send(`/api/chats/ch/offstage/goal/${id}`, "POST", { status: "achieved" });
+    await goal("Bronze Yohn Royce", "a lever against the Lannisters");
+    const old = (await goals()).find((g: any) => g.who === "Bronze Yohn Royce").id;
+    // Given up the old way: no day on the change.
+    db.query("INSERT INTO chronicle (id, chat_id, kind, title, visibility, source, data, created_at) VALUES ('old1', 'ch', 'agenda', '', 'private', 'user', ?, ?)")
+      .run(JSON.stringify({ of: old, status: "abandoned" }), Date.now());
+    later(3);
+    expect(await goals()).toEqual([]);
+    const book = db.query("SELECT entries FROM lorebooks").get() as any;
+    expect(JSON.parse(book.entries)[0].keys).toEqual(["Ser Arys Oakheart", "Arys"]);
+  });
+
   test("one given up is cleared, not made lore; and with the switch off, nothing is put away", async () => {
     court();
     await goal("Cersei Lannister", "poison the girl");
