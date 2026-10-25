@@ -465,7 +465,7 @@
           </label>
           <div id="scene_results" class="pickresults" hidden></div>
           <label>Scenario<textarea id="sceneScenario" rows="4" placeholder="The shared premise everyone in the scene is standing in. Replaces each character's own scene text while it's set."></textarea></label>
-          <label>Who answers when you send<select id="sceneTurns"><option value="">The quietest — whoever has spoken least</option><option value="list">Down the list, in order</option><option value="named">Whoever I name first</option></select></label>
+          <label>Who answers when you send<select id="sceneTurns"><option value="">The quietest — whoever has spoken least</option><option value="list">Down the list, in order</option><option value="named">Whoever was just named</option></select></label>
           <button type="button" class="linkish wide" id="sceneAll">All your characters &rsaquo;</button>
         </div>
 
@@ -1784,8 +1784,8 @@
     </label>
     <div id="room_results" class="pickresults" hidden></div>
     <label>Scenario<textarea id="roomScenario" rows="4" placeholder="The shared premise everyone in the scene is standing in. Replaces each character's own scene text while it's set."></textarea></label>
-    <label>Who answers when you send<select id="roomTurns"><option value="">The quietest — whoever has spoken least</option><option value="list">Down the list, in order</option><option value="named">Whoever I name first</option></select></label>
-    <p class="hint">Down the list goes in the order above — drag by the handle to change it. Whoever I name first answers to the first name in your message, and goes down the list when you name nobody. Picking someone from the cast bar always wins.</p>
+    <label>Who answers when you send<select id="roomTurns"><option value="">The quietest — whoever has spoken least</option><option value="list">Down the list, in order</option><option value="named">Whoever was just named</option></select></label>
+    <p class="hint">Down the list goes in the order above — drag by the handle to change it. Whoever was just named answers to the first name in the latest message — yours, or a character asking someone something — and goes down the list when nobody is named. Picking someone from the cast bar always wins.</p>
     <div class="actions"><button value="close" class="solid">Done</button></div>
   </form>
 </dialog>

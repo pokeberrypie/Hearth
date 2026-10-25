@@ -879,14 +879,19 @@ export function nextSpeaker(chat: any, wanted?: string, roll: () => number = Mat
   if (wanted) return cast.find((m) => m.id === wanted) ?? cast[0];
   if (cast.length === 1) return cast[0];
 
-  // The author's way, when they have chosen one. Whoever the player's latest message names first — by their own
-  // name, not their house — and, if it names nobody, the next down the list.
+  // The author's way, when they have chosen one. Whoever the latest message names first — the player's, or a
+  // character's, by their own name, not their house. A player's message that names nobody leaves it to the reply
+  // before it: Jaime asked Arys something, so Arys answers. Naming nobody at all, the next down the list.
   const order = String(chat.turn_order ?? "");
   if (order === "named") {
-    const said = String((db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' ORDER BY created_at DESC, rowid DESC LIMIT 1")
-      .get(chat.id) as any)?.content ?? "");
-    const first = cast.map((m) => ({ m, at: firstMention(said, m.name) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at)[0];
-    if (first) return first.m;
+    const latest = db.query("SELECT role, content, character_id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 2")
+      .all(chat.id) as { role: string; content: string; character_id: string | null }[];
+    for (const [i, msg] of latest.entries()) {
+      if (i > 0 && msg.role === "user") break;
+      const named = calledOn(msg.content, cast, msg.role === "user" ? null : (msg.character_id ?? ""));
+      if (named) return named;
+      if (msg.role !== "user") break;
+    }
   }
   if (order === "list" || order === "named") {
     // The one after whoever spoke last, in the order of the cast; round again from the top.
@@ -1030,6 +1035,22 @@ api.post("/chats/:id/turns", async (c) => {
  * Where in a message a person is first named, by their own name — "Arys", not "Oakheart" or "Ser" — as a whole
  * word; -1 if they are not.
  */
+/**
+ * The first of the cast a message calls on. In a character's reply the speaker is left out — their own name is all
+ * through their prose — and what is said aloud comes before what is told: in `Jaime glanced at Davren. "Arys, take
+ * the left."` it is Arys who is spoken to. `speaker` is null for the player's own message; a reply with no one
+ * speaking it (the narrator) passes "".
+ */
+export function calledOn(text: string, cast: any[], speaker: string | null = null): any | undefined {
+  const others = cast.filter((m) => m.id !== speaker);
+  const said = String(text ?? "").match(/"[^"]*"|“[^”]*”/g)?.join(" ") ?? "";
+  for (const where of speaker !== null ? [said, String(text ?? "")] : [String(text ?? "")]) {
+    const first = others.map((m) => ({ m, at: firstMention(where, m.name) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at)[0];
+    if (first) return first.m;
+  }
+  return undefined;
+}
+
 export function firstMention(text: string, person: string): number {
   const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "bronze", "the", "old", "young", "little", "grand", "high", "sir", "dame"]);
   const own = person.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase()));
