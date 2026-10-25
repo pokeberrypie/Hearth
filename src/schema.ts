@@ -380,6 +380,9 @@ export const ALTER_TABLES: string[] = [
   // The story day the Offstage last took its turn on, so it acts once a day and
   // never per message. -1 until the Living World is first on in this chat.
   "ALTER TABLE chats ADD COLUMN offstage_day INTEGER NOT NULL DEFAULT -1",
+  // Who answers when the player sends, in a group: "" the quietest; "list" down the cast in order; "named"
+  // whoever the player's message names first.
+  "ALTER TABLE chats ADD COLUMN turn_order TEXT NOT NULL DEFAULT ''",
 ];
 
 /** Group chats. A chat keeps its `character_id` as the one it was started

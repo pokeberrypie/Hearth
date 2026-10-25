@@ -692,12 +692,13 @@ function restoreWorld(chatId: string, characterId: string, own: any, ids: (strin
   let tale = "";
   try { const a = JSON.parse(ch.apocrypha || "{}"); if (a?.book && db.query("SELECT 1 FROM apocrypha WHERE id = ?").get(a.book)) tale = ch.apocrypha; } catch {}
   db.query(`UPDATE chats SET author_note = ?, note_depth = ?, scenario = ?, location = ?, accent = ?, ambience = ?, calendar = ?,
-              apocrypha = ?, steward_at = ?, offstage_day = ?, persona_id = COALESCE(?, persona_id) WHERE id = ?`)
+              apocrypha = ?, steward_at = ?, offstage_day = ?, persona_id = COALESCE(?, persona_id), turn_order = ? WHERE id = ?`)
     .run(str(ch.author_note), Number.isFinite(+ch.note_depth) ? +ch.note_depth : 2, str(ch.scenario), str(ch.location, 400),
       /^#[0-9a-f]{6}$/i.test(String(ch.accent ?? "")) ? ch.accent : "", str(ch.ambience, 20), str(ch.calendar), tale,
       // Where the Steward had read up to, only with the ledger it read into: an older export, without one,
       // is read afresh, so its world is built again rather than counted as already done.
-      world && Number.isFinite(+ch.steward_at) ? +ch.steward_at : 0, world && Number.isFinite(+ch.offstage_day) ? +ch.offstage_day : -1, persona, chatId);
+      world && Number.isFinite(+ch.steward_at) ? +ch.steward_at : 0, world && Number.isFinite(+ch.offstage_day) ? +ch.offstage_day : -1, persona,
+      ["list", "named"].includes(ch.turn_order) ? ch.turn_order : "", chatId);
 
   // The table: everyone this library has by name, the chat's own character first.
   const members = Array.isArray(own.members) ? own.members : [];
@@ -878,6 +879,23 @@ export function nextSpeaker(chat: any, wanted?: string, roll: () => number = Mat
   if (wanted) return cast.find((m) => m.id === wanted) ?? cast[0];
   if (cast.length === 1) return cast[0];
 
+  // The author's way, when they have chosen one. Whoever the player's latest message names first — by their own
+  // name, not their house — and, if it names nobody, the next down the list.
+  const order = String(chat.turn_order ?? "");
+  if (order === "named") {
+    const said = String((db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'user' ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(chat.id) as any)?.content ?? "");
+    const first = cast.map((m) => ({ m, at: firstMention(said, m.name) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at)[0];
+    if (first) return first.m;
+  }
+  if (order === "list" || order === "named") {
+    // The one after whoever spoke last, in the order of the cast; round again from the top.
+    const lastId = (db.query("SELECT character_id FROM messages WHERE chat_id = ? AND role = 'assistant' AND character_id IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(chat.id) as any)?.character_id;
+    const i = cast.findIndex((m) => m.id === lastId);
+    return cast[(i + 1) % cast.length];
+  }
+
   // Opening greetings are scripted, not a turn anyone took — counting them
   // would make whoever greeted first always look "quietest" for the very
   // first real reply. Only conversation from the first user message onward
@@ -999,6 +1017,26 @@ api.post("/chats/:id/auto", async (c) => {
   db.query("UPDATE chats SET auto_reply = ? WHERE id = ?").run(on ? 1 : 0, c.req.param("id"));
   return c.json({ ok: true });
 });
+
+/** Who answers when the player sends: the quietest, down the list, or whoever the message names first. */
+api.post("/chats/:id/turns", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const order = ["list", "named"].includes(b.order) ? b.order : "";
+  db.query("UPDATE chats SET turn_order = ? WHERE id = ?").run(order, c.req.param("id"));
+  return c.json({ ok: true, order });
+});
+
+/**
+ * Where in a message a person is first named, by their own name — "Arys", not "Oakheart" or "Ser" — as a whole
+ * word; -1 if they are not.
+ */
+export function firstMention(text: string, person: string): number {
+  const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "bronze", "the", "old", "young", "little", "grand", "high", "sir", "dame"]);
+  const own = person.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase()));
+  if (!own) return -1;
+  const m = new RegExp(`(^|[^a-z])${own.toLowerCase().replace(/[^a-z']/g, "")}(?=[^a-z]|$)`).exec(String(text).toLowerCase());
+  return m ? m.index + m[1].length : -1;
+}
 
 // ---- generation -----------------------------------------------------------
 
@@ -2017,6 +2055,7 @@ api.post("/messages/:id/branch", (c) => {
   // And where its keepers had got to. The Steward had read the parent as far as it had — never past the fork,
   // which is as far as this one goes — so the copied messages are not all "unread" to be read and paid for again;
   // and the Offstage's day is the day the story stands at here.
+  db.query("UPDATE chats SET turn_order = ? WHERE id = ?").run(src.turn_order ?? "", newId);
   db.query("UPDATE chats SET steward_at = ?, offstage_day = ? WHERE id = ?").run(
     Math.min(Number(src.steward_at) || 0, m.created_at),
     (Number(src.offstage_day) ?? -1) >= 0 ? clockOf(calendarOf(newId), chronicleOf(newId)).day : -1, newId);
@@ -2156,6 +2195,8 @@ api.post("/chats/:id/carry-on", async (c) => {
 
   // The same story, so all of what has happened in it so far.
   copyChronicle(forCarryOn(chronicleOf(src.id)), newId);
+  // Who answers when the player sends goes on as it was.
+  db.query("UPDATE chats SET turn_order = ? WHERE id = ?").run(src.turn_order ?? "", newId);
 
   // The books pinned to the old chat, exactly as a branch inherits them.
   const pinned = db

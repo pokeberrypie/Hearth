@@ -2107,6 +2107,7 @@ async function renderScene() {
     row.className = "blockrow" + (m.muted ? " off" : "");
     row.innerHTML =
       `<div class="brow">` +
+      `<span class="grip" title="Drag to reorder" aria-label="Drag to reorder" role="button">${ICON.grip}</span>` +
       medallion(m.avatar, m.name) +
       `<span class="b-fixed">${esc(m.name)}</span>` +
       `<span class="btools">` +
@@ -2168,16 +2169,8 @@ async function renderScene() {
     },
   );
 
-  const auto = $("#sceneAuto");
-  auto.closest("label").hidden = !group;
-  auto.checked = !!Number(chatMeta?.auto_reply ?? 0);
-  auto.onchange = async () => {
-    await api(`/chats/${S.chatId}/auto`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ on: auto.checked }),
-    });
-    if (chatMeta) chatMeta.auto_reply = auto.checked ? 1 : 0;
-  };
+  wireTurns($("#sceneTurns"));
+  $("#sceneTurns").closest("label").hidden = !group;
 
   const sc = $("#sceneScenario");
   sc.value = chatMeta?.scenario ?? "";
@@ -2201,7 +2194,21 @@ async function loadRoom() {
   renderRoom();
 }
 
-/** The members dialog: mute, drop, add, and the auto-reply switch. */
+/** Who answers when the player sends, in a group: one choice, shown in Chat settings and in Actors. */
+function wireTurns(sel) {
+  if (!sel) return;
+  sel.value = chatMeta?.turn_order ?? "";
+  sel.onchange = async () => {
+    const r = await api(`/chats/${S.chatId}/turns`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ order: sel.value }),
+    }).catch(() => null);
+    if (!r || r.error) return toast("That could not be saved.");
+    if (chatMeta) chatMeta.turn_order = r.order;
+  };
+}
+
+/** The members dialog: mute, drop, add, the order they stand in, and who answers. */
 async function openRoom() {
   await loadRoom();
   const el = $("#memberList");
@@ -2211,6 +2218,7 @@ async function openRoom() {
     row.className = "blockrow" + (m.muted ? " off" : "");
     row.innerHTML =
       `<div class="brow">` +
+      `<span class="grip" title="Drag to reorder" aria-label="Drag to reorder" role="button">${ICON.grip}</span>` +
       medallion(m.avatar, m.name) +
       `<span class="b-fixed">${esc(m.name)}</span>` +
       `<span class="btools">` +
@@ -2261,15 +2269,7 @@ async function openRoom() {
       refreshChats();
     });
 
-  const auto = $("#autoReply");
-  auto.checked = !!Number(chatMeta?.auto_reply ?? 0);
-  auto.onchange = async () => {
-    await api(`/chats/${S.chatId}/auto`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ on: auto.checked }),
-    });
-    if (chatMeta) chatMeta.auto_reply = auto.checked ? 1 : 0;
-  };
+  wireTurns($("#roomTurns"));
 
   const scenario = $("#roomScenario");
   scenario.value = chatMeta?.scenario ?? "";
@@ -12117,3 +12117,22 @@ function showNews(n) {
   // Never more than three at once: the oldest goes.
   while (tray.children.length > 3) tray.firstElementChild.remove();
 }
+
+
+/* The order the cast stands in: dragged by the handle in Actors. It is the order of the cast bar, and of the
+   list a scene goes down when turns go in order. */
+/** A new order for the cast, from either list it can be dragged in. */
+async function saveCastOrder(from, to, redraw) {
+  if (from === to || !S.chatId) return;
+  const ids = S.cast.map((m) => m.id);
+  const [moved] = ids.splice(from, 1);
+  ids.splice(to, 0, moved);
+  const r = await api(`/chats/${S.chatId}/members`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ order: ids }),
+  }).catch(() => null);
+  if (!r || r.error) toast("That order could not be saved.");
+  await redraw();
+}
+dragSort($("#memberList"), ".blockrow", ".grip", (from, to) => saveCastOrder(from, to, openRoom));
+dragSort($("#sceneMembers"), ".blockrow", ".grip", (from, to) => saveCastOrder(from, to, async () => { await loadRoom(); renderScene(); }));
