@@ -1396,6 +1396,8 @@ api.post("/chats/:id/generate", async (c) => {
           db.query(`UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'threat' AND undone_at IS NULL AND created_at < ?${getSettings().offstage_threat_ask === "1" ? " AND proposed = 0" : ""}`)
             .run(now(), chatId, t0);
         }
+        // News that was due: did this reply bring it in? If not, it is offered again — a few times, then dropped.
+        if (!failed && !ac.signal.aborted) { try { settleNews(chatId, full); } catch (e) { console.error("[news]", e); } }
         // And the Offstage, when a day has turned: what the people nobody is watching do.
         if (!failed && !ac.signal.aborted) offstageTurn(chatId).catch(() => {});
       }
@@ -4543,7 +4545,11 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
   // Who goes: those with a goal before those without, longest idle first, and able to act at all.
   const hasGoal = new Set(goals.map((g) => g.who));
   const members = new Set(membersOf(chat).map((m: any) => m.name));
-  const rank = (w: string) => (hasGoal.has(w) ? 0 : members.has(w) ? 1 : 2);
+  // Whose plans touch the player's character, or the people with them, go first: those are the ones the story
+  // can feel. A conjurer's market schemes still happen — after.
+  const near = [player, ...onstage].filter(Boolean);
+  const touching = new Set(goals.filter((g) => near.some((n) => meansPerson(`${g.goal} ${g.why}`, n))).map((g) => g.who));
+  const rank = (w: string) => (touching.has(w) ? -1 : hasGoal.has(w) ? 0 : members.has(w) ? 1 : 2);
   const who = offstage
     .filter((w) => !cannotAct(status[w] as any))
     .sort((a, b) => rank(a) - rank(b) || (lastActed.get(a) ?? 0) - (lastActed.get(b) ?? 0))
@@ -4569,7 +4575,10 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     const theirLore = lore.filter((e) => !e.recap && namedIn(e.content, [person]).length).slice(0, 3);
     base0.known.push(...theirLore.map((e) => `What the world knows: ${e.content.replace(/\s+/g, " ").slice(0, 400)}`));
     base0.known.push(...news.filter((n) => !n.includes(`${person} is dead`)));
-    const view = { ...base0, plan: planned.map(({ n, title, about }) => ({ n, title, about })) };
+    // Word of what they do may travel badly — a rumour's way — when the author lets news be wrong.
+    const newsWrong = s.news_wrong !== "0" && newsChance() < 0.3;
+    const view = { ...base0, plan: planned.map(({ n, title, about }) => ({ n, title, about })),
+      playerAt: (status[player] as any)?.location?.title ?? "", newsWrong };
     const prompt = offstagePrompt(view);
     let said = "";
     let thought = "";
@@ -4657,6 +4666,19 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
       threats++;
     }
     if (r.abandons) add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.abandons, status: "abandoned" } }));
+    // Word of it, on its way: always when it touches the player's character or their people; otherwise as far as
+    // the author's dial says. It arrives when the days it takes have passed — see offstageBrief and settleNews.
+    const word = r.news;
+    if (word && outcome === "succeeded") {
+      const touches = near.some((n) => meansPerson(`${r.act} ${word.told} ${theirs.map((g) => g.goal).join(" ")}`, n));
+      const dial = Math.max(0, Math.min(100, Number(s.news_reach ?? 50)));
+      if (touches || newsChance() * 100 < dial) {
+        add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "news", subject: person, title: word.told, body: word.how, created_at: t++,
+          // What touches the player's character or their people does not arrive as talk: it happens to them, a
+          // scene in the story. The rest is word of it, heard.
+          data: { due: at.day + word.days, state: "travelling", tries: 0, touches, mode: touches ? "scene" : "word", garbled: newsWrong && !touches } }));
+      }
+    }
     // Finished: only if it worked. A goal is not achieved by trying.
     if (r.achieves && outcome === "succeeded") add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.achieves, status: "achieved", how: r.how } }));
     if (r.goal && outcome !== "dropped") took++;
@@ -4875,10 +4897,61 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   if (hooks.length) {
     out.push(`Things that could be noticed, if the player's character is somewhere to notice them. Never decide that they noticed, or what they make of it — that is the player's: ${hooks.join("; ")}.`);
   }
+  // What is due to reach the player's character: one thing at a time, so the story is not handed a stack of them.
+  const news = dueNews(entries, day)[0];
+  if (news && dataOf(news).mode === "scene") {
+    out.push(`Play this out now, as something happening where the player's character is (${news.body || "it comes to them"}): ${news.title}. Begin it in the scene and let it unfold; never decide what the player's character does, says or feels.`);
+  } else if (news) {
+    out.push(`News reaches the player's character — bring it into the story within the next few replies, the way it would arrive (${news.body || "word of it"}), at a natural moment, never in the middle of a conversation: ${news.title}. This is what they hear, which may not be the whole truth; never decide what they make of it, or what they do.`);
+  }
   if (threat) {
     out.push(`Bring this into the story now, as something happening in the scene: ${threat.title}. Play out the attempt, but do not decide whether it succeeds — the player's character may resist, escape or be helped. Never decide what they do, say or feel.`);
   }
   return out;
+}
+
+/**
+ * Whether a line is about this person: by their own name — "Yvenna", "Jaime" — not their house. "A Lannister
+ * man" is not about Jaime, and in a story full of Lannisters, taking a surname for the person made everything
+ * at court land on whoever was travelling with one.
+ */
+function meansPerson(text: string, person: string): boolean {
+  const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "bronze", "the", "old", "young", "little", "grand", "high", "sir", "dame"]);
+  const own = person.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase()));
+  if (!own) return false;
+  return new RegExp(`(^|[^a-z])${own.toLowerCase().replace(/[^a-z']/g, "")}([^a-z]|$)`).test(text.toLowerCase());
+}
+
+/**
+ * Chance for how news travels, apart from the dice: whether a plan works and whether a trace is left are the
+ * rolls the game turns on, and drawing from the same source for the news would shift every one of them.
+ */
+const newsChance = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+
+/** What is on its way to the player's character whose days are up: what happens to them first, then word; oldest first. */
+function dueNews(entries: ChronicleEntry[], day: number) {
+  return liveEntries(entries).filter((e) => e.kind === "news" && dataOf(e).state === "travelling" && Number(dataOf(e).due ?? 0) <= day)
+    .sort((a, b) => Number(!!dataOf(b).first) - Number(!!dataOf(a).first)
+      || Number(dataOf(b).mode === "scene") - Number(dataOf(a).mode === "scene") || a.created_at - b.created_at);
+}
+
+/**
+ * After a reply: the news that was due — did the story bring it in? Told by the reply carrying its words (the
+ * rarer ones: a name, a place, what happened). If so it has arrived; if not, it is offered again, and after four
+ * replies that did not take it up it is let go, rather than pressed on a story that has moved on.
+ */
+function settleNews(chatId: string, reply: string) {
+  const entries = chronicleOf(chatId);
+  const news = dueNews(entries, clockOf(calendarOf(chatId), entries).day)[0];
+  if (!news) return;
+  const said = ` ${storyOnly(reply).toLowerCase().replace(/[^a-z\s'-]/g, " ")} `;
+  const keys = [...new Set(news.title.toLowerCase().replace(/[^a-z\s'-]/g, " ").split(/\s+/).filter((w) => w.length > 4))];
+  const hits = keys.filter((k) => said.includes(` ${k}`)).length;
+  const d = dataOf(news);
+  const arrived = hits >= Math.min(3, Math.max(2, Math.ceil(keys.length / 3)));
+  const tries = Number(d.tries ?? 0) + 1;
+  const state = arrived ? "arrived" : tries >= 4 ? "lost" : "travelling";
+  db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tries, state }), news.id);
 }
 
 /** The ledger: goals, what people did, what reached the narrator. For the author, who sees it only when they unseal it. */
@@ -4905,6 +4978,10 @@ api.get("/chats/:id/offstage", (c) => {
       const last = db.query("SELECT problem FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 1").get(chatId) as any;
       return last?.problem ?? "";
     })(),
+    // Word on its way to the player's character, and what became of it.
+    news: live.filter((e) => e.kind === "news").reverse().slice(0, 20).map((e) => ({ id: e.id, from: e.subject, told: e.title, how: e.body,
+      state: dataOf(e).state, garbled: !!dataOf(e).garbled, touches: !!dataOf(e).touches, mode: dataOf(e).mode === "scene" ? "scene" : "word",
+      in: Math.max(0, Number(dataOf(e).due ?? 0) - clockOf(cal, entries).day), when: when(e) })),
     // Its last runs, kept across restarts: what came of each, or why nothing did.
     runs: (db.query("SELECT kind, note, acted, goals, problem, created_at FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 8").all(chatId) as any[]),
     // Who knows what: every version, where it came from, and whether it is still going around.
@@ -4965,6 +5042,38 @@ api.post("/chats/:id/offstage/goal/:goal", async (c) => {
   const at = clockOf(calendarOf(chatId), entries);
   copyChronicle([normaliseChronicleEntry({ id: uid(), kind: "agenda", title: "", visibility: "private", source: "user",
     day: at.day, minute: at.minute, created_at: now(), data: { of: c.req.param("goal"), status, how: String(b.how ?? "").slice(0, 240) } })], chatId);
+  return c.json({ ok: true });
+});
+
+/**
+ * What has come to pass offstage since a moment: goals achieved by what someone did — not those the author
+ * marked done, which they know of already. For the little notices under the cast bar. The author's only, like
+ * the ledger: a guest cannot reach it.
+ */
+api.get("/chats/:id/offstage/news", (c) => {
+  const chatId = c.req.param("id");
+  const since = Number(c.req.query("since")) || 0;
+  const entries = chronicleOf(chatId);
+  const goals = new Map(agendasOf(entries).map((g) => [g.id, g]));
+  const news = liveEntries(entries).filter((e) => e.kind === "agenda" && e.created_at > since && e.source !== "user" && dataOf(e).status === "achieved")
+    .map((e) => { const g = goals.get(String(dataOf(e).of)); return g ? { id: e.id, at: e.created_at, who: g.who, goal: g.goal, how: String(dataOf(e).how ?? "") } : null; })
+    .filter(Boolean).slice(-5);
+  return c.json({ news, now: now() });
+});
+
+/** The author's hand on what is coming: bring it in on the next reply, or let it go. */
+api.post("/chats/:id/offstage/news/:news", async (c) => {
+  const chatId = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const entries = chronicleOf(chatId);
+  const e = liveEntries(entries).find((x) => x.id === c.req.param("news") && x.kind === "news");
+  if (!e) return c.json({ error: "No such thing on its way." }, 404);
+  const d = dataOf(e);
+  const day = clockOf(calendarOf(chatId), entries).day;
+  const next = b.action === "now" ? { ...d, state: "travelling", due: day, tries: 0, first: true }
+    : b.action === "skip" ? { ...d, state: "skipped" } : null;
+  if (!next) return c.json({ error: "Now or skip?" }, 400);
+  db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify(next), e.id);
   return c.json({ ok: true });
 });
 

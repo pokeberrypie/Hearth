@@ -28,6 +28,8 @@ import { later, type Calendar, type Moment } from "./calendar";
 export const KINDS = ["event", "time", "set", "status", "bond", "faction", "standing", "thread", "scene",
   // The Offstage (src/offstage.ts): goals, what people did, what could be noticed, what became true, and threats to be played out.
   "agenda", "offstage", "hook", "consequence", "threat",
+  // Word of something done offstage on its way to the player's character: how it travels, what they will hear, when.
+  "news",
   // How careful someone is (set by the author), and who knows what — never the thing itself, always a version of it.
   "trait", "knows",
   // Something offstage that makes a planned scene impossible as written: a question for the author.

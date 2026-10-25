@@ -560,6 +560,16 @@ async function paintOffstage() {
         ${a.considered?.length ? `<details><summary>What they weighed</summary><ul>${a.considered.map((c) => `<li>${txt(c.option)}${c.stakes ? ` — <i>${txt(c.stakes)}</i>` : ""}</li>`).join("")}</ul>${a.want ? `<p class="hint">Wanted: ${txt(a.want)}${a.fear ? `; afraid of: ${txt(a.fear)}` : ""}</p>` : ""}</details>` : ""}
         ${a.lore?.length ? `<div class="wdwhen">Drew on the lorebook: ${txt(a.lore.join(", "))}</div>` : ""}
         ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("") + quietLine;
+    // What is coming to the player's character: events that will play out in the story, and word of the rest.
+    const NEWS = { travelling: (n) => (n.in ? `arrives in ${n.in} day${n.in === 1 ? "" : "s"}` : "due now — the next replies bring it in"),
+      arrived: (n) => (n.mode === "scene" ? "played out in the story" : "arrived in the story"), lost: () => "never came up, and was let go", skipped: () => "you let it go" };
+    const newsRow = (n) => `<li class="wdnews ${n.state}"><div>${n.mode === "word" ? `“${txt(n.told)}”` : txt(n.told)}</div>
+        <div class="wdwhen">${txt(n.how)} · from what ${txt(n.from)} did${n.garbled ? " · told wrong" : ""}</div>
+        <div class="wdrow"><span class="wdwhen">${txt((NEWS[n.state] ?? NEWS.travelling)(n))}</span>
+          ${n.state === "travelling" ? `<span class="wdgoaltools"><button type="button" class="linkish" data-newsnow="${n.id}">Now</button>
+            <button type="button" class="linkish" data-newsskip="${n.id}">Skip</button></span>` : ""}</div></li>`;
+    const coming = (l.news ?? []).filter((n) => n.mode === "scene").map(newsRow).join("");
+    const news = (l.news ?? []).filter((n) => n.mode !== "scene").map(newsRow).join("");
     const MOVE = { open: "began", advance: "moved on", complicate: "grew harder", settle: "settled" };
     const threads = (l.threads ?? []).map((t) => `<li><div><b>${txt(t.title)}</b></div>
         <div class="wdwhen">${t.hidden ? "out of sight — the story does not know of it" : "a thread the story has"} · ${t.open ? "open" : "settled"}</div>
@@ -574,6 +584,8 @@ async function paintOffstage() {
       <div class="wdrow"><span class="wdkicker">Goals</span>${ended ? `<button type="button" class="linkish" id="wdClearGoals">Clear ${ended} ended</button>` : ""}</div>
       ${goals ? `<ul class="wdledger">${goals}</ul>` : `<p class="hint">None yet.</p>`}
       ${addGoal}${manner}
+      ${coming ? `<div class="wdkicker">Coming to you — it will play out in the story</div><ul class="wdledger">${coming}</ul>` : ""}
+      ${news ? `<div class="wdkicker">News on its way to you</div><ul class="wdledger">${news}</ul>` : ""}
       ${threads ? `<div class="wdkicker">Threads, behind the scenes</div><ul class="wdledger">${threads}</ul>` : ""}
       ${whispers ? `<div class="wdkicker">Who knows what</div><ul class="wdledger">${whispers}</ul>` : ""}
       <div class="wdkicker">What the story has been told</div>${told ? `<ul class="wdledger">${told}</ul>` : `<p class="hint">Nothing yet.</p>`}
@@ -593,7 +605,13 @@ async function paintOffstage() {
   for (const b of body.querySelectorAll("[data-goalrm]")) {
     b.onclick = () => goalCall(`/chats/${S.chatId}/offstage/goal/${b.dataset.goalrm}`, { method: "DELETE" });
   }
-  $("#wdClearGoals")?.addEventListener("click", () => goalCall(`/chats/${S.chatId}/offstage/goals/clear`, { method: "POST" }));
+  for (const b of body.querySelectorAll("[data-newsnow]")) {
+    b.onclick = () => goalCall(`/chats/${S.chatId}/offstage/news/${b.dataset.newsnow}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "now" }) });
+  }
+  for (const b of body.querySelectorAll("[data-newsskip]")) {
+    b.onclick = () => goalCall(`/chats/${S.chatId}/offstage/news/${b.dataset.newsskip}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "skip" }) });
+  }
+    $("#wdClearGoals")?.addEventListener("click", () => goalCall(`/chats/${S.chatId}/offstage/goals/clear`, { method: "POST" }));
   for (const b of body.querySelectorAll("[data-giveup]")) {
     b.onclick = async () => { await api(`/chats/${S.chatId}/offstage/goal/${b.dataset.giveup}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "abandoned" }) }); paintOffstage(); };
   }
@@ -887,9 +905,9 @@ function paintSetDate() {
 const WORLD_KEYS = ["story_world", "steward_provider", "steward_model", "steward_on", "steward_every", "steward_ask_days", "tracker_source",
   "heraldry_contrast", "heraldry_style", "apocrypha_blind", "offstage_level", "offstage_protection", "offstage_per_day",
   "offstage_provider", "offstage_model", "gossip_level", "gossip_distortion", "gossip_misinfo", "gossip_decay",
-  "offstage_threat_ask", "show_trackers", "tracker_keep", "goal_archive"];
+  "offstage_threat_ask", "show_trackers", "tracker_keep", "goal_archive", "news_reach", "news_wrong"];
 const WORLD_CHECKS = new Set(["story_world", "steward_on", "heraldry_contrast", "apocrypha_blind", "gossip_misinfo",
-  "offstage_threat_ask", "show_trackers", "goal_archive"]);
+  "offstage_threat_ask", "show_trackers", "goal_archive", "news_wrong"]);
 
 /** Whether Story World is on at all; until the settings are read, it is. */
 const worldOn = () => W.enabled !== false;
@@ -992,6 +1010,8 @@ async function paintWorldSettings() {
           ["grim", "Grim", "Injury can happen offstage; death and maiming are still always scenes."]])}
         ${swSlider("offstage_per_day", "Most things done offstage in a day", 1, 6)}
         ${swSwitch("offstage_threat_ask", "Ask me before danger comes in", "Off, a threat simply arrives in the next reply.")}
+        ${swSlider("news_reach", "How much news reaches you", 0, 100, 10)}
+        ${swSwitch("news_wrong", "News can be wrong", "As word travels, a telling may be exaggerated, mistaken in a detail, or laid at the wrong door — never at your character's.")}
         ${swSwitch("goal_archive", "Put finished goals away", "Three days after a goal ends: one that came to pass becomes a lorebook entry in this chat's book — which the narrator can then read — and the rest are cleared from the ledger.")}
         ${model("The Offstage", "The same as the Steward")}`)}
       ${swCard("whispers", "Whispers &amp; Rumours", "Who saw what, and who told whom", `
@@ -1036,7 +1056,10 @@ async function paintWorldSettings() {
   const every = () => {
     const n = Number($("#steward_every").value);
     $("#v_steward_every").textContent = `${n} messages`;
-    $("#v_offstage_per_day").textContent = String(Number($("#offstage_per_day").value || 2));
+    $("#v_offstage_per_day").textContent = String(Number($("#offstage_per_day").value || 4));
+    const reach = Number($("#news_reach").value ?? 50);
+    $("#v_news_reach").textContent = reach <= 0 ? "only what touches you and yours" : reach >= 100 ? "everything that works, wherever"
+      : reach < 40 ? "mostly what touches you" : reach > 60 ? "most of what works" : "what touches you, and some of the rest";
     $("#v_gossip_distortion").textContent = `${Number($("#gossip_distortion").value || 0)}% a telling`;
     $("#v_gossip_decay").textContent = `${Number($("#gossip_decay").value || 10)} days`;
     const keep = Number($("#tracker_keep").value || 4);

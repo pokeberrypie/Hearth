@@ -610,7 +610,8 @@ describe("Living World, joined up: participants, discretion, the author's plan, 
       expect(told).toContain("Pod saw: “a woman in a hooded cloak leaving the study late”");
       expect(told).toContain("It is not the truth");
       // The ledger's account of the deed is still the deed.
-      expect(l.actions[0].what).toBe("takes the contract from the study");
+      // (Balanced moves two a turn; the deed is Cersei's, whoever else had a quiet day.)
+      expect(l.actions.find((x: any) => x.who === "Cersei Lannister").what).toBe("takes the contract from the study");
     });
 
     test("never the player's character as a witness; never the one who did it", async () => {
@@ -985,6 +986,21 @@ describe("goals that end, and are put away", () => {
     expect(g.how).toContain("High Septon");
   });
 
+  test("what came to pass is news since a moment — what the author marked done is not", async () => {
+    court();
+    const before = Date.now() - 1;
+    await goal("Cersei Lannister", "have the septa spread word of Targaryen blood");
+    await goal("Varys", "keep the peace");
+    answers = ["CHOOSE | the septa | now\nACT | Cersei has the septa whisper to the High Septon | easy | social\nDONE | have the septa spread word | the High Septon heard it"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const varys = (await goals()).find((g: any) => g.who === "Varys").id;
+    await send(`/api/chats/ch/offstage/goal/${varys}`, "POST", { status: "achieved" });
+    const r = await (await ask(`/api/chats/ch/offstage/news?since=${before}`)).json();
+    expect(r.news.map((n: any) => [n.who, n.goal])).toEqual([["Cersei Lannister", "have the septa spread word of Targaryen blood"]]);
+    expect(r.news[0].how).toContain("High Septon");
+    expect((await (await ask(`/api/chats/ch/offstage/news?since=${r.now}`)).json()).news).toEqual([]);
+  });
+
   test("a failed attempt finishes nothing", async () => {
     court();
     await goal("Cersei Lannister", "have the septa spread word of Targaryen blood");
@@ -1052,5 +1068,96 @@ describe("goals that end, and are put away", () => {
     await send(`/api/chats/ch/offstage/goal/${b.id}`, "POST", { status: "abandoned" });
     expect((await (await send("/api/chats/ch/offstage/goals/clear", "POST")).json()).cleared).toBe(1);
     expect((await goals()).map((g: any) => g.who)).toEqual(["Varys"]);
+  });
+});
+
+describe("what is done offstage reaches the story", () => {
+  const later = (days: number) => db.query("INSERT INTO chronicle (id, chat_id, kind, span, title, source, created_at) VALUES (?, 'ch', 'time', ?, 'later', 'user', ?)")
+    .run(`t${Math.random()}`, days * 1440, Date.now() + days);
+  const coming = async () => (await ledger()).news;
+  function court(reach = "50") {
+    seed();
+    setSettings({ offstage_level: "dynamic", offstage_per_day: "6", news_reach: reach, news_wrong: "0" });
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('x1', 'ch', 'j', 0)").run();
+    presenceAnswer = "HERE | Jaime Lannister\nAWAY | Cersei Lannister | the Red Keep";
+  }
+  // Someone at court with something to do, so there is someone to act.
+  const plotting = () => goal("Cersei Lannister", "keep the court in hand");
+  const DECREE = "CHOOSE | the decree | now\nACT | Cersei has the small council name a new Master of Coin | easy | none\nREACHES | a raven from King's Landing | the small council has a new Master of Coin, a Lannister man | 4";
+  const BOUNTY = "CHOOSE | the bounty | now\nACT | Cersei puts a price on Yvenna Hightower's head | easy | social\nREACHES | sellswords on the road | three hard men ride into the yard asking after a Hightower girl with a price on her | 2";
+
+  test("word of something far off travels, and comes in when its days are up", async () => {
+    court("100");
+    await plotting();
+    answers = [DECREE];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const [n] = await coming();
+    expect([n.mode, n.state, n.in]).toEqual(["word", "travelling", 4]);
+    expect(await narrator()).not.toContain("Master of Coin");
+    later(4);
+    expect(await narrator()).toContain("News reaches the player's character");
+    expect(await narrator()).toContain("a new Master of Coin");
+  });
+
+  test("with the dial at nothing, word that does not touch the player stays where it was", async () => {
+    court("0");
+    await plotting();
+    answers = [DECREE];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(await coming()).toEqual([]);
+  });
+
+  test("what lands on the player's character plays out as a scene — whatever the dial", async () => {
+    court("0");
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const [n] = await coming();
+    expect([n.mode, n.in]).toEqual(["scene", 2]);
+    later(2);
+    const told = await narrator();
+    expect(told).toContain("Play this out now");
+    expect(told).toContain("three hard men ride into the yard");
+  });
+
+  test("a reply that brings it in has brought it; one that does not, four times, lets it go", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(2);
+    story = "Three hard men ride into the yard, asking after a Hightower girl, and the price on her head is the first thing they say.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We rest." })).text();
+    expect((await coming())[0].state).toBe("arrived");
+
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(2);
+    story = "The fire burned low and nobody spoke of anything much.";
+    for (let i = 0; i < 4; i++) await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We wait." })).text();
+    expect((await coming())[0].state).toBe("lost");
+    story = "The court is quiet.";
+  });
+
+  test("Now brings it in on the next reply; Skip lets it go", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const [n] = await coming();
+    await send(`/api/chats/ch/offstage/news/${n.id}`, "POST", { action: "now" });
+    expect(await narrator()).toContain("three hard men ride into the yard");
+    await send(`/api/chats/ch/offstage/news/${n.id}`, "POST", { action: "skip" });
+    expect(await narrator()).not.toContain("three hard men");
+    expect((await coming())[0].state).toBe("skipped");
+  });
+
+  test("news never names who was secretly behind it", () => {
+    const d = readDecision("CHOOSE | it | now\nACT | Cersei pays a septa to spread a rumour | uncertain | social\nCLUE | her perfume on the letter\nREACHES | travellers' talk | Cersei Lannister paid a septa to call the girl a Targaryen bastard | 5");
+    const r = rule(d, { who: "Cersei Lannister", player: "Yvenna Hightower", protection: "fair", goals: [] });
+    expect(r.news).toBe(null);
+    expect(r.notes).toContain("the news named who was secretly behind it");
   });
 });

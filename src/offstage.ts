@@ -35,7 +35,8 @@ export const levelOf = (v: unknown): Level => pickOf(v, LEVELS, "off");
 export const protectionOf = (v: unknown): Protection => pickOf(v, PROTECTIONS, "fair");
 
 /** How many people may act in one run, by level. */
-export const ACTORS_PER_RUN: Record<Level, number> = { off: 0, balanced: 1, dynamic: 3 };
+// Balanced moves two a turn: with one, too little happened for the story to feel anything of it.
+export const ACTORS_PER_RUN: Record<Level, number> = { off: 0, balanced: 2, dynamic: 3 };
 
 /** "none", "nothing", "n/a", "no new goal": a model filling in a line it was told to leave out. Never a goal. */
 export const saysNothing = (text: string) =>
@@ -51,6 +52,10 @@ export type View = {
   card: string;
   /** The player's character, by name: someone they may act on, never someone they may speak or act for. */
   player: string;
+  /** Where the player's character is, as far as the story says: for how word of what they do would reach them. */
+  playerAt?: string;
+  /** Word travels badly this time: the telling may be partly wrong. */
+  newsWrong?: boolean;
   today: string;
   /** How they are now, from the tracker. */
   state: string[];
@@ -94,6 +99,7 @@ export const OFFSTAGE_SYSTEM = [
   "THREAD | open or advance or complicate or settle | its name | what changed, in a few words",
   "GOAL | a new goal, only if they take one up | why",
   "DONE | the goal this finishes, as it is listed | how it came about, in a few words",
+  "REACHES | how word of it would reach the player's character where they are — a raven, a rider, travellers' talk, a change they would run into | what they would hear, in a sentence | in how many days",
   "PLAN | the number of a planned scene, if one is listed | supports or complicates or conflicts | how, in a few words",
   "",
   "Rules:",
@@ -108,6 +114,8 @@ export const OFFSTAGE_SYSTEM = [
   "- NOTHING when they simply live their day: then ACT is the ordinary thing they do, easy, none, and there is no SEEN or FACT.",
   "- ABANDON when they give up a goal because it is costing them more than it is worth: then name the goal in the why.",
   "- DONE only when what they do today, if it works, finishes one of the goals listed for them — the thing itself achieved, not a step toward it.",
+  "- REACHES only when what they do, if it works, would be talked of or felt beyond the room — an arrest, a decree, a death, a marriage, a march, a bounty, a fall from favour. Leave it out for what stays quiet. What they would hear is only what a messenger or a stranger could know: never who was secretly behind it. The days are how long it would take to travel to where the player's character is.",
+  "- When what they do lands on the player's character or the people with them — sent after them, aimed at their name, their home, their marriage, their friends — REACHES is the thing itself arriving where they are, as it would begin in a scene: riders at the gate, a letter of summons, a host who has heard and greets them coldly. Its days are until it gets there. Never say how the player's character answers it.",
 ].join("\n");
 
 /** The request: who they are and what they know, and nothing else. */
@@ -127,7 +135,8 @@ export function offstagePrompt(v: View): string {
     v.pressure && `Their situation: ${v.pressure}`,
     v.plan?.length ? `For you, not for them — the author's plan for scenes ahead, which ${v.who} knows nothing of. Do not steer them toward it; their own wants come first. Only say, with a PLAN line, if what they do bears on one:\n${v.plan.map((p) => `${p.n}. ${p.title}${p.about ? ` — ${p.about}` : ""}`).join("\n")}` : "",
     v.discretion && v.discretion !== "ordinary" && `By nature they are ${v.discretion}${v.discretion === "careless" ? " — they leave traces and talk too much" : v.discretion === "masterful" ? " — they plan for being watched and rarely leave a trace" : " — they cover themselves"}.`,
-    `The player's character is ${v.player || "the player"}: someone ${v.who} may act toward, never someone they decide for.`,
+    `The player's character is ${v.player || "the player"}${v.playerAt ? `, now at ${v.playerAt}` : ""}: someone ${v.who} may act toward, never someone they decide for.`,
+    v.newsWrong ? "If you write a REACHES line, word travels badly this time: let what they would hear be partly wrong — exaggerated, a detail mistaken, or laid at the wrong door (never the player's character's)." : "",
     "Write the lines now.",
   ].filter(Boolean).join("\n\n");
 }
@@ -151,6 +160,8 @@ export type Decision = {
   goal: { goal: string; why: string } | null;
   /** A goal of theirs this would finish, if it works. */
   done: { goal: string; how: string } | null;
+  /** How word of it would reach the player's character, if it works: by what, what they hear, in how many days. */
+  reaches: { how: string; told: string; days: number } | null;
   threads: ThreadMove[];
   plan: PlanMark[];
   witness: { who: string; saw: string } | null;
@@ -166,7 +177,7 @@ const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/
 /** A model's answer, read. Untidy answers are read as far as they go; nothing here is believed yet. */
 export function readDecision(raw: string): Decision {
   const d: Decision = { want: "", fear: "", considered: [], choice: "", why: "", kind: "nothing", act: "", difficulty: "easy",
-    harm: "none", seen: "", fact: "", clue: "", goal: null, done: null, threads: [], plan: [], witness: null };
+    harm: "none", seen: "", fact: "", clue: "", goal: null, done: null, reaches: null, threads: [], plan: [], witness: null };
   const text = String(raw ?? "")
     .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
     .replace(/```[a-z]*\n?/gi, "");
@@ -203,6 +214,12 @@ export function readDecision(raw: string): Decision {
       if (n > 0 && relation) d.plan.push({ n, relation, how: parts.slice(3).join(" | ") });
     } else if (key === "GOAL" && parts[1] && !saysNothing(parts[1])) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
     else if ((key === "DONE" || key === "ACHIEVED" || key === "ACCOMPLISHED") && parts[1] && !saysNothing(parts[1])) d.done = { goal: parts[1], how: parts.slice(2).join(" | ") };
+    else if ((key === "REACHES" || key === "NEWS" || key === "WORD") && parts[1] && parts[2] && !saysNothing(parts[2])) {
+      const n = parseInt(String(parts[3] ?? "").replace(/[^0-9]/g, ""), 10);
+      const words_ = String(parts[3] ?? "").toLowerCase();
+      const days = Number.isFinite(n) ? n : /week/.test(words_) ? 7 : /fortnight/.test(words_) ? 14 : /month/.test(words_) ? 30 : /day/.test(words_) ? 1 : 3;
+      d.reaches = { how: parts[1], told: parts[2], days: Math.max(0, Math.min(60, days)) };
+    }
   }
   if (d.kind === "act" && !d.act) d.kind = "nothing";
   return d;
@@ -234,6 +251,8 @@ export type Ruling = {
   /** Which goal this finishes if it works, and how — kept only on success, in the run. */
   achieves: string;
   how: string;
+  /** Word of it on its way to the player's character, if it works: checked like what could be seen. */
+  news: { how: string; told: string; days: number } | null;
   /** Why anything was taken out. Shown in the author's ledger, so a dull run can be understood. */
   notes: string[];
 };
@@ -276,7 +295,7 @@ export function identityOf(who: string, card: string, factions: string[] = []): 
 export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[] }): Ruling {
   const notes: string[] = [];
   const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
-    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", achieves: "", how: "", notes };
+    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", achieves: "", how: "", news: null, notes };
   if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.clue = ""; r.harm = "none"; r.difficulty = "easy"; }
   // Something that cannot fail leaves no careless trace.
   if (r.difficulty === "easy") r.clue = "";
@@ -335,6 +354,13 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
   const id = o.identity ?? [];
   if (r.seen && names(r.seen, o.who, id)) { notes.push("what could be seen pointed to who did it"); r.seen = ""; }
   if (r.fact && names(r.fact, o.who, id)) { notes.push("what changed pointed to who did it"); r.fact = ""; }
+  // News: only of something they did, and — when it was done in secret, which a deliberate trace says it was —
+  // never naming them. Done openly (a decree, a public disowning), the messenger may well say who.
+  if (d.kind === "act" && d.reaches && !r.threat) {
+    const told = d.reaches.told.replace(/\s+/g, " ").trim().slice(0, 240);
+    if ((d.clue || r.clue) && names(told, o.who, id)) notes.push("the news named who was secretly behind it");
+    else if (told) r.news = { how: d.reaches.how.replace(/\s+/g, " ").trim().slice(0, 120), told, days: d.reaches.days };
+  }
   if (r.goal && r.kind !== "dropped") r.goal = { goal: r.goal.goal.slice(0, 200), why: r.goal.why.slice(0, 300) };
   return r;
 }

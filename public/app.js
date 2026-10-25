@@ -1306,6 +1306,7 @@ async function openChat(id) {
   paintCarry();
   // Story World's line under the title. Defined in storyworld.js, which loads after this file.
   if (typeof paintWorldLine === "function") paintWorldLine();
+  checkNews();
   openingQuestions(chat);
   // Opening a chat always lands at the newest message, whatever the previous
   // chat's scroll position was. (Passing stick straight to rAF would hand it
@@ -3754,6 +3755,8 @@ async function run(mode, content = "", forcedGuide = "") {
             paintWorldLine();
             setTimeout(paintWorldLine, 8000);
           }
+          // The world offstage takes its turn after the reply, in the background: look for what came of it.
+          watchNews();
           // Display regex scripts run once, here, rather than on every delta:
           // a pack like DEUS EX MACHINA has fifty of them and re-running the
           // lot per token would make a long reply crawl. Nothing they produce
@@ -12052,3 +12055,65 @@ $("#deskOn").onchange = async () => {
 // Painted with the rest of the Connection panel.
 document.querySelector('[data-tab="connection"]')?.addEventListener("click", () => { paintDesk(); });
 document.querySelector('.raillink[data-tab="connection"]')?.addEventListener("click", () => { paintDesk(); });
+
+
+/* ---- what came to pass offstage -------------------------------------------
+   A plan finished in the world offstage shows for a moment under the cast bar:
+   who, and what — or, while the ledger is sealed, only that something did. It
+   goes by itself after fifteen seconds, or at once with the ×; pressed, it
+   opens the ledger. Looked for after each reply (the Offstage takes its turn
+   then, in the background) and now and then while a chat is open. */
+
+const NEWS_MS = 15000;
+const newsKey = (chatId) => `hearth.news.${chatId}`;
+
+async function checkNews() {
+  const chatId = S.chatId;
+  if (!chatId || (typeof GUEST !== "undefined" && GUEST.on)) return;
+  if (typeof worldOn === "function" && !worldOn()) return;
+  let since = 0;
+  try { since = Number(localStorage.getItem(newsKey(chatId))) || 0; } catch {}
+  const r = await api(`/chats/${chatId}/offstage/news?since=${since}`).catch(() => null);
+  if (!r || r.error || S.chatId !== chatId) return;
+  // The first look at a chat starts from now: what came to pass long ago is in the ledger, not news.
+  const next = since ? Math.max(since, ...r.news.map((n) => n.at)) : r.now;
+  try { localStorage.setItem(newsKey(chatId), String(next)); } catch {}
+  if (since) for (const n of r.news) showNews(n);
+}
+
+/** After a reply: now, and again as the world offstage finishes its turn. */
+function watchNews() {
+  checkNews();
+  for (const ms of [10000, 30000, 75000]) setTimeout(checkNews, ms);
+}
+setInterval(() => { if (!document.hidden) checkNews(); }, 90000);
+
+function showNews(n) {
+  const tray = $("#newsTray");
+  if (!tray || tray.querySelector(`[data-news="${CSS.escape(n.id)}"]`)) return;
+  const open = typeof W !== "undefined" && W.ledgerOpen;
+  const card = document.createElement("div");
+  card.className = "newscard";
+  card.dataset.news = n.id;
+  card.innerHTML =
+    `<span class="newsmark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z"/></svg></span>` +
+    `<span class="newstext"><span class="newskick">Came to pass offstage</span>` +
+    (open ? `<span class="newsbody"><b>${esc(n.who)}</b> — ${esc(n.goal)}</span>${n.how ? `<span class="newshow">${esc(n.how)}</span>` : ""}`
+          : `<span class="newsbody">Someone's plan has come to pass. The ledger has it.</span>`) +
+    `</span><button type="button" class="newsx" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` +
+    `<span class="newstime" style="animation-duration:${NEWS_MS}ms"></span>`;
+  const gone = () => { if (!card.isConnected) return; card.classList.add("out"); setTimeout(() => card.remove(), 260); };
+  const timer = setTimeout(gone, NEWS_MS);
+  card.querySelector(".newsx").onclick = (e) => { e.stopPropagation(); clearTimeout(timer); gone(); };
+  card.onclick = async () => {
+    clearTimeout(timer); gone();
+    if (typeof openWorld === "function") {
+      await openWorld();
+      W.tab = "offstage";
+      if (typeof paintWorld === "function") paintWorld();
+    }
+  };
+  tray.appendChild(card);
+  // Never more than three at once: the oldest goes.
+  while (tray.children.length > 3) tray.firstElementChild.remove();
+}

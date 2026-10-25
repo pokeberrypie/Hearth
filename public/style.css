@@ -8478,3 +8478,45 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 /* The permanent way to carry a chat on, above the list of its files. */
 #filesDialog .carrybox { margin: 0.2rem 0 0.9rem; }
 #filesDialog .carrybox .hint { margin: 0.4rem 0.1rem 0; }
+
+/* ---- what came to pass offstage: a moment's notice under the cast bar ---- */
+.newsanchor { position: relative; height: 0; z-index: 30; }
+.newstray {
+  position: absolute; left: 0.6rem; right: 0.6rem; top: 0.45rem;
+  display: grid; gap: 0.45rem; pointer-events: none;
+}
+.newscard {
+  pointer-events: auto;
+  position: relative; overflow: hidden;
+  display: flex; align-items: flex-start; gap: 0.65rem;
+  padding: 0.65rem 0.6rem 0.75rem 0.7rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--lumiverse-primary) 45%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--lumiverse-primary) 16%, var(--lumiverse-bg-deep)), var(--lumiverse-bg-deep) 70%);
+  box-shadow: 0 10px 28px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  animation: newsin 0.32s cubic-bezier(.2, .8, .3, 1.2) both;
+}
+.newscard.out { animation: newsout 0.26s ease both; }
+@keyframes newsin { from { opacity: 0; transform: translateY(-8px) scale(0.98); } }
+@keyframes newsout { to { opacity: 0; transform: translateY(-6px); } }
+.newsmark {
+  flex: none; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--lumiverse-bg-deep); background: var(--lumiverse-primary);
+}
+.newsmark svg { width: 15px; height: 15px; fill: currentColor; stroke: none; }
+.newstext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.newskick { font-family: var(--lumiverse-font-display); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--lumiverse-primary); }
+.newsbody { font-size: 0.92rem; line-height: 1.35; color: var(--lumiverse-text); }
+.newshow { font-size: 0.8rem; font-style: italic; color: var(--lumiverse-text-hint); }
+.newsx { flex: none; width: 26px; height: 26px; border: 0; background: none; color: var(--lumiverse-text-hint); padding: 0; cursor: pointer; }
+.newsx svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
+/* How long it has left, as a thin gold line running out along its foot. */
+.newstime {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+  background: var(--lumiverse-primary); opacity: 0.6; transform-origin: left;
+  animation: newstime linear both;
+}
+@keyframes newstime { to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .newscard, .newscard.out { animation: none; } }

@@ -606,7 +606,11 @@ export const DEFAULTS: Record<string, string> = {
   // The Living World (src/offstage.ts): off until asked for.
   offstage_level: "balanced",
   offstage_protection: "fair",
-  offstage_per_day: "2",
+  offstage_per_day: "4",
+  // How much word of what is done offstage travels to the player's character: 0, only what touches them and
+  // their people; 100, everything that works. And whether word can arrive wrong, as rumour does.
+  news_reach: "50",
+  news_wrong: "1",
   offstage_provider: "",
   offstage_model: "",
   /**
