@@ -259,10 +259,9 @@ void main() {
 
   /**
    * How big the flame is a given way through its rise (0 to 1), in screen pixels: the middle of its base (x, y), its half-width there
-   * (rx) and its height (ry), and how big its tongues are (gx, gy). Two things, one after the other, never both:
-   * first the flame grows longer — standing on the logs, hardly wider, its tongues drawn out as it reaches — until
-   * its tip is past the top of the screen; then, its height already gone, it spreads, its sides moving out across
-   * the screen while nothing in it gets any bigger. Grown all at once — taller, wider, its tongues with it, its
+   * (rx) and its height (ry), and how big its tongues are (gx, gy). Short, then tall, then filling out — one
+   * after the other, never two at once: first the flame grows taller and only taller, on the logs, no wider and its
+   * tongues no bigger, until it reaches the top of the screen; then it spreads, its sides moving out across it. Grown all at once — taller, wider, its tongues with it, its
    * base sinking — it looked like the camera moving in on a fire, not a fire growing.
    */
   function reach(s, at) {
@@ -280,14 +279,15 @@ void main() {
     // as it spreads, so the top of the screen is its body. It spreads only as far as covers the screen, and
     // evenly, so its edges are seen going out — wider, and it was there at once, and all heart.
     const ry = lerp(ry0, grate.y * 0.92, longer) + lerp(0, h * 1.1, wider);
-    const rx = lerp(rx0, rx0 * 1.9, longer) + lerp(0, w * 0.62, Math.pow(wider, 1.2));
+    // No wider at all while it climbs — it only grows taller; any wider, and it was simply bigger, and came at you.
+    const rx = lerp(rx0, rx0 * 1.9 + w * 0.62, Math.pow(wider, 1.2));
     return {
       x: grate.x,
       y: grate.y + u0,
       rx, ry,
-      // Its tongues lengthen as it does, a little broader; once it spreads, they stay as they are.
-      gx: lerp(rx0, rx0 * 1.9, longer),
-      gy: lerp(ry0, ry0 * 2.6, longer),
+      // Its tongues stay the size they were on the logs while it climbs, and grow only as it spreads.
+      gx: lerp(rx0, rx0 * 1.9, wider),
+      gy: lerp(ry0, ry0 * 2.6, wider),
       fill: smooth(0.82, 1, at) * 0.35,
     };
   }
