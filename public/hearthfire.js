@@ -50,8 +50,6 @@
   const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
   // Easing for the rise itself: gentle at both ends.
   const glide = (t) => (1 - Math.cos(Math.PI * t)) / 2;
-  // From a to b by the same proportion each step: a fire growing at a steady rate.
-  const grow = (a, b, k) => a * Math.pow(b / a, k);
   const lerp = (a, b, t) => a + (b - a) * t;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const smooth = (a, b, v) => { const x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
@@ -70,6 +68,7 @@ uniform vec2 uRes;          // the canvas, in its own pixels
 uniform float uT;
 uniform vec2 uSrc;          // the middle of the flame's base
 uniform vec2 uSize;         // its half-width at the base, and its height
+uniform vec2 uGrain;        // how big its tongues are, across and up, in pixels: they grow far more slowly than it
 uniform float uFill;        // at the end, fire everywhere, so the screen is fire edge to edge
 uniform vec4 uOpen;         // the opening: centre, and radii
 uniform float uRim;
@@ -102,12 +101,13 @@ float snoise(vec2 v) {
 
 void main() {
   vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
-  float W = uSize.x, H = uSize.y;
+  float W = uSize.x, H = uSize.y, GX = uGrain.x, GY = uGrain.y;
   float up = uSrc.y - p.y;                 // height above the base
   float v = up / H;
-  // The flame bends, and the bend runs up it: an S that travels, more the higher it goes.
-  float sway = snoise(vec2(v * 1.5 - uT * 0.85, 3.7)) * 0.6 + snoise(vec2(v * 3.2 - uT * 1.6, 9.1)) * 0.22;
-  float x = p.x - uSrc.x - sway * W * 0.6 * pow(clamp(v, 0.0, 1.6), 1.3);
+  // The flame bends, and the bend runs up it: an S that travels, more the higher it goes. Its waves are the
+  // size of its tongues, not of the whole fire, so a big fire ripples rather than one huge flame leaning.
+  float sway = snoise(vec2(up / (GY * 0.67) - uT * 0.85, 3.7)) * 0.6 + snoise(vec2(up / (GY * 0.31) - uT * 1.6, 9.1)) * 0.22;
+  float x = p.x - uSrc.x - sway * GX * 0.6 * pow(clamp(v, 0.0, 1.6), 1.3);
   // Its outline: a round base, full low down, tapering to a point.
   float hw;
   if (v < 0.0) { float b = -up / (W * 0.8); hw = W * sqrt(max(0.0, 1.0 - b * b)); }
@@ -115,13 +115,15 @@ void main() {
   float f = 1.0 - abs(x) / max(hw, 0.001);
   // Tongues: turbulence stretched upward and rising, cutting the upper flame into tips that lean and part.
   // More toward the top, and more toward its sides than its heart, so tongues break from the flanks too.
+  // Sized by the grain, not the flame: as the fire grows it grows more tongues, not bigger ones — measured by
+  // the flame, the whole picture only scaled up, and a fire growing looked like a camera moving in on it.
   float top = smoothstep(-0.05, 0.8, v);
   float side = 0.55 + 0.45 * clamp(abs(x) / max(hw, 0.001), 0.0, 1.0);
-  float t1 = snoise(vec2(x / (W * 0.3), up / (H * 0.42) - uT * 1.5)) * 0.5 + 0.5;
-  float t2 = snoise(vec2(x / (W * 0.18) + 5.0, up / (H * 0.24) - uT * 2.4)) * 0.5 + 0.5;
+  float t1 = snoise(vec2(x / (GX * 0.3), up / (GY * 0.42) - uT * 1.5)) * 0.5 + 0.5;
+  float t2 = snoise(vec2(x / (GX * 0.18) + 5.0, up / (GY * 0.24) - uT * 2.4)) * 0.5 + 0.5;
   f -= (t1 * 0.85 + t2 * 0.4) * top * side;
   // Licks: pieces broken off above the tips, rising and going.
-  float l = snoise(vec2(x / (W * 0.2) + 11.0, up / (H * 0.15) - uT * 3.2));
+  float l = snoise(vec2(x / (GX * 0.2) + 11.0, up / (GY * 0.15) - uT * 3.2));
   float near = smoothstep(0.7, 0.95, v) * (1.0 - smoothstep(1.15, 1.5, v)) * (1.0 - smoothstep(0.15, 0.5, abs(x) / W));
   // A blob only where the turbulence is strong, and fewer as they rise out of their band; elsewhere well
   // below the edge, so nothing half-there shows.
@@ -190,7 +192,7 @@ void main() {
     gl.enableVertexAttribArray(a);
     gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
     const u = {};
-    for (const n of ["uRes", "uT", "uSrc", "uSize", "uFill", "uOpen", "uRim", "uC", "uL"]) u[n] = gl.getUniformLocation(prog, n);
+    for (const n of ["uRes", "uT", "uSrc", "uSize", "uGrain", "uFill", "uOpen", "uRim", "uC", "uL"]) u[n] = gl.getUniformLocation(prog, n);
     gl.uniform3fv(u.uC, new Float32Array(COLOURS.flatMap(rgb)));
     gl.uniform1fv(u.uL, new Float32Array(LEVELS));
     return { gl, u };
@@ -257,18 +259,26 @@ void main() {
 
   /**
    * How big the flame is at a given heat, in screen pixels: the middle of its base (x, y), its half-width there
-   * (rx) and its height (ry). It stands on the logs, a fire in a grate; climbs, and widens; and its base goes
-   * down past the bottom of the screen as it takes the room.
+   * (rx) and its height (ry), and how big its tongues are (gx, gy). It stands on the logs, a fire in a grate;
+   * climbs first, then widens; and only late does its base go down past the bottom of the screen as it takes the
+   * room. Each by a steady amount, not a steady proportion: grown by proportion, faster and faster, and with its
+   * base sinking from the start, it came at you, the way a thing does when it is the camera that moves.
    */
   function reach(s, heat) {
     const { w, h, grate } = s;
     const u0 = s.unit || 4, mouth = s.mouth;
     const inBox = Math.max(10, grate.y - s.archTop);
+    const rx0 = mouth * 0.88, ry0 = inBox * 1.05;
+    const ry = lerp(ry0, h * 1.9, Math.pow(heat, 1.15));
+    const rx = lerp(rx0, w * 1.6, Math.pow(heat, 1.7));
     return {
       x: grate.x,
-      y: lerp(grate.y + u0, h * 1.15, smooth(0.3, 1, heat)),
-      rx: grow(mouth * 0.88, w * 1.6, Math.pow(heat, 1.25)),
-      ry: grow(inBox * 1.05, h * 1.9, Math.pow(heat, 0.8)),
+      y: lerp(grate.y + u0, h * 1.12, smooth(0.55, 1, heat)),
+      rx, ry,
+      // The square root of how much it has grown: a big fire's tongues are bigger than a small one's, but nothing
+      // like in proportion — any less, and a big fire frays into grass.
+      gx: rx0 * Math.pow(rx / rx0, 0.5),
+      gy: ry0 * Math.pow(ry / ry0, 0.5),
       fill: smooth(0.72, 1, heat) * 0.3,
     };
   }
@@ -289,6 +299,7 @@ void main() {
       gl.uniform1f(u.uT, t % 1000);
       gl.uniform2f(u.uSrc, r.x * k, r.y * k);
       gl.uniform2f(u.uSize, r.rx * k, r.ry * k);
+      gl.uniform2f(u.uGrain, r.gx * k, r.gy * k);
       gl.uniform1f(u.uFill, r.fill);
       gl.uniform4f(u.uOpen, cx * k, cy * k, rx * k, ry * k);
       gl.uniform1f(u.uRim, rim * k);
