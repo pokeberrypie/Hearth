@@ -278,8 +278,10 @@ describe("the browser's half", () => {
    * next time the old chat is opened: it has been answered.
    */
   test("stays away once it has been taken", () => {
-    const fn = APP.slice(APP.indexOf('$("#carryGo").onclick'));
-    expect(fn.slice(0, 1400)).toContain("carryHushed.add(from)");
+    // The offer and the permanent buttons all carry on through one function.
+    expect(APP).toContain('$("#carryGo").onclick = () => carryOn(');
+    const fn = APP.slice(APP.indexOf("async function carryOn("));
+    expect(fn.slice(0, fn.indexOf("\n}\n"))).toContain("carryHushed.add(from)");
   });
 
   test("is looked at after every turn, since a chat only gets longer", () => {
