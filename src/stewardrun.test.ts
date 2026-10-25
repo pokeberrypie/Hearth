@@ -612,3 +612,47 @@ describe("after a failed reading", () => {
     expect(sent.length).toBe(2);
   });
 });
+
+describe("a branch, and where its Steward had read to", () => {
+  test("a new branch keeps the parent's place, never past the fork — the copied messages are not unread", async () => {
+    seed(3);
+    provider();
+    // The parent's Steward has read all three.
+    db.query("UPDATE chats SET steward_at = (SELECT MAX(created_at) FROM messages WHERE chat_id = 'ch') WHERE id = 'ch'").run();
+    const r = await (await send("/api/messages/m2/branch", "POST")).json();
+    const branch = db.query("SELECT steward_at FROM chats WHERE id = ?").get(r.id) as any;
+    const fork = (db.query("SELECT created_at FROM messages WHERE id = 'm2'").get() as any).created_at;
+    expect(branch.steward_at).toBe(fork);
+    const health = (await (await ask(`/api/chats/${r.id}/chronicle`)).json()).steward;
+    expect(health.unread).toBe(0);
+  });
+
+  test("a branch made before that is repaired at the next start", async () => {
+    seed(3);
+    db.query("UPDATE chats SET steward_at = (SELECT MAX(created_at) FROM messages WHERE chat_id = 'ch') WHERE id = 'ch'").run();
+    const r = await (await send("/api/messages/m3/branch", "POST")).json();
+    db.query("UPDATE chats SET steward_at = 0 WHERE id = ?").run(r.id);       // as an older Hearth left it
+    const { ensureStarterCharacter } = await import("./index");
+    ensureStarterCharacter();
+    expect((db.query("SELECT steward_at FROM chats WHERE id = ?").get(r.id) as any).steward_at).toBeGreaterThan(0);
+    expect((await (await ask(`/api/chats/${r.id}/chronicle`)).json()).steward.unread).toBe(0);
+  });
+});
+
+describe("Read now", () => {
+  test("reads everything unread, oldest first, in stretches — not just the latest, with the rest skipped", async () => {
+    seed(3);
+    provider();
+    const t = Date.now() - 500_000;
+    for (let i = 0; i < 45; i++) {
+      db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', 'assistant', 'Jaime Lannister', ?, ?)")
+        .run(`n${i}`, `Line ${i} of a long evening.`, t + i);
+    }
+    const r = await (await send("/api/chats/ch/steward/now", "POST", {})).json();
+    expect(r.read.read).toBe(48);
+    expect(r.read.left).toBe(0);
+    expect(sent.length).toBe(3);                    // 20 + 20 + 8
+    expect(JSON.stringify(sent[0].messages)).toContain("Loras came through the door");
+    expect(r.steward.unread).toBe(0);
+  });
+});

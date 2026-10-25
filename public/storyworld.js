@@ -838,8 +838,11 @@ function wireBody(who) {
     b.textContent = "Reading…";
     const r = await post(`/chats/${S.chatId}/steward/now`, {});
     if (r?.read?.problem) toast(`It could not read: ${r.read.problem}`);
-    else if (r?.read) toast(`Read: ${r.read.kept} written down${r.read.proposed ? `, ${r.read.proposed} waiting for you` : ""}.`);
+    else if (r?.read) toast(`Read ${r.read.read} message${r.read.read === 1 ? "" : "s"}: ${r.read.kept} written down${r.read.proposed ? `, ${r.read.proposed} waiting for you` : ""}${r.read.left ? `. ${r.read.left} still to read — press again.` : "."}`);
     else if (r?.note) toast(r.note);
+    // Drawn again whatever happened, so the line shows where it stands now — never left saying "Reading…".
+    await paintWorldLine?.();
+    paintWorld();
   });
   $("#wdLogBox")?.addEventListener("toggle", async (e) => {
     if (!e.target.open) return;

@@ -2012,6 +2012,12 @@ api.post("/messages/:id/branch", (c) => {
 
   // The story so far, exactly as far as the fork and no further.
   copyChronicle(forBranch(chronicleOf(src.id), kept, m.created_at), newId);
+  // And where its keepers had got to. The Steward had read the parent as far as it had — never past the fork,
+  // which is as far as this one goes — so the copied messages are not all "unread" to be read and paid for again;
+  // and the Offstage's day is the day the story stands at here.
+  db.query("UPDATE chats SET steward_at = ?, offstage_day = ? WHERE id = ?").run(
+    Math.min(Number(src.steward_at) || 0, m.created_at),
+    (Number(src.offstage_day) ?? -1) >= 0 ? clockOf(calendarOf(newId), chronicleOf(newId)).day : -1, newId);
 
   /*
    * And a notes book of its own.
@@ -2238,6 +2244,7 @@ function softDelete(table: BinTable, ids: string[]) {
  * deleted.
  */
 export function ensureStarterCharacter() {
+  repairBranchReading();
   if (!libraryIsEmpty(db)) return;
   db.query(
     `INSERT INTO characters
@@ -5024,6 +5031,23 @@ function peopleOf(chat: any): Person[] {
 }
 
 /**
+ * Branches made before a branch kept its Steward's place: theirs was 0, so every message copied from the
+ * parent read as unread — a whole chat "since the Steward last read", to be read and paid for again. Put back
+ * to where the parent's Steward had got to, never past the fork (the last message older than the branch).
+ * Run at every start, where the library is surely open; once a branch has a place, it is left alone.
+ */
+function repairBranchReading() {
+  try {
+    const stale = db.query(`SELECT c.id, c.created_at, p.steward_at AS parent_at FROM chats c JOIN chats p ON p.id = c.parent_chat_id
+      WHERE c.steward_at = 0 AND c.branch_note != 'Summed up and carried on' AND p.steward_at > 0`).all() as any[];
+    for (const c of stale) {
+      const fork = (db.query("SELECT MAX(created_at) t FROM messages WHERE chat_id = ? AND created_at <= ?").get(c.id, c.created_at) as any)?.t ?? 0;
+      if (fork) db.query("UPDATE chats SET steward_at = ? WHERE id = ? AND steward_at = 0").run(Math.min(c.parent_at, fork), c.id);
+    }
+  } catch (e) { console.error("[startup] could not repair branches' reading place:", e); }
+}
+
+/**
  * The Steward has read something that has since changed. What it recorded
  * from those words is taken back, and its place is wound back to before
  * them, so the new words are read in their turn. Taken back, not deleted:
@@ -5292,9 +5316,19 @@ api.post("/chats/:id/steward/now", async (c) => {
   const fresh = db.query("SELECT id, role, name, content, created_at FROM messages WHERE chat_id = ? AND created_at > ? ORDER BY created_at, rowid")
     .all(chatId, chat.steward_at ?? 0) as any[];
   if (!fresh.length) return c.json({ ...chronicleState(chatId), note: "Nothing new since it last read." });
-  const r = await stewardRun(chat, fresh.slice(-40), s);
-  if (!r.problem) await offstageTurn(chatId).catch(() => {});
-  return c.json({ ...chronicleState(chatId), read: r });
+  // Everything unread, oldest first, in stretches it can read well — not just the latest forty, with the rest
+  // skipped for good. A hundred at a press; what is left is said, for another press.
+  const STRETCH = 20, MOST = 100;
+  const total = { kept: 0, proposed: 0, dropped: 0, problem: "" };
+  let read = 0;
+  for (let i = 0; i < Math.min(fresh.length, MOST); i += STRETCH) {
+    const r = await stewardRun(db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any, fresh.slice(i, Math.min(i + STRETCH, MOST)), s);
+    if (r.problem) { total.problem = r.problem; break; }
+    total.kept += r.kept; total.proposed += r.proposed; total.dropped += r.dropped;
+    read += Math.min(STRETCH, MOST - i, fresh.length - i);
+  }
+  if (!total.problem) await offstageTurn(chatId).catch(() => {});
+  return c.json({ ...chronicleState(chatId), read: { ...total, read, left: Math.max(0, fresh.length - read) } });
 });
 
 /** What the Steward has done in a chat lately, for whoever wants to know why Story World says what it says. */
