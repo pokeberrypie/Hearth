@@ -12095,12 +12095,13 @@ function showNews(n) {
   const card = document.createElement("div");
   card.className = "newscard";
   card.dataset.news = n.id;
+  // One line, kept small: who, and what came to pass. The rest is in the ledger a tap away.
+  card.title = open ? `Came to pass offstage — ${n.who}: ${n.goal}${n.how ? `. ${n.how}` : ""}` : "Came to pass offstage";
   card.innerHTML =
     `<span class="newsmark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z"/></svg></span>` +
-    `<span class="newstext"><span class="newskick">Came to pass offstage</span>` +
-    (open ? `<span class="newsbody"><b>${esc(n.who)}</b> — ${esc(n.goal)}</span>${n.how ? `<span class="newshow">${esc(n.how)}</span>` : ""}`
-          : `<span class="newsbody">Someone's plan has come to pass. The ledger has it.</span>`) +
-    `</span><button type="button" class="newsx" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` +
+    (open ? `<span class="newsbody"><b>${esc(n.who)}</b> ${esc(n.goal)}</span>`
+          : `<span class="newsbody">Something came to pass offstage</span>`) +
+    `<button type="button" class="newsx" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` +
     `<span class="newstime" style="animation-duration:${NEWS_MS}ms"></span>`;
   const gone = () => { if (!card.isConnected) return; card.classList.add("out"); setTimeout(() => card.remove(), 260); };
   const timer = setTimeout(gone, NEWS_MS);
