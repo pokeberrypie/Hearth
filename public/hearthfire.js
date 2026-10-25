@@ -259,27 +259,31 @@ void main() {
 
   /**
    * How big the flame is at a given heat, in screen pixels: the middle of its base (x, y), its half-width there
-   * (rx) and its height (ry), and how big its tongues are (gx, gy). It stands on the logs, a fire in a grate;
-   * climbs first, then widens; and only late does its base go down past the bottom of the screen as it takes the
-   * room. Each by a steady amount, not a steady proportion: grown by proportion, faster and faster, and with its
-   * base sinking from the start, it came at you, the way a thing does when it is the camera that moves.
+   * (rx) and its height (ry), and how big its tongues are (gx, gy). Two things, one after the other, never both:
+   * first the flame grows longer — standing on the logs, hardly wider, its tongues drawn out as it reaches — until
+   * its tip is past the top of the screen; then, its height already gone, it spreads, its sides moving out across
+   * the screen while nothing in it gets any bigger. Grown all at once — taller, wider, its tongues with it, its
+   * base sinking — it looked like the camera moving in on a fire, not a fire growing.
    */
   function reach(s, heat) {
     const { w, h, grate } = s;
     const u0 = s.unit || 4, mouth = s.mouth;
     const inBox = Math.max(10, grate.y - s.archTop);
     const rx0 = mouth * 0.88, ry0 = inBox * 1.05;
-    const ry = lerp(ry0, h * 1.9, Math.pow(heat, 1.15));
-    const rx = lerp(rx0, w * 1.6, Math.pow(heat, 1.7));
+    const longer = smooth(0, 0.48, heat), wider = clamp((heat - 0.4) / 0.6, 0, 1);
+    // By the end of the first its tip is at the top of the screen, the whole flame in view; then it goes on up
+    // as it spreads, so the top of the screen is its body. It spreads only as far as covers the screen, and
+    // evenly, so its edges are seen going out — wider, and it was there at once, and all heart.
+    const ry = lerp(ry0, grate.y * 1.1, longer) + lerp(0, h * 1.1, wider);
+    const rx = lerp(rx0, rx0 * 1.9, longer) + lerp(0, w * 0.62, Math.pow(wider, 1.2));
     return {
       x: grate.x,
-      y: lerp(grate.y + u0, h * 1.12, smooth(0.55, 1, heat)),
+      y: grate.y + u0,
       rx, ry,
-      // The square root of how much it has grown: a big fire's tongues are bigger than a small one's, but nothing
-      // like in proportion — any less, and a big fire frays into grass.
-      gx: rx0 * Math.pow(rx / rx0, 0.5),
-      gy: ry0 * Math.pow(ry / ry0, 0.5),
-      fill: smooth(0.72, 1, heat) * 0.3,
+      // Its tongues lengthen as it does, a little broader; once it spreads, they stay as they are.
+      gx: lerp(rx0, rx0 * 1.9, longer),
+      gy: lerp(ry0, ry0 * 2.6, longer),
+      fill: smooth(0.82, 1, heat) * 0.35,
     };
   }
 
