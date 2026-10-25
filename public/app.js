@@ -4319,6 +4319,7 @@ document.addEventListener("click", async (e) => {
 
     case "cast": openRoom(); break;
     case "files": openFiles(); break;
+    case "carry": if (await confirmCarry()) carryOn($("#filesCarry")); break;
     case "inspect": openInspect(); break;
     case "scene": openScene(); break;
 
@@ -8484,10 +8485,25 @@ $("#carryNo").onclick = () => {
   $("#carryBar").hidden = true;
 };
 
-$("#carryGo").onclick = async () => {
+$("#carryGo").onclick = () => carryOn($("#carryGo"));
+$("#filesCarry").onclick = async () => {
+  if (!(await confirmCarry())) return;
+  await carryOn($("#filesCarry"));
+  if ($("#filesDialog").open) $("#filesDialog").close();
+};
+
+/** Asked first from the permanent buttons: it writes a recap with the model, and moves you to a new chat. */
+const confirmCarry = () => askDialog({ title: "Carry on in a new chat?",
+  text: "This chat is summed up — one call to your model — and the recap goes in its memory book. A new chat starts from it, with the story's calendar and world; this one stays as it is.",
+  confirmLabel: "Carry on" });
+
+/**
+ * Sum up the open chat and carry on in a new one. From the offer that appears when a chat grows long, and from
+ * the buttons that are always there — the chat menu and Manage chat files — so it can be done whenever.
+ */
+async function carryOn(go) {
   if (!S.chatId) return;
   const from = S.chatId;
-  const go = $("#carryGo");
   go.disabled = true;
   const was = go.textContent;
   go.textContent = "Writing the recap…";
@@ -8508,7 +8524,7 @@ $("#carryGo").onclick = async () => {
   await refreshLore();
   await openChat(r.id);
   toast("Carried on. The recap is in this chat's memory book.");
-};
+}
 
 function applyLook() {
   const r = document.documentElement.style;

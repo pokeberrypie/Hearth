@@ -1616,6 +1616,7 @@
     <button class="sheetrow" data-act="ownnotes" id="ownNotesRow" hidden><svg viewBox="0 0 24 24"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/><path d="M9 14h6M12 11v6"/></svg> Give this branch its own notes</button>
     <button class="sheetrow" data-act="cast"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5"/><circle cx="17" cy="8" r="2.6"/><path d="M15.5 13.4c3 .2 5.5 1.9 5.5 5.6"/></svg> Actors</button>
     <button class="sheetrow" data-act="files"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 9h8M8 13h8M8 17h4"/></svg> Manage chat files</button>
+    <button class="sheetrow" data-act="carry"><svg viewBox="0 0 24 24"><path d="M4 12h12"/><path d="M12 7l5 5-5 5"/><path d="M20 4v16"/></svg> Carry on in a new chat</button>
     <div class="sheetsep"></div>
     <button class="sheetrow" data-act="new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Start a new chat</button>
     <button class="sheetrow" data-act="close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg> Close this chat</button>
@@ -1739,6 +1740,10 @@
 <dialog id="filesDialog">
   <h2 id="filesTitle">Chat files</h2>
   <p class="hint">Every chat with this character. Press one to switch to it; the one you have open is marked.</p>
+  <div class="carrybox">
+    <button class="solid wide" id="filesCarry">Carry on in a new chat</button>
+    <p class="hint">Sums up the chat you have open, puts the recap in its memory book, and starts a new chat from it — the story, the calendar and its world go with you. The old chat stays as it is.</p>
+  </div>
   <div id="filesList" class="list"></div>
   <div class="actions">
     <label class="filebtn" style="width:auto;margin:0">Import a chat

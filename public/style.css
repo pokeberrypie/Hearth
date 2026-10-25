@@ -8474,3 +8474,7 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 .wdoutcome.failed { color: var(--hearth-hurt); border-color: color-mix(in srgb, var(--hearth-hurt) 50%, transparent); }
 .wdoutcome.threat { color: var(--lumiverse-primary); border-color: color-mix(in srgb, var(--lumiverse-primary) 50%, transparent); }
 .wdledger > li.wdact.quiet { opacity: 0.8; }
+
+/* The permanent way to carry a chat on, above the list of its files. */
+#filesDialog .carrybox { margin: 0.2rem 0 0.9rem; }
+#filesDialog .carrybox .hint { margin: 0.4rem 0.1rem 0; }
