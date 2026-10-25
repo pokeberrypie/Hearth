@@ -633,6 +633,7 @@ async function paintOffstage() {
     if (r?.error) toast(r.error);
     else toast(r.goals ? `${r.goals} ${r.goals === 1 ? "person has" : "people have"} something new to want.` : r.note || "Nobody's wants changed.");
     paintOffstage();
+    if (typeof checkNews === "function") checkNews();
   };
   $("#wdRunDay").onclick = async () => {
     const b = $("#wdRunDay");
@@ -646,6 +647,8 @@ async function paintOffstage() {
       : "A quiet day: nobody did anything out of the ordinary.");
     await paintWorldLine();
     paintOffstage();
+    // Anything that came to pass in it shows at once, not at the next look.
+    if (typeof checkNews === "function") checkNews();
   };
 }
 

@@ -800,6 +800,9 @@ dialog form { max-height: 76dvh; overflow-y: auto; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 :focus-visible { outline: 2px solid var(--lumiverse-primary); outline-offset: 2px; }
+/* A dialog's scrolling body takes focus when it opens (browsers now let a
+   scroller hold focus); a ring round the whole panel says nothing. */
+dialog:focus-visible, dialog > form:focus-visible { outline: none; }
 
 /* ---- splash & portraits -------------------------------------------------- */
 
