@@ -234,7 +234,8 @@ describe("this scene, in the Cast panel", () => {
     // if the one person goes.
     expect(scene).toContain("const group = S.cast.length > 1;");
     expect(scene).toMatch(/group\s*\?\s*`<label class="switch"/);
-    expect(scene).toContain(`auto.closest("label").hidden = !group;`);
+    // Who answers when you send is a group question too (it replaced the auto-reply switch).
+    expect(scene).toContain(`$("#sceneTurns").closest("label").hidden = !group;`);
   });
 
   test("the scenario keeps the members dialog's copy of it in step", () => {
