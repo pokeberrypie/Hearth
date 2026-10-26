@@ -326,9 +326,53 @@ function unitMinutes(cal: Calendar, unit: string): number | null {
  * clock", never "guess".
  */
 export function readSpan(cal: Calendar, text: string, from: Moment): number | null {
-  const t = String(text ?? "").toLowerCase().replace(/[’'.!]/g, "").replace(/\s+/g, " ").trim();
-  if (!t || t.length > 80) return null;
+  const whole = String(text ?? "").toLowerCase().replace(/[’'.!~]/g, "").replace(/\s+/g, " ").trim();
+  if (!whole || whole.length > 80) return null;
+  const once = spanOf(cal, whole, from);
+  if (once) return once;
+  // "overnight, into the morning", "a night (until morning)": the first part, set off by its punctuation, that
+  // can be read alone. Never the parts added up, and never split on "and" — out of a rambling sentence that would
+  // pick a number, which is a guess.
+  for (const part of whole.split(/\s*[(),;:]\s*/)) {
+    const span = part.trim() && part.trim() !== whole ? spanOf(cal, part.trim(), from) : null;
+    if (span) return span;
+  }
+  return null;
+}
+
+/** Other names for the parts of the day, as the story says them, to the part the calendar has. */
+const PART_NAMES: Record<string, string[]> = {
+  dawn: ["sunrise", "daybreak", "sunup", "firstlight", "cockcrow"],
+  dusk: ["sunset", "nightfall", "sundown", "twilight", "dark"],
+  noon: ["midday"],
+  night: ["nighttime"],
+  midnight: [],
+};
+
+/** The calendar's part of the day a word means, if it has one. */
+function partNamed(cal: Calendar, word: string) {
+  const own = cal.parts.find((p) => p.name === word);
+  if (own) return own;
+  for (const [name, also] of Object.entries(PART_NAMES)) if (also.includes(word)) return cal.parts.find((p) => p.name === name);
+  return undefined;
+}
+
+function spanOf(cal: Calendar, input: string, from: Moment): number | null {
   const perDay = minutesPerDay(cal);
+  let t = input
+    .replace(/^(?:approximately|approx|about|around|roughly|some)\s+/, "")
+    .replace(/\bfirst light\b/g, "firstlight");
+  // A night slept through ends in the morning: "overnight", "through the night", "a night's sleep", "they slept
+  // the night". Not a whole day from now — a night, from the evening, is not twenty-four hours.
+  if (/^(?:overnight|over night|through the night|all night|the night through|(?:a|one) nights? (?:sleep|rest)|(?:they |we |she |he |i )?(?:slept|sleep|rested|camped)(?: through)? the night)$/.test(t)) {
+    t = cal.parts.some((p) => p.name === "morning") ? "until morning" : "until dawn";
+  }
+  // "until the next morning", "the morning after": the next one; "at dawn", "come morning", "in the morning",
+  // and the bare "morning" or "dawn": the coming one.
+  t = t.replace(/^(?:until|till|til|to|by)\s+the\s+(?:next|following)\s+([a-z]+)$/, "the next $1")
+    .replace(/^(?:the\s+)?([a-z]+)\s+after$/, "the next $1")
+    .replace(/^(?:at|come|in the|by the|into the|into)\s+([a-z]+)$/, "until $1");
+  if (/^[a-z]+$/.test(t) && partNamed(cal, t)) t = `until ${t}`;
 
   // "Later that evening", "that night": later today, and only if that part of
   // the day is still to come — one already past is not guessed at.
@@ -346,7 +390,7 @@ export function readSpan(cal: Calendar, text: string, from: Moment): number | nu
   if (toward || nextOne || t === "tomorrow") {
     const name = (toward ?? nextOne)?.[1] ?? "morning";
     if (name === "day") return nextOne ? perDay : null;
-    const part = cal.parts.find((p) => p.name === name);
+    const part = partNamed(cal, name);
     if (!part) return null;
     const wait = part.hour * 60 - from.minute;
     // "Until dawn" is the next dawn, however soon. "The next morning" is
@@ -376,6 +420,15 @@ export function readSpan(cal: Calendar, text: string, from: Moment): number | nu
   else if (words.length === 2) { count = countOf(words[0]); unit = words[1]; }
   else return null;
   if (count === null || !unit) return null;
+  // A night ends in the morning: "a night" from the evening is until morning, not until this time tomorrow — read
+  // that way, every night's camp skipped a day of the story. Two nights is a day more, and so on.
+  if (/^nights?$/.test(unit) && Number.isInteger(count) && count >= 1 && !half) {
+    const morning = partNamed(cal, "morning") ?? partNamed(cal, "dawn");
+    if (morning) {
+      const wait = morning.hour * 60 - from.minute;
+      return (count - 1) * perDay + (wait > 0 && from.minute < (partNamed(cal, "dawn")?.hour ?? 6) * 60 ? wait : wait + perDay);
+    }
+  }
   const size = unitMinutes(cal, unit);
   if (size === null) return null;
   const total = Math.round((count + half) * size);
@@ -386,6 +439,9 @@ const FILLER = new Set([
   "about", "around", "roughly", "some", "nearly", "almost", "over", "another", "just", "later",
   "pass", "passes", "passed", "go", "goes", "went", "by", "of", "has", "have", "had", "after",
   "for", "the", "full", "whole", "good", "long", "on",
+  // How the time was spent, which is not how much of it: "a day's ride", "two days of marching".
+  "ride", "riding", "rode", "march", "marching", "travel", "travelling", "traveling", "walk", "walking",
+  "sail", "sailing", "journey", "journeying", "road", "hard", "approximately", "approx",
 ]);
 
 function countOf(word: string): number | null {

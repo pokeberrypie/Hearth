@@ -171,6 +171,32 @@ describe("reading how long something took", () => {
     expect(readSpan(MOONS, "the next morning", { day: 10, minute: 120 })).toBe(6 * 60);
   });
 
+  test("a night, however it is put, ends in the morning", () => {
+    const evening = { day: 10, minute: 20 * 60 };
+    for (const night of ["overnight", "through the night", "a night's sleep", "they slept the night", "a night", "one night",
+      "until the next morning", "the morning after", "come morning", "overnight, into the morning", "a night (until morning)"]) {
+      expect([night, readSpan(MOONS, night, evening)]).toEqual([night, 12 * 60]);
+    }
+    // Not a whole day: read as twenty-four hours, every night's camp skipped a day of the story.
+    expect(readSpan(MOONS, "two nights", evening)).toBe(DAY + 12 * 60);
+  });
+
+  test("the day's parts by their other names, and how the time was spent left out", () => {
+    const evening = { day: 10, minute: 20 * 60 };
+    expect(readSpan(MOONS, "at dawn", evening)).toBe(10 * 60);
+    expect(readSpan(MOONS, "dawn", evening)).toBe(10 * 60);
+    expect(readSpan(MOONS, "until sunrise", evening)).toBe(10 * 60);
+    expect(readSpan(MOONS, "until first light", evening)).toBe(10 * 60);
+    expect(readSpan(MOONS, "until nightfall", noon)).toBe(6 * 60);
+    expect(readSpan(MOONS, "into the night", noon)).toBe(9 * 60);
+    expect(readSpan(MOONS, "a day's ride", noon)).toBe(DAY);
+    expect(readSpan(MOONS, "two days' march", noon)).toBe(2 * DAY);
+    expect(readSpan(MOONS, "~1 day", noon)).toBe(DAY);
+    expect(readSpan(MOONS, "approximately two days", noon)).toBe(2 * DAY);
+    // A part of the day already gone is not guessed at.
+    expect(readSpan(MOONS, "that morning", evening)).toBeNull();
+  });
+
   test("anything it cannot read with confidence moves nothing", () => {
     for (const vague of ["", "a while", "some time later", "soon", "ages", "3 bananas", "x".repeat(200),
       "until the king returns", "then there was a long silence and three days passed and"]) {

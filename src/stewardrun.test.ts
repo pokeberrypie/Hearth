@@ -87,6 +87,25 @@ describe("when it reads", () => {
   });
 });
 
+describe("a night passes, and the world offstage hears the day turn", () => {
+  test("read as a night, the day turns — and the Offstage takes its turn in the same reading, not a reply later", async () => {
+    seed(3);
+    setSettings({ offstage_level: "balanced" });
+    db.query("UPDATE chats SET offstage_day = 0 WHERE id = 'ch'").run();
+    // Evening of the first day.
+    db.query("INSERT INTO chronicle (id, chat_id, kind, span, title, source, created_at) VALUES ('t0', 'ch', 'time', ?, 'to evening', 'user', 1)").run(20 * 60);
+    db.query("UPDATE messages SET content = 'They made camp in the wet, and slept the night through under one blanket.' WHERE id = 'm3'").run();
+    answers = ['TIME | overnight | "slept the night through under one blanket"'];
+    await stewardTurn("ch");
+    const r = await chronicle();
+    expect(r.now.day).toBe(1);
+    expect(r.now.minute).toBeLessThan(12 * 60);
+    const runs = db.query("SELECT kind FROM offstage_runs WHERE chat_id = 'ch'").all() as any[];
+    expect(runs.map((x) => x.kind)).toEqual(["day"]);
+    expect((db.query("SELECT offstage_day FROM chats WHERE id = 'ch'").get() as any).offstage_day).toBe(1);
+  });
+});
+
 describe("whom it asks, and how", () => {
   test("the story's model when it has none of its own", async () => {
     seed(3);

@@ -5474,7 +5474,10 @@ export async function stewardTurn(chatId: string) {
     if (!isDue(since, Number(s.steward_every) || 0)) return;
   }
   // A long silence is read in its latest stretch, not handed over whole.
-  await stewardRun(chat, fresh.slice(-40), s);
+  const total = await stewardRun(chat, fresh.slice(-40), s);
+  // The day it may just have turned is the Offstage's cue. Asked after each reply too, it asked before this
+  // reading was done — so a new day was only ever noticed a reply late.
+  if (!total.problem) await offstageTurn(chatId).catch(() => {});
 }
 
 /** Whether the Steward is on, what became of its last reading, and how many messages until the next. */
