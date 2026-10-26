@@ -17,6 +17,13 @@
 const W = {
   /** The last chronicle state for the open chat, as /chats/:id/chronicle gave it. */
   state: null,
+  /**
+   * A day or a stir still going, by chat. It is remembered here, not on the button: the window is redrawn while one
+   * runs — after a reply, on opening it — and a fresh button looked as if nothing had been pressed at all.
+   */
+  offstageBusy: {},
+  /** Which drawing of the Offstage page is the latest: one that finishes after a newer one has begun is dropped. */
+  offstagePaint: 0,
   /** Which page of the window is showing. */
   tab: "time",
   /** The host looking at what the players see. */
@@ -480,9 +487,14 @@ function threadsHtml(s, who) {
  */
 async function paintOffstage() {
   const body = $("#wdBody");
+  const paint = ++W.offstagePaint;
+  const chatId = S.chatId;
   body.innerHTML = `<p class="hint">Reading the ledger…</p>`;
-  const l = await api(`/chats/${S.chatId}/offstage`).catch(() => null);
+  const l = await api(`/chats/${chatId}/offstage`).catch(() => null);
+  // A newer drawing has begun, or the window has moved on to another page or chat: this one is not drawn over it.
+  if (paint !== W.offstagePaint || W.tab !== "offstage" || S.chatId !== chatId) return;
   if (!l || l.error) { body.innerHTML = `<p class="hint">The ledger could not be read.</p>`; return; }
+  const busy = W.offstageBusy[S.chatId] ?? "";
   const level = $("#offstage_level")?.value ?? "off";
   const active = l.goals.filter((g) => g.status === "active");
   const off = level === "off"
@@ -510,10 +522,10 @@ async function paintOffstage() {
   const runs = (l.runs ?? []).map((r) => `<li><span class="wdwhen">${ago(r.created_at)} · ${txt(KIND[r.kind] ?? r.kind)}</span>
       <div>${r.problem ? `<span class="wdbad">Failed: ${txt(r.problem)}</span>`
         : [r.acted ? `${r.acted} ${r.acted === 1 ? "person" : "people"} took a turn` : "", r.goals ? `${r.goals} new goal${r.goals === 1 ? "" : "s"}` : "", r.note ? txt(r.note) : ""].filter(Boolean).join(" · ") || "Nobody moved."}</div></li>`).join("");
-  const run = `<button type="button" class="solid wide" id="wdRunDay">Run a day offstage</button>
+  const run = `<button type="button" class="solid wide" id="wdRunDay"${busy ? " disabled" : ""}>${busy === "day" ? "The day goes by offstage…" : "Run a day offstage"}</button>
     <div class="wdoffadd wdstir">
       <input id="wdStirWhat" placeholder="What just happened? — King Robert is dead (optional)" autocomplete="off">
-      <button type="button" class="ghost" id="wdStir">Stir the world</button>
+      <button type="button" class="ghost" id="wdStir"${busy ? " disabled" : ""}>${busy === "stir" ? "The news spreads…" : "Stir the world"}</button>
     </div>
     <p class="hint">Something big happened? Stirring reads the story and gives the people it touches — at court, in the city, wherever the news reaches — something new to want. A death the Steward reads does this by itself.</p>
     <details class="wdlatest"${runs && (l.runs[0]?.problem || !l.runs.slice(0, 3).some((r) => r.acted || r.goals)) ? " open" : ""}><summary>Its last runs</summary>
@@ -625,21 +637,25 @@ async function paintOffstage() {
     paintOffstage();
   };
   $("#wdStir").onclick = async () => {
-    const b = $("#wdStir");
-    b.disabled = true;
-    b.textContent = "The news spreads…";
-    const r = await api(`/chats/${S.chatId}/offstage/stir`, { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ what: $("#wdStirWhat").value.trim() }) }).catch(() => ({ error: "That did not work." }));
+    const chatId = S.chatId;
+    W.offstageBusy[chatId] = "stir";
+    for (const id of ["#wdStir", "#wdRunDay"]) if ($(id)) $(id).disabled = true;
+    $("#wdStir").textContent = "The news spreads…";
+    const r = await api(`/chats/${chatId}/offstage/stir`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ what: $("#wdStirWhat").value.trim() }) }).catch(() => ({ error: "That did not work." }))
+      .finally(() => { delete W.offstageBusy[chatId]; });
     if (r?.error) toast(r.error);
     else toast(r.goals ? `${r.goals} ${r.goals === 1 ? "person has" : "people have"} something new to want.` : r.note || "Nobody's wants changed.");
     paintOffstage();
     if (typeof checkNews === "function") checkNews();
   };
   $("#wdRunDay").onclick = async () => {
-    const b = $("#wdRunDay");
-    b.disabled = true;
-    b.textContent = "The day goes by offstage…";
-    const r = await api(`/chats/${S.chatId}/offstage/run`, { method: "POST" }).catch(() => ({ error: "That did not work." }));
+    const chatId = S.chatId;
+    W.offstageBusy[chatId] = "day";
+    for (const id of ["#wdStir", "#wdRunDay"]) if ($(id)) $(id).disabled = true;
+    $("#wdRunDay").textContent = "The day goes by offstage…";
+    const r = await api(`/chats/${chatId}/offstage/run`, { method: "POST" }).catch(() => ({ error: "That did not work." }))
+      .finally(() => { delete W.offstageBusy[chatId]; });
     // Said without spoiling: how many did something, not what.
     if (r?.error) toast(r.error);
     else if (r.note) toast(r.note);
