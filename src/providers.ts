@@ -154,7 +154,9 @@ export function resolveTarget(a: GenerateArgs) {
 export type Chunk =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
-  | { kind: "usage"; tokens: number };
+  | { kind: "usage"; tokens: number }
+  /** Why the model stopped, when it says: "length", "content_filter", "refusal", "SAFETY"… — how an empty answer is told apart. */
+  | { kind: "stop"; reason: string };
 
 export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
   const t = resolveTarget(a);
@@ -209,6 +211,7 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
         if (block?.type === "text" && block.text) yield { kind: "text", text: block.text };
       }
       if (json.usage?.output_tokens) yield { kind: "usage", tokens: json.usage.output_tokens };
+      if (json.stop_reason) yield { kind: "stop", reason: String(json.stop_reason) };
     } else if (t.wire === "responses") {
       /*
        * The responses shape nests one level deeper than chat completions: a
@@ -226,6 +229,8 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
         }
       }
       if (json.usage?.output_tokens) yield { kind: "usage", tokens: json.usage.output_tokens };
+      const why = json.incomplete_details?.reason;
+      if (why) yield { kind: "stop", reason: String(why) };
     } else {
       const m = json.choices?.[0]?.message ?? {};
       const think = m.reasoning ?? m.reasoning_content;
@@ -233,6 +238,10 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
       if (typeof m.content === "string" && m.content) yield { kind: "text", text: m.content };
       if (json.usage?.completion_tokens)
         yield { kind: "usage", tokens: json.usage.completion_tokens };
+      // OpenRouter passes on the model's own reason beside its normalised one; the model's says more ("SAFETY").
+      const c = json.choices?.[0] ?? {};
+      if (typeof m.refusal === "string" && m.refusal) yield { kind: "stop", reason: "refusal" };
+      else if (c.native_finish_reason || c.finish_reason) yield { kind: "stop", reason: String(c.native_finish_reason || c.finish_reason) };
     }
     return;
   }

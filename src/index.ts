@@ -1292,6 +1292,7 @@ api.post("/chats/:id/generate", async (c) => {
             signal: ac.signal,
           })) {
             if (chunk.kind === "usage") { tokens = chunk.tokens; continue; }
+            if (chunk.kind === "stop") continue;
             if (chunk.kind === "reasoning") {
               think += chunk.text;
               send({ reasoning: chunk.text });
@@ -4375,6 +4376,40 @@ function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "faile
 /** Chats whose world is moving right now: one turn at a time, or two replies close together give two people the same day's turn. */
 const offstageBusy = new Set<string>();
 
+/**
+ * One question to the Offstage's model, answered without streaming — and asked once more if nothing usable came
+ * back. Thinking models (GLM above all) do not all obey "don't think": one that thinks anyway can spend all of its
+ * room on thinking and never write the answer. So the second asking lets it think, with twice the room, rather
+ * than forbidding it again. What it stopped on comes back too, so an empty answer can say why it was empty.
+ */
+async function askOffstage(conn: any, fold: boolean, system: string, prompt: string, usable: (said: string, thought: string) => boolean) {
+  let said = "", thought = "", stop = "";
+  for (const [maxTokens, reasoningEffort] of [[BACKGROUND_TOKENS, "off"], [BACKGROUND_TOKENS * 2, ""]] as const) {
+    said = ""; thought = ""; stop = "";
+    for await (const chunk of generate({
+      ...conn, system: fold ? "" : system,
+      messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
+      sampling: { temperature: 0.8, maxTokens, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort },
+    })) {
+      if (chunk.kind === "text") said += chunk.text;
+      else if (chunk.kind === "reasoning") thought += chunk.text;
+      else if (chunk.kind === "stop") stop = chunk.reason;
+      if (said.length > 6000) break;
+    }
+    // Something it said, or a refusal it will only repeat: not asked again.
+    if (said.trim() || usable(said, thought) || /refus|filter|safety|block/i.test(stop)) break;
+  }
+  return { said, thought, stop };
+}
+
+/** An answer with nothing usable in it, said as what happened. */
+function emptyAnswer(said: string, stop: string): string {
+  if (said.trim()) return "Its model answered, but not in the lines it was asked for.";
+  if (/length|max_tokens|max_output/i.test(stop)) return "Its model ran out of room — it spent it all thinking and never wrote an answer, even given twice as much. A model that thinks less, or one without thinking, would do better here.";
+  if (/refus|filter|safety|block/i.test(stop)) return `Its model's provider would not answer (${stop}).`;
+  return `Its model sent back an empty answer${stop && stop !== "stop" ? ` (it stopped on: ${stop})` : ""}, twice.`;
+}
+
 async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boolean } = {}) {
   if (offstageBusy.has(chatId)) return { acted: 0, quiet: 0, threats: 0, note: "The world offstage is already taking its turn." };
   offstageBusy.add(chatId);
@@ -4464,17 +4499,9 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
     "Each goal must come from what has happened above — not from anything else going on in the story. Something they can work toward over days: not a feeling, not a single act. Never the player's character, never the dead.",
     "And if what happened, or the story, shows that someone has died who is not listed as dead, one line for each: DEAD | their name. Nothing else.",
   ].filter(Boolean).join("\n\n");
-  let said = "", thought = "";
+  let said = "", thought = "", stop = "";
   try {
-    for await (const chunk of generate({
-      ...conn, system: fold ? "" : system,
-      messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
-      sampling: { temperature: 0.8, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
-    })) {
-      if (chunk.kind === "text") said += chunk.text;
-      else if (chunk.kind === "reasoning") thought += chunk.text;
-      if (said.length > 6000) break;
-    }
+    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*(GOAL|DEAD)\W*\|/im.test(th)));
   } catch (e: any) { return { goals: 0, error: e?.message || "The Offstage could not be reached." }; }
   const answer = withoutThinking(said).trim() || thought;
   // Deaths it read, recorded only for a name the story or the news itself uses: a reading cannot kill anyone.
@@ -4490,7 +4517,7 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
   }
   const goals = stirGoals(answer, { player, dead, active });
   if (!goals.length) return died.length ? { goals: 0, note: `Recorded as dead: ${died.join(", ")}.` }
-    : { goals: 0, error: said.trim() ? "Its model answered, but not in the lines it was asked for." : "Its model sent back an empty answer." };
+    : { goals: 0, error: emptyAnswer(said, stop) };
   let t = t0;
   copyChronicle(goals.map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: g.goal, body: g.why,
     source: "offstage", visibility: "private", day: at.day, minute: at.minute, created_at: t++, data: { stirred: news[0]?.slice(0, 200) ?? "" } })), chatId);
@@ -4653,18 +4680,10 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
       lastAim: ended ? { goal: ended.goal, status: ended.status, how: ended.how } : undefined,
       playerAt: (status[player] as any)?.location?.title ?? "", newsWrong };
     const prompt = offstagePrompt(view);
-    let said = "";
-    let thought = "";
+    let said = "", thought = "", stop = "";
     try {
-      for await (const chunk of generate({
-        ...conn, system: fold ? "" : OFFSTAGE_SYSTEM,
-        messages: [{ role: "user", content: fold ? `${OFFSTAGE_SYSTEM}\n\n---\n\n${prompt}` : prompt }],
-        sampling: { temperature: 0.8, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
-      })) {
-        if (chunk.kind === "text") said += chunk.text;
-        else if (chunk.kind === "reasoning") thought += chunk.text;
-        if (said.length > 6000) break;
-      }
+      ({ said, thought, stop } = await askOffstage(conn, fold, OFFSTAGE_SYSTEM, prompt,
+        (_s, th) => !!th.trim() && readable(readDecision(th.slice(-6000)))));
     } catch (e: any) {
       const error = e?.message || "The Offstage could not be reached.";
       offstageProblems.set(chatId, error);
@@ -4675,7 +4694,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     // An answer with nothing in it is not somebody having an ordinary day: it is the Offstage failing, and said so.
     if (!readable(d)) {
       unread++;
-      offstageProblems.set(chatId, said.trim() ? "Its model answered, but not in the lines it was asked for." : "Its model sent back an empty answer.");
+      offstageProblems.set(chatId, emptyAnswer(said, stop));
       continue;
     }
     const card = db.query("SELECT description, personality FROM characters WHERE name = ? LIMIT 1").get(person) as any;

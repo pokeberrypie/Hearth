@@ -744,10 +744,47 @@ describe("a thinking model that leaves the answer empty", () => {
     await goal("Cersei Lannister", "stop the wedding");
     reply("");
     const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
-    expect(r.error).toBe("The Offstage could not be read: Its model sent back an empty answer.");
+    expect(r.error).toBe("The Offstage could not be read: Its model sent back an empty answer, twice.");
     const l = await ledger();
     expect(l.actions).toEqual([]);
-    expect(l.problem).toBe("Its model sent back an empty answer.");
+    expect(l.problem).toBe("Its model sent back an empty answer, twice.");
+  });
+
+  /** One answer per asking, in turn: what it said, and what it stopped on. */
+  function answersInTurn(...said: { content: string; finish: string }[]) {
+    globalThis.fetch = (async (_u: any, init: any) => {
+      const body = JSON.parse(init.body);
+      sent.push(body);
+      if (!JSON.stringify(body.messages).includes("You are deciding for:")) return Response.json({ choices: [{ message: { content: "" } }] });
+      const next = said.shift() ?? { content: "", finish: "stop" };
+      return Response.json({ choices: [{ message: { content: next.content }, finish_reason: next.finish }] });
+    }) as any;
+  }
+
+  test("a GLM that thinks through all its room is asked again, let think, with twice the room — and answers", async () => {
+    seed();
+    setSettings({ model: "z-ai/glm-4.6" });
+    await goal("Cersei Lannister", "stop the wedding");
+    answersInTurn({ content: "", finish: "length" }, { content: "CHOOSE | it | x\nACT | writes to the High Septon | easy | social", finish: "stop" });
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.acted).toBe(1);
+    const asked = sent.filter((b) => JSON.stringify(b.messages).includes("You are deciding for:"));
+    expect(asked).toHaveLength(2);
+    // First told not to think, in GLM's own words; then let think, with room for it.
+    expect(JSON.stringify(asked[0].messages)).toContain("/nothink");
+    expect(asked[0].reasoning).toEqual({ enabled: false, exclude: true });
+    expect(JSON.stringify(asked[1].messages)).not.toContain("/nothink");
+    expect(asked[1].reasoning).toBeUndefined();
+    expect(asked[1].max_tokens).toBe(asked[0].max_tokens * 2);
+    expect((await ledger()).problem).toBe("");
+  });
+
+  test("out of room both times: said as that, not as an empty answer", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    answersInTurn({ content: "", finish: "length" }, { content: "", finish: "length" });
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect((await ledger()).problem).toContain("ran out of room — it spent it all thinking");
   });
 
   test("its lines left in its thinking are read from there", async () => {
