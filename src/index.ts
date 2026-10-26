@@ -4567,7 +4567,14 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
   const status = statusOf(entries);
   // The dead are not cast: they want nothing now, and nobody asks where they are.
   const dead = deadIn(entries);
-  const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId)])].filter((p) => p && p !== player && !dead.has(p));
+  // And everyone who has ever wanted something or done something offstage, whatever has become of it: a plan
+  // finished, given up or put away does not take its person out of the world. Without them, every court
+  // intrigue that ended took its schemer with it, until there was nobody left offstage to move.
+  const pastAims = agendasOf(entries.map((e) => (e.kind === "agenda" ? { ...e, undone_at: null } : e)))
+    .filter((g) => g.who && g.status !== "active").sort((a, b) => (a.ended ?? a.since) - (b.ended ?? b.since));
+  const lastAim = new Map(pastAims.map((g) => [g.who, g]));
+  const once = [...pastAims.map((g) => g.who), ...liveEntries(entries).filter((e) => e.kind === "offstage" && e.subject).map((e) => e.subject!)];
+  const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId), ...once])].filter((p) => p && p !== player && !dead.has(p));
   // News that travels: who has died lately. A death is the world's business, not a secret of the story's.
   const news = liveEntries(entries).filter((e) => e.kind === "status" && e.field === "physical" && isDead({ physical: { title: e.title } })
     && e.day !== null && e.day >= at.day - 10).map((e) => `Word has reached them: ${e.subject} is dead.`);
@@ -4611,7 +4618,9 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
   // can feel. A conjurer's market schemes still happen — after.
   const near = [player, ...onstage].filter(Boolean);
   const touching = new Set(goals.filter((g) => near.some((n) => meansPerson(`${g.goal} ${g.why}`, n))).map((g) => g.who));
-  const rank = (w: string) => (touching.has(w) ? -1 : hasGoal.has(w) ? 0 : members.has(w) ? 1 : 2);
+  // Someone whose last plan is over is as ready to move as someone with one under way: it is their next want
+  // that keeps the world turning.
+  const rank = (w: string) => (touching.has(w) ? -1 : hasGoal.has(w) || lastAim.has(w) ? 0 : members.has(w) ? 1 : 2);
   const who = offstage
     .filter((w) => !cannotAct(status[w] as any))
     .sort((a, b) => rank(a) - rank(b) || (lastActed.get(a) ?? 0) - (lastActed.get(b) ?? 0))
@@ -4639,7 +4648,9 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     base0.known.push(...news.filter((n) => !n.includes(`${person} is dead`)));
     // Word of what they do may travel badly — a rumour's way — when the author lets news be wrong.
     const newsWrong = s.news_wrong !== "0" && newsChance() < 0.3;
+    const ended = theirs.length ? undefined : lastAim.get(person);
     const view = { ...base0, plan: planned.map(({ n, title, about }) => ({ n, title, about })),
+      lastAim: ended ? { goal: ended.goal, status: ended.status, how: ended.how } : undefined,
       playerAt: (status[player] as any)?.location?.title ?? "", newsWrong };
     const prompt = offstagePrompt(view);
     let said = "";

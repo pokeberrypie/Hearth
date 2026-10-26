@@ -267,8 +267,9 @@ describe("a day offstage", () => {
     answers = ["CHOOSE | ABANDON | the wedding is not worth losing Jaime\nACT | lets the matter rest | easy | none"];
     await send("/api/chats/ch/offstage/run", "POST");
     expect((await ledger()).goals[0].status).toBe("abandoned");
-    // With her goal given up she is no one in particular to this story, and Jaime is in the scene.
-    expect((await (await send("/api/chats/ch/offstage/run", "POST")).json()).note).toBe("Everyone is in the scene with you right now: there is nobody offstage to act.");
+    // A goal given up does not make her no one: she is still at court, and asked what she wants instead.
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(JSON.stringify(sent.at(-1))).toContain("What they were after is over: stop the wedding — they gave it up");
   });
 
   test("whether it worked and whether it was seen are rolled apart", async () => {
@@ -984,6 +985,37 @@ describe("goals that end, and are put away", () => {
     const [g] = await goals();
     expect(g.status).toBe("achieved");
     expect(g.how).toContain("High Septon");
+  });
+
+  test("a plan done does not take its schemer out of the world: she is asked what she turns to next", async () => {
+    court();
+    await goal("Cersei Lannister", "have the septa spread word of Targaryen blood");
+    answers = ["CHOOSE | the septa | now\nACT | Cersei has the septa whisper to the High Septon | easy | social\nDONE | have the septa spread word | the High Septon heard it from the septa herself"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    // Her only goal is over, and she is not at the table: before, that left nobody offstage to move.
+    answers = ["CHOOSE | press it | the rumour is loose\nACT | Cersei writes to her father of the Hightower girl's blood | easy | social\nGOAL | have her father break the match | he listens to proof, not feeling"];
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.acted).toBe(1);
+    const asked = JSON.stringify(sent.filter((b) => JSON.stringify(b.messages).includes("You are deciding for:")).at(-1));
+    expect(asked).toContain("You are deciding for: Cersei Lannister");
+    expect(asked).toContain("What they were after is over: have the septa spread word of Targaryen blood — it came to pass (the High Septon heard it from the septa herself)");
+    expect(asked).not.toContain("Nobody has set them an aim");
+    expect((await goals()).find((g: any) => g.status === "active")).toMatchObject({ who: "Cersei Lannister", goal: "have her father break the match" });
+  });
+
+  test("put away days later, she is still someone the world can move", async () => {
+    court();
+    await goal("Cersei Lannister", "have the septa spread word of Targaryen blood");
+    answers = ["CHOOSE | the septa | now\nACT | Cersei has the septa whisper to the High Septon | easy | social\nDONE | have the septa spread word | it is done"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(4);
+    await offstageTurn("ch");
+    // Put away: no goals left in the ledger at all.
+    expect(await goals()).toEqual([]);
+    answers = ["CHOOSE | rest | nothing presses\nACT | Cersei hears petitions | easy | none"];
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.note ?? "").not.toContain("nobody offstage");
+    expect(JSON.stringify(sent)).toContain("You are deciding for: Cersei Lannister");
   });
 
   test("what came to pass is news since a moment — what the author marked done is not", async () => {

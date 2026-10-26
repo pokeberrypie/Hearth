@@ -62,6 +62,8 @@ export type View = {
   /** How they feel about people, in their own direction only. */
   feelings: string[];
   goals: Agenda[];
+  /** With no aim now: the last one they had, and how it ended — a plan done is a person wanting the next thing. */
+  lastAim?: { goal: string; status: string; how?: string };
   /** Things they were there for, or did themselves, newest last. */
   known: string[];
   /** How their own recent attempts went. */
@@ -128,6 +130,7 @@ export function offstagePrompt(v: View): string {
     part("How they are now:", v.state),
     part("How they feel about people:", v.feelings),
     v.goals.length ? part("What they want:", v.goals.map((g) => `${g.goal}${g.why ? ` — ${g.why}` : ""}`))
+      : v.lastAim ? `What they were after is over: ${v.lastAim.goal} — ${v.lastAim.status === "achieved" ? "it came to pass" : v.lastAim.status === "abandoned" ? "they gave it up" : "it ended"}${v.lastAim.how ? ` (${v.lastAim.how})` : ""}. Someone who wanted that does not stop wanting: decide, from who they are and what they now know, what they turn to next — what that outcome opens up for them, or leaves undone — and take it up with a GOAL line.`
       : "Nobody has set them an aim. Decide from who they are and what they know what they want now — on most days, nothing out of the ordinary. If they set themselves something that will take more than a day, take it up with a GOAL line.",
     part("What they know (and only this):", v.known),
     part("How their own recent attempts went:", v.lately),
