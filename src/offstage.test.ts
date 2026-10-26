@@ -76,6 +76,8 @@ const narrator = async () => {
   const r = await (await send("/api/chats/ch/inspect", "POST", {})).json();
   return JSON.stringify(r.sections);
 };
+/** The latest request that asked someone to decide — not the reading of the cast's wants after it. */
+const decided = () => sent.filter((b) => JSON.stringify(b.messages).includes("You are deciding for:")).at(-1);
 const goal = (who: string, g: string, why = "") => send("/api/chats/ch/offstage/goal", "POST", { who, goal: g, why });
 
 describe("the rules, in code", () => {
@@ -172,7 +174,7 @@ describe("a day offstage", () => {
     expect(r).toMatchObject({ acted: 1, threats: 0 });
 
     // She decided from her own head: her card and goal were there; the player's private notes were not.
-    const asked = JSON.stringify(sent.at(-1));
+    const asked = JSON.stringify(decided());
     expect(asked).toContain("You are deciding for: Cersei Lannister");
     expect(asked).toContain("Proud, jealous, careful of her own neck");
     expect(asked).toContain("stop Jaime's marriage to Yvenna");
@@ -269,7 +271,7 @@ describe("a day offstage", () => {
     expect((await ledger()).goals[0].status).toBe("abandoned");
     // A goal given up does not make her no one: she is still at court, and asked what she wants instead.
     await send("/api/chats/ch/offstage/run", "POST");
-    expect(JSON.stringify(sent.at(-1))).toContain("What they were after is over: stop the wedding — they gave it up");
+    expect(JSON.stringify(decided())).toContain("What they were after is over: stop the wedding — they gave it up");
   });
 
   test("whether it worked and whether it was seen are rolled apart", async () => {
@@ -1228,5 +1230,85 @@ describe("what is done offstage reaches the story", () => {
     const r = rule(d, { who: "Cersei Lannister", player: "Yvenna Hightower", protection: "fair", goals: [] });
     expect(r.news).toBe(null);
     expect(r.notes).toContain("the news named who was secretly behind it");
+  });
+});
+
+describe("everyone at the table wants something", () => {
+  let castAnswer = "";
+  function table() {
+    seed();
+    db.query("INSERT INTO characters (id, name, description, created_at) VALUES ('l', 'Locke', 'A Bolton man. Cruel, patient, mercenary.', 1)").run();
+    db.query("INSERT INTO characters (id, name, created_at) VALUES ('n', 'Lancel Lannister', 1)").run();
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES ('x1','ch','j',0,0), ('x2','ch','l',1,0), ('x3','ch','n',2,1)").run();
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (u: any, init: any) => {
+      const body = JSON.parse(init.body);
+      if (JSON.stringify(body.messages).includes("say what each of its people wants")) {
+        sent.push(body);
+        return Response.json({ choices: [{ message: { content: castAnswer } }] });
+      }
+      return inner(u, init);
+    }) as any;
+  }
+  const wants = async () => (await ledger()).goals.filter((g: any) => g.status === "active").map((g: any) => [g.who, g.goal]);
+
+  test("the people in the scene, whom the Offstage never moves, come to want things — and the player never does", async () => {
+    table();
+    castAnswer = [
+      "GOAL | Locke | deliver both captives to Lord Bolton for the best price | the gold, and Bolton's favour",
+      "GOAL | Jaime | get Yvenna away from Locke | she is his wife",
+      "GOAL | Lancel Lannister | win back his aunt's favour | he is out of it",
+      "GOAL | Yvenna Hightower | escape | -",
+    ].join("\n");
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(await wants()).toEqual([
+      ["Locke", "deliver both captives to Lord Bolton for the best price"],
+      ["Jaime Lannister", "get Yvenna away from Locke"],
+      ["Lancel Lannister", "win back his aunt's favour"],
+    ]);
+    expect(r.note).toContain("3 of the cast came to want something");
+    // One reading for the whole table, which knew who is with the player and who is away.
+    const read = JSON.stringify(sent.filter((b) => JSON.stringify(b.messages).includes("say what each of its people wants")));
+    expect(read).toContain("Locke — in the scene with Yvenna Hightower");
+    expect(read).toContain("Lancel Lannister — away from the scene");
+    expect(read).not.toContain("- Yvenna Hightower —");
+  });
+
+  test("the story plays the aims of those in the scene, as motive; those away stay in the ledger", async () => {
+    table();
+    castAnswer = "GOAL | Locke | deliver both captives to Lord Bolton for the best price | the gold\nGOAL | Lancel Lannister | win back his aunt's favour | he is out of it";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const told = await narrator();
+    expect(told).toContain("What drives the people in the scene");
+    expect(told).toContain("Locke wants deliver both captives to Lord Bolton for the best price");
+    expect(told).toContain("never state it in the telling");
+    expect(told).not.toContain("win back his aunt's favour");
+  });
+
+  test("an aim the story has finished is ended, and they are given the next", async () => {
+    table();
+    castAnswer = "GOAL | Locke | take the Lannister and the girl alive | Bolton wants them";
+    await send("/api/chats/ch/offstage/run", "POST");
+    castAnswer = "DONE | Locke | take the Lannister and the girl alive | both are bound on his horses\nGOAL | Locke | get them to Harrenhal before Lannister riders find him | the road is long";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const goals = (await ledger()).goals.filter((g: any) => g.who === "Locke");
+    expect(goals.map((g: any) => [g.goal, g.status])).toEqual([
+      ["take the Lannister and the girl alive", "achieved"],
+      ["get them to Harrenhal before Lannister riders find him", "active"],
+    ]);
+  });
+
+  test("not on every long day's turn: once a day, and when run by hand", async () => {
+    table();
+    castAnswer = "GOAL | Locke | deliver both captives to Lord Bolton | the gold";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const asked = () => sent.filter((b) => JSON.stringify(b.messages).includes("say what each of its people wants")).length;
+    expect(asked()).toBe(1);
+    // A long day's turn, after twenty messages: the world moves, the cast is not read again.
+    for (let i = 0; i < 21; i++) db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', 'user', '', 'On.', ?)").run(`z${i}`, Date.now() + 10_000 + i);
+    db.query("UPDATE chats SET offstage_day = 0 WHERE id = 'ch'").run();
+    await offstageTurn("ch");
+    expect(db.query("SELECT kind FROM offstage_runs WHERE chat_id = 'ch' ORDER BY created_at").all().map((x: any) => x.kind)).toEqual(["manual", "midday"]);
+    expect(asked()).toBe(1);
   });
 });

@@ -4416,6 +4416,15 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
   try {
     const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string } =
       await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
+    // Once a day, and when run by hand: what the chat's own cast want, in the scene or away.
+    if (!o.midday) {
+      const w = await castWantsOf(chatId).catch((e: any) => ({ goals: 0, ended: 0, error: e?.message || "" }));
+      if (w.goals || w.ended) {
+        r.goals = (r.goals ?? 0) + w.goals;
+        const said = [w.goals && `${w.goals} of the cast came to want something`, w.ended && `${w.ended} of their aims ended`].filter(Boolean).join("; ");
+        r.note = [r.note, said].filter(Boolean).join(" · ");
+      } else if (w.error && !r.error) r.note = [r.note, `The cast's wants could not be read: ${w.error}`].filter(Boolean).join(" · ");
+    }
     logOffstage(chatId, o.manual ? "manual" : o.midday ? "midday" : "day", r);
     return r;
   } finally { offstageBusy.delete(chatId); }
@@ -4428,6 +4437,87 @@ function logOffstage(chatId: string, kind: string, r: { acted?: number; quiet?: 
       .run(uid(), chatId, kind, r.note ?? (r.acted || r.quiet ? "" : "Nobody moved."), (r.acted ?? 0) + (r.quiet ?? 0), r.goals ?? 0, r.error ?? "", now());
     db.query("DELETE FROM offstage_runs WHERE chat_id = ? AND id NOT IN (SELECT id FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 40)").run(chatId, chatId);
   } catch { /* the log is for reading; a run that cannot be logged has still run */ }
+}
+
+/**
+ * What everyone at the table wants: the chat's own cast, read once a day. The Offstage moves only those away from
+ * the player — the story plays the rest — so the people in the scene never came to want anything of their own, and
+ * the cast who were away but had no aim waited behind everyone who had one. One reading of the whole cast: for each,
+ * whether what they wanted has come to pass or is lost, and, for anyone with nothing to want now, what they do.
+ */
+async function castWantsOf(chatId: string): Promise<{ goals: number; ended: number; note?: string; error?: string }> {
+  const s = getSettings();
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return { goals: 0, ended: 0, error: "No such chat." };
+  const entries = chronicleOf(chatId);
+  const at = clockOf(calendarOf(chatId), entries);
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  const dead = deadIn(entries);
+  const status = statusOf(entries);
+  const members = (membersOf(chat) as any[]).filter((m) => m.name && m.name !== player && !dead.has(m.name));
+  if (!members.length) return { goals: 0, ended: 0 };
+  const active = agendasOf(entries).filter((g) => g.status === "active" && g.who);
+  const conn = offstageConnection(s);
+  const fold = needsFoldedSystem(conn.model);
+  const recent = (db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 10").all(chatId) as any[]).reverse();
+  const recap = latestRecap(chat);
+  const lineFor = (m: any) => {
+    const theirs = active.filter((g) => g.who === m.name);
+    const where = (status[m.name] as any)?.location?.title;
+    const card = String(m.description ?? "").replace(/\s+/g, " ").slice(0, 240);
+    return `- ${m.name} — ${m.muted ? "away from the scene" : `in the scene with ${player || "the player"}`}${where ? `, at ${where}` : ""}${card ? `. ${card}` : ""}\n  Wants now: ${theirs.length ? theirs.map((g) => g.goal).join("; ") : "nothing yet"}`;
+  };
+  const system = "You read a story and say what each of its people wants: the aims they are working toward over days, from who they are and where they stand. You never continue the story and never explain yourself.";
+  const prompt = [
+    recap ? `How things stood, from the story's latest recap:\n${recap.content.replace(/\s+/g, " ").slice(0, 1500)}` : "",
+    `Where the story is now:\n\n${recent.map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content), 600)}`).join("\n\n")}`,
+    `The player's character: ${player || "the player"} — never someone you choose for.`,
+    `The people:\n${members.map(lineFor).join("\n")}`,
+    "For each person, as the story now stands:",
+    "- If what they want has come to pass in the story: DONE | their name | what they wanted, as listed | how it came about",
+    "- If it can no longer happen, or they have plainly given it up: DROPPED | their name | what they wanted, as listed | why",
+    "- If they want nothing now, or what they wanted is over: GOAL | their name | what they want now, in a few words | why, from where they stand",
+    "A goal is something they would work toward over days — not a feeling, not one act — and their own: a captor has a purpose for his captives, a guard an oath, a prisoner a way out, a schemer a next move. Everyone wants something. Never a goal for the player's character. Nothing else.",
+  ].filter(Boolean).join("\n\n");
+  let said = "", thought = "", stop = "";
+  try {
+    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*(GOAL|DONE|DROPPED)\W*\|/im.test(th)));
+  } catch (e: any) { return { goals: 0, ended: 0, error: e?.message || "The Offstage could not be reached." }; }
+  const answer = withoutThinking(said).trim() || thought;
+  const same = (a: string, b: string) => a.toLowerCase().trim() === b.toLowerCase().trim();
+  // A name as the model gives it, to the member it means: whole, or by the part of it that is theirs.
+  const member = (name: string) => members.find((m) => same(m.name, name)) ?? members.find((m) => firstMention(name, m.name) >= 0);
+  let t = now();
+  const add: ChronicleEntry[] = [];
+  const ending = new Set<string>();
+  for (const line of answer.split(/\r?\n/)) {
+    const m = /^\W*(DONE|DROPPED|ACHIEVED|ABANDONED)\W*\|\s*([^|]+)\|\s*([^|]+)(?:\|\s*(.+))?$/i.exec(line.trim());
+    if (!m) continue;
+    const who = member(m[2].replace(/[*_"]/g, ""));
+    if (!who) continue;
+    const theirs = active.filter((g) => g.who === who.name && !ending.has(g.id));
+    // The goal it names, or their only one.
+    const g = theirs.find((x) => same(x.goal, m[3]) || x.goal.toLowerCase().includes(m[3].toLowerCase().trim().slice(0, 24))) ?? (theirs.length === 1 ? theirs[0] : undefined);
+    if (!g) continue;
+    ending.add(g.id);
+    add.push(normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: "", source: "offstage", visibility: "private",
+      day: at.day, minute: at.minute, created_at: t++,
+      data: { of: g.id, status: /DONE|ACHIEVED/i.test(m[1]) ? "achieved" : "abandoned", how: (m[4] ?? "").trim().slice(0, 300) } }));
+  }
+  const still = active.filter((g) => !ending.has(g.id));
+  const wanting = stirGoals(answer, { player, dead, active: still })
+    .map((g) => ({ ...g, who: member(g.who)?.name ?? "" }))
+    .filter((g) => g.who && !still.some((x) => x.who === g.who));
+  const once = new Set<string>();
+  for (const g of wanting) {
+    if (once.has(g.who)) continue;
+    once.add(g.who);
+    add.push(normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: g.goal, body: g.why, source: "offstage",
+      visibility: "private", day: at.day, minute: at.minute, created_at: t++, data: { cast: true } }));
+  }
+  if (add.length) copyChronicle(add, chatId);
+  if (!add.length && !answer.trim()) return { goals: 0, ended: 0, error: emptyAnswer(said, stop) };
+  return { goals: once.size, ended: ending.size };
 }
 
 /**
@@ -4981,6 +5071,16 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
     const rumours = knowingsOf(entries).filter((k) => here.has(k.holder) && !k.by.includes(k.holder) && stillGoing(k, day, decay * 2)).slice(-4);
     if (rumours.length) {
       out.push(`What some of the people here have seen or heard — each knows only their own, may be wrong, and may or may not choose to share it. It is not the truth, and the player's character does not know it unless told in the story: ${rumours.map((k) => knowingTold(k, "narrator")).join("; ")}.`);
+    }
+  }
+  // What the people in the scene want: the story plays them, so their aims are its to play — as motive, never told.
+  // Not those away: their plans stay in the ledger, and the story learns only what becomes true.
+  {
+    const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+    const here = new Set(chat ? (membersOf(chat) as any[]).filter((m) => !m.muted).map((m) => m.name) : []);
+    const drives = agendasOf(entries).filter((g) => g.status === "active" && here.has(g.who)).slice(0, 8);
+    if (drives.length) {
+      out.push(`What drives the people in the scene — their own aims, which the player's character does not know. Let each shape what they do, say and hold back, as people with a purpose would; never state it in the telling, and never have them confess it unless the moment truly draws it out: ${drives.map((g) => `${g.who} wants ${g.goal}${g.why ? ` (${g.why})` : ""}`).join("; ")}.`);
     }
   }
   if (facts.length) {
