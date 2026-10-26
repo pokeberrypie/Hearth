@@ -2662,6 +2662,10 @@ body[data-msgstyle="page"] .tools {
 
 .toast {
   position: fixed;
+  /* Shown as a popover, so it is over open dialogs: the browser's popover box (centred, all sides 0) undone. */
+  inset: auto;
+  margin: 0;
+  overflow: visible;
   left: 50%;
   bottom: calc(1.4rem + env(safe-area-inset-bottom));
   z-index: 60;
@@ -2692,7 +2696,7 @@ body[data-msgstyle="page"] .tools {
 .toast .linkish:hover { border-color: var(--lumiverse-primary); }
 
 @media (max-width: 700px) {
-  .toast { left: 0.8rem; right: 0.8rem; transform: translateY(1.4rem); }
+  .toast { left: 0.8rem; right: 0.8rem; width: auto; transform: translateY(1.4rem); }
   .toast.in { transform: none; }
 }
 

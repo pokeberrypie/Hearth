@@ -86,6 +86,13 @@ function toast(text, undo) {
   $("#toastText").textContent = text;
   $("#toastUndo").hidden = !undo;
   el.hidden = false;
+  // Above any dialog that is open. A modal dialog is drawn in the top layer, over everything on the page, so a
+  // toast that was only on the page went on behind it: every message said with a dialog open was never seen.
+  // Shown as a popover it joins the top layer itself, over the dialogs already there.
+  if (el.showPopover) {
+    el.popover = "manual";
+    try { if (el.matches(":popover-open")) el.hidePopover(); el.showPopover(); } catch {}
+  }
   el.classList.add("in");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(hideToast, undo ? 9000 : 3500);
@@ -105,7 +112,11 @@ function toast(text, undo) {
 }
 function hideToast() {
   $("#toast").classList.remove("in");
-  setTimeout(() => ($("#toast").hidden = true), 200);
+  setTimeout(() => {
+    const el = $("#toast");
+    try { if (el.matches?.(":popover-open")) el.hidePopover(); } catch {}
+    el.hidden = true;
+  }, 200);
 }
 
 /** Wraps a delete response so every path offers the same undo. */

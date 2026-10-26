@@ -158,6 +158,9 @@ export type Chunk =
   /** Why the model stopped, when it says: "length", "content_filter", "refusal", "SAFETY"… — how an empty answer is told apart. */
   | { kind: "stop"; reason: string };
 
+/** How long a background request may take before it is given up on: room for a thinking model to think at length. */
+export const BACKGROUND_TIMEOUT_MS = 4 * 60_000;
+
 export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
   const t = resolveTarget(a);
   const key = (a.apiKey ?? "").trim();
@@ -170,11 +173,24 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
     throw new Error(`No API key saved for ${t.label}. Add one in Connection.`);
   }
   a = { ...a, apiKey: key };
+  /*
+   * A request nobody is waiting on — the Steward, the Offstage, anything asked in the background — is never left to
+   * wait forever. A connection that dies quietly (a phone asleep, wifi handed to mobile data, a provider that never
+   * finishes) sent no error and no answer, and a run waiting on it held its place until the app was restarted: every
+   * later run refused as "already going". A story reply has its own signal, and its own stop button.
+   */
+  if (!a.signal && !a.sampling.stream) a = { ...a, signal: AbortSignal.timeout(BACKGROUND_TIMEOUT_MS) };
 
-  const res =
-    t.wire === "anthropic" ? await callAnthropic(a, t.base)
-    : t.wire === "responses" ? await callResponses(a, t.base)
-    : await callOpenAI(a, t.base);
+  let res: Response;
+  try {
+    res =
+      t.wire === "anthropic" ? await callAnthropic(a, t.base)
+      : t.wire === "responses" ? await callResponses(a, t.base)
+      : await callOpenAI(a, t.base);
+  } catch (e: any) {
+    if (e?.name === "TimeoutError") throw new Error(`${t.label} had not answered after ${BACKGROUND_TIMEOUT_MS / 60000} minutes, and was given up on.`);
+    throw e;
+  }
 
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
@@ -201,7 +217,10 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
    * every call site care which mode it asked for.
    */
   if (!a.sampling.stream) {
-    const json: any = await res.json().catch(() => null);
+    const json: any = await res.json().catch((e: any) => {
+      if (e?.name === "TimeoutError" || e?.name === "AbortError") throw new Error(`${t.label} had not finished answering after ${BACKGROUND_TIMEOUT_MS / 60000} minutes, and was given up on.`);
+      return null;
+    });
     if (!json) throw new Error(`${t.label} sent a reply that could not be read.`);
     if (json.error) throw new Error(json.error.message ?? "Provider reported an error.");
     if (t.wire === "anthropic") {

@@ -1312,3 +1312,42 @@ describe("everyone at the table wants something", () => {
     expect(asked()).toBe(1);
   });
 });
+
+describe("a request that never answers does not hold the chat", () => {
+  test("every background request goes out with a time limit", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    const signals: any[] = [];
+    globalThis.fetch = (async (_u: any, init: any) => { signals.push(init.signal); return Response.json({ choices: [{ message: { content: "" } }] }); }) as any;
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
+  });
+
+  test("timed out, the run ends and says so — and the next run is not refused as 'already going'", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    globalThis.fetch = (async () => { throw new DOMException("The operation timed out.", "TimeoutError"); }) as any;
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.error).toContain("had not answered after 4 minutes, and was given up on");
+    answers = [];
+    globalThis.fetch = (async (_u: any, init: any) => { sent.push(JSON.parse(init.body)); return Response.json({ choices: [{ message: { content: "CHOOSE | it | x\nACT | writes to the High Septon | easy | social" } }] }); }) as any;
+    const again = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(again.note ?? "").not.toContain("already taking its turn");
+    expect(again.acted).toBe(1);
+  });
+
+  test("a run truly under way still keeps a second one out — and says when it began", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    globalThis.fetch = (async () => { await held; return Response.json({ choices: [{ message: { content: "" } }] }); }) as any;
+    const first = send("/api/chats/ch/offstage/run", "POST");
+    await new Promise((r) => setTimeout(r, 20));
+    const second = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(second.note).toContain("already taking its turn — it began moments ago");
+    release();
+    await first;
+  });
+});

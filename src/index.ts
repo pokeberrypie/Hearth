@@ -4374,7 +4374,10 @@ function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "faile
  * the player's character becomes a question, then a scene — never an outcome.
  */
 /** Chats whose world is moving right now: one turn at a time, or two replies close together give two people the same day's turn. */
-const offstageBusy = new Set<string>();
+/** Runs under way, by chat, and when each began. */
+const offstageBusy = new Map<string, number>();
+/** Longer than any run could honestly take, every request in it timed out: a run claiming more is gone, not going. */
+const OFFSTAGE_STALE_MS = 30 * 60_000;
 
 /**
  * One question to the Offstage's model, answered without streaming — and asked once more if nothing usable came
@@ -4411,8 +4414,13 @@ function emptyAnswer(said: string, stop: string): string {
 }
 
 async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boolean } = {}) {
-  if (offstageBusy.has(chatId)) return { acted: 0, quiet: 0, threats: 0, note: "The world offstage is already taking its turn." };
-  offstageBusy.add(chatId);
+  const began = offstageBusy.get(chatId);
+  if (began && Date.now() - began < OFFSTAGE_STALE_MS) {
+    const mins = Math.round((Date.now() - began) / 60_000);
+    return { acted: 0, quiet: 0, threats: 0, note: `The world offstage is already taking its turn — it began ${mins < 1 ? "moments" : `${mins} minute${mins === 1 ? "" : "s"}`} ago. Its result will be under Its last runs.` };
+  }
+  const mine = Date.now();
+  offstageBusy.set(chatId, mine);
   try {
     const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string } =
       await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
@@ -4427,7 +4435,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
     }
     logOffstage(chatId, o.manual ? "manual" : o.midday ? "midday" : "day", r);
     return r;
-  } finally { offstageBusy.delete(chatId); }
+  } finally { if (offstageBusy.get(chatId) === mine) offstageBusy.delete(chatId); }
 }
 
 /** One run, kept: what came of it, or why nothing did — so a still world always says why, even after a restart. */
