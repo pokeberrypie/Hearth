@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
-import { generate, PROVIDERS } from "./providers";
+import { ContextFull, generate, PROVIDERS, type ChatMessage } from "./providers";
 
 /**
  * The connection half of a generate() call, from settings.
@@ -1115,6 +1115,28 @@ api.get("/chats/:id/running", (c) =>
  * uses. Do not rebuild any of it here: an inspector that can disagree with the
  * real prompt is worse than no inspector at all.
  */
+/**
+ * A story made to fit a server whose context is smaller than Hearth's settings: the oldest messages left out until
+ * what is sent, with room for the whole reply, is inside it. The server said how many tokens it was sent, so
+ * characters are counted at its own rate rather than guessed. Never the newest two; never beginning on the
+ * narrator's turn, which some chat templates refuse.
+ */
+export function fitToContext(system: string, messages: ChatMessage[], full: { nPrompt: number; nCtx: number; reply: number }) {
+  const text = (m: ChatMessage) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content));
+  const chars = system.length + messages.reduce((n, m) => n + text(m).length, 0);
+  const perChar = full.nPrompt / Math.max(1, chars);
+  let over = full.nPrompt + full.reply + 128 - full.nCtx;
+  const out = [...messages];
+  let dropped = 0;
+  while (over > 0 && out.length > 2) {
+    over -= text(out[0]).length * perChar + 4;
+    out.shift();
+    dropped++;
+  }
+  while (out.length > 2 && out[0].role === "assistant") { out.shift(); dropped++; }
+  return { messages: out, dropped, fits: over <= 0 };
+}
+
 api.post("/chats/:id/generate", async (c) => {
   const chatId = c.req.param("id");
   const { content = "", mode = "reply", guide = "", speaker: speakerId = "" } =
@@ -1282,14 +1304,20 @@ api.post("/chats/:id/generate", async (c) => {
 
       try {
         try {
+          // Asked once as it is; and if the server's context is too small for it, once more, made to fit — the
+          // oldest messages left out before any of the reply's length is given up (see fitToContext).
+          let messages = shaped.messages, sampling = a.sampling, fitReply = false;
+          for (let attempt = 0; ; attempt++) {
+          try {
           for await (const chunk of generate({
             ...connectionFrom(s, a.provider),
             model: a.model,
             system: shaped.system,
-            messages: shaped.messages,
-            sampling: a.sampling,
+            messages,
+            sampling,
             prefill: a.prefill,
             signal: ac.signal,
+            fitReply,
           })) {
             if (chunk.kind === "usage") { tokens = chunk.tokens; continue; }
             if (chunk.kind === "stop") continue;
@@ -1300,6 +1328,16 @@ api.post("/chats/:id/generate", async (c) => {
             }
             full += chunk.text;
             send({ delta: chunk.text });
+          }
+          break;
+          } catch (err: any) {
+            if (!(err instanceof ContextFull) || attempt > 0 || full || think || ac.signal.aborted) throw err;
+            const fit = fitToContext(shaped.system, messages, err);
+            messages = fit.messages;
+            // Even the newest messages alone are too many: then the reply's room is cut, as for any other asking.
+            fitReply = !fit.fits;
+            console.log(`[fit] the story was ${err.nPrompt} tokens with ${err.reply} for the reply, in ${err.nCtx}: ${fit.dropped} of the oldest messages left out.`);
+          }
           }
         } catch (err: any) {
           // A stop is not a failure. Whatever arrived before it is kept, so the

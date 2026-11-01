@@ -47,7 +47,18 @@ export type GenerateArgs = {
   baseUrl?: string;
   /** Which dialect to send, when the provider is `custom`. */
   format?: Wire;
+  /**
+   * When the server says the request is bigger than its context, ask again with the reply's room cut to what is
+   * left. On unless said otherwise: a story reply would rather lose its oldest messages than its length, and does
+   * that itself first.
+   */
+  fitReply?: boolean;
 };
+
+/** The server's context is smaller than what was asked: how big each part was, so the asker can make it fit. */
+export class ContextFull extends Error {
+  constructor(message: string, readonly nPrompt: number, readonly nCtx: number, readonly reply: number) { super(message); }
+}
 
 export const PROVIDERS = {
   openrouter: {
@@ -248,9 +259,17 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
       let j: any = {};
       try { j = JSON.parse(detail)?.error ?? {}; } catch {}
       const reply = Number(a.sampling.maxTokens) || 0;
+      const nPrompt = Number(j.n_prompt_tokens) || 0, nCtx = Number(j.n_ctx) || 0;
+      // Made to fit, once: the reply given the room that is left, if that is still a reply worth having.
+      const room = nCtx - nPrompt - 64;
+      if (a.fitReply !== false && nPrompt && nCtx && room >= 256 && room < reply) {
+        console.log(`[fit] ${t.label} holds ${nCtx}; ${nPrompt} sent, so the reply's room is cut from ${reply} to ${room}.`);
+        yield* generate({ ...a, fitReply: false, sampling: { ...a.sampling, maxTokens: room } });
+        return;
+      }
       const sizes = j.n_ctx ? ` It holds ${j.n_ctx} tokens; this asked for ${j.n_prompt_tokens ?? "?"} of story and up to ${reply} for the reply.` : "";
       const lower = j.n_ctx && reply >= j.n_ctx / 2 ? `Lower "Reply length"` : `Lower "Conversation sent" (or "Reply length")`;
-      throw new Error(`${t.label} has less room than Hearth asked for.${sizes} ${lower} in Hearth's generation settings, or start the server with more context (llama-server's -c).`);
+      throw new ContextFull(`${t.label} has less room than Hearth asked for.${sizes} ${lower} in Hearth's generation settings, or start the server with more context (llama-server's -c).`, nPrompt, nCtx, reply);
     }
     throw new Error(`${t.label} returned ${res.status}. ${trimDetail(detail)}`);
   }

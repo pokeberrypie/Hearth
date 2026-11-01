@@ -179,8 +179,9 @@ test("llama-server's 'too long for my context' is said as which setting to lower
   const ask = (maxTokens: number, prompt: number) => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ error: { code: 400, message: "the request exceeds the available context size, try increasing it",
       type: "exceed_context_size_error", n_prompt_tokens: prompt, n_ctx: 8192 } }), { status: 400 })) as any;
+    // Not made to fit, so the message itself is what is checked.
     const run = generate({ provider: "custom", baseUrl: "http://127.0.0.1:8080/v1", format: "openai", apiKey: "", model: "m", system: "", messages: [{ role: "user", content: "hi" }],
-      sampling: { temperature: 1, maxTokens, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: true, reasoningEffort: "" } } as any);
+      sampling: { temperature: 1, maxTokens, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: true, reasoningEffort: "" }, fitReply: false } as any);
     return (async () => { for await (const _ of run) {} })().then(() => "", (e) => e.message);
   };
   try {
@@ -189,4 +190,40 @@ test("llama-server's 'too long for my context' is said as which setting to lower
     expect(big).toContain('Lower "Reply length"');
     expect(await ask(800, 7900)).toContain('Lower "Conversation sent" (or "Reply length")');
   } finally { globalThis.fetch = real; }
+});
+
+describe("a server with less room than Hearth's settings: made to fit, not failed", () => {
+  test("a background asking has its reply's room cut to what is left, and goes through", async () => {
+    const real = globalThis.fetch;
+    const asked: number[] = [];
+    globalThis.fetch = (async (_u: any, init: any) => {
+      const b = JSON.parse(init.body);
+      asked.push(b.max_tokens);
+      if (1200 + b.max_tokens > 4500) return new Response(JSON.stringify({ error: { code: 400, message: "the request exceeds the available context size, try increasing it", type: "exceed_context_size_error", n_prompt_tokens: 1200, n_ctx: 4500 } }), { status: 400 });
+      return Response.json({ choices: [{ message: { content: "NONE" }, finish_reason: "stop" }] });
+    }) as any;
+    try {
+      let said = "";
+      for await (const c of generate({ provider: "custom", baseUrl: "http://127.0.0.1:8080/v1", format: "openai", apiKey: "", model: "m", system: "", messages: [{ role: "user", content: "hi" }],
+        sampling: { temperature: 1, maxTokens: 4000, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "" } } as any)) if (c.kind === "text") said += c.text;
+      expect(said).toBe("NONE");
+      expect(asked).toEqual([4000, 4500 - 1200 - 64]);
+    } finally { globalThis.fetch = real; }
+  });
+
+  test("a story keeps its newest messages and the reply's whole length; the oldest go", async () => {
+    const { fitToContext } = await import("./index");
+    const msgs = Array.from({ length: 20 }, (_, i) => ({ role: (i % 2 ? "assistant" : "user") as "user" | "assistant", content: `${i} ${"x".repeat(396)}` }));
+    // 20 messages of 400 characters, counted by the server as 100 tokens each: 2000, with 3000 for the reply, in 4000.
+    const fit = fitToContext("", msgs, { nPrompt: 2000, nCtx: 4000, reply: 3000 });
+    expect(fit.fits).toBe(true);
+    expect(fit.messages.at(-1)!.content.startsWith("19 ")).toBe(true);
+    expect(fit.messages.length).toBeLessThanOrEqual(8);
+    // Never beginning on the narrator's turn.
+    expect(fit.messages[0].role).toBe("user");
+    // Too small for even the newest two: kept, and said not to fit, so the reply's room is cut instead.
+    const tight = fitToContext("", msgs, { nPrompt: 2000, nCtx: 1000, reply: 3000 });
+    expect(tight.messages.length).toBe(2);
+    expect(tight.fits).toBe(false);
+  });
 });
