@@ -123,11 +123,42 @@ export const LOCAL_SUGGESTIONS: { label: string; base: string; format: Wire }[] 
 export function isLocalBase(base: string): boolean {
   try {
     const h = new URL(base).hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "0.0.0.0"
-      || h.endsWith(".local");
+    if (h === "localhost" || h === "::1" || h === "0.0.0.0") return true;
+    if ([".local", ".lan", ".home.arpa", ".internal"].some((s) => h.endsWith(s))) return true;
+    // An address, not a name: this machine, or one on the same home network — a phone reaching the computer
+    // that runs the model is 192.168.x.x, never localhost. A name that only looks local is not trusted.
+    const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+    if (v4) {
+      const [a, b] = [Number(v4[1]), Number(v4[2])];
+      return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31)
+        || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    }
+    // IPv6: unique-local (fc00::/7) and link-local (fe80::/10).
+    return /^f[cd][0-9a-f]{0,2}:/.test(h) || /^fe[89ab][0-9a-f]?:/.test(h);
   } catch {
     return false;
   }
+}
+
+/**
+ * Why a server could not be reached, said as what to do about it. Node says only "fetch failed"; the reason is in
+ * its cause. On the phone, "localhost" is the phone itself, which is right for a model served there (Termux) and
+ * wrong for one on a computer — said either way.
+ */
+export function unreachable(base: string, e: any): Error | null {
+  const code = String(e?.cause?.code ?? e?.code ?? "");
+  const where = (() => { try { return new URL(base).host; } catch { return base; } })();
+  const onPhone = !!(globalThis as any).__hearthOnPhone;
+  const looped = /^(localhost|127\.|\[?::1)/.test(where);
+  if (code === "ECONNREFUSED") {
+    return new Error(`Nothing is answering at ${where}. Is the model server running${looped && onPhone
+      ? " on this phone (in Termux, or the app serving it)? Here, localhost is the phone itself; a model on your computer needs your computer's address, like 192.168.1.20" : ""}, and on that port?`);
+  }
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return new Error(`No computer called "${where}" could be found. Check the address, or use its number (like 192.168.1.20).`);
+  if (["EHOSTUNREACH", "ENETUNREACH", "ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "ECONNRESET"].includes(code)) {
+    return new Error(`${where} could not be reached. If the model runs on another computer: is it on the same wifi, and is its server set to accept other devices (LM Studio: "Serve on Local Network"; Ollama: OLLAMA_HOST=0.0.0.0; KoboldCpp and llama-server: --host 0.0.0.0)?`);
+  }
+  return null;
 }
 
 /**
@@ -160,6 +191,8 @@ export type Chunk =
 
 /** How long a background request may take before it is given up on: room for a thinking model to think at length. */
 export const BACKGROUND_TIMEOUT_MS = 4 * 60_000;
+/** The same, for a model on this machine or the home network: a phone's processor reading a long story is slow. */
+export const LOCAL_TIMEOUT_MS = 20 * 60_000;
 
 export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
   const t = resolveTarget(a);
@@ -179,7 +212,8 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
    * finishes) sent no error and no answer, and a run waiting on it held its place until the app was restarted: every
    * later run refused as "already going". A story reply has its own signal, and its own stop button.
    */
-  if (!a.signal && !a.sampling.stream) a = { ...a, signal: AbortSignal.timeout(BACKGROUND_TIMEOUT_MS) };
+  const limit = isLocalBase(t.base) ? LOCAL_TIMEOUT_MS : BACKGROUND_TIMEOUT_MS;
+  if (!a.signal && !a.sampling.stream) a = { ...a, signal: AbortSignal.timeout(limit) };
 
   let res: Response;
   try {
@@ -188,8 +222,8 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
       : t.wire === "responses" ? await callResponses(a, t.base)
       : await callOpenAI(a, t.base);
   } catch (e: any) {
-    if (e?.name === "TimeoutError") throw new Error(`${t.label} had not answered after ${BACKGROUND_TIMEOUT_MS / 60000} minutes, and was given up on.`);
-    throw e;
+    if (e?.name === "TimeoutError") throw new Error(`${t.label} had not answered after ${limit / 60000} minutes, and was given up on.`);
+    throw unreachable(t.base, e) ?? e;
   }
 
   if (!res.ok || !res.body) {
@@ -208,6 +242,16 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
       throw new Error(`${t.label} rejected the request (${res.status}). ${trimDetail(detail)}`);
     if (res.status === 404)
       throw new Error(`${t.label} has no model called "${a.model}". ${trimDetail(detail)}`);
+    // llama-server's own words for a story longer than the room it was started with.
+    if (/exceed_context_size|exceeds the available context size|context.{0,20}(length|window|size).{0,40}exceed/i.test(detail)) {
+      // It needs room for the story and for the longest reply allowed: say which is the larger ask.
+      let j: any = {};
+      try { j = JSON.parse(detail)?.error ?? {}; } catch {}
+      const reply = Number(a.sampling.maxTokens) || 0;
+      const sizes = j.n_ctx ? ` It holds ${j.n_ctx} tokens; this asked for ${j.n_prompt_tokens ?? "?"} of story and up to ${reply} for the reply.` : "";
+      const lower = j.n_ctx && reply >= j.n_ctx / 2 ? `Lower "Reply length"` : `Lower "Conversation sent" (or "Reply length")`;
+      throw new Error(`${t.label} has less room than Hearth asked for.${sizes} ${lower} in Hearth's generation settings, or start the server with more context (llama-server's -c).`);
+    }
     throw new Error(`${t.label} returned ${res.status}. ${trimDetail(detail)}`);
   }
 
@@ -218,7 +262,7 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
    */
   if (!a.sampling.stream) {
     const json: any = await res.json().catch((e: any) => {
-      if (e?.name === "TimeoutError" || e?.name === "AbortError") throw new Error(`${t.label} had not finished answering after ${BACKGROUND_TIMEOUT_MS / 60000} minutes, and was given up on.`);
+      if (e?.name === "TimeoutError" || e?.name === "AbortError") throw new Error(`${t.label} had not finished answering after ${limit / 60000} minutes, and was given up on.`);
       return null;
     });
     if (!json) throw new Error(`${t.label} sent a reply that could not be read.`);
@@ -321,6 +365,8 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
 export function thinkingOffSwitch(model: string): string | null {
   const m = String(model ?? "").toLowerCase();
   if (/nemotron/.test(m)) return "detailed thinking off\n/no_think";
+  // Not the 2507 Instruct and Thinking models: one never thinks and the other always does, and neither reads it.
+  if (/qwen-?3/.test(m) && /2507/.test(m)) return null;
   if (/qwen-?3|qwq/.test(m)) return "/no_think";
   if (/glm-?4\.[5-9]|glm-?z1|glm-?5/.test(m)) return "/nothink";
   return null;

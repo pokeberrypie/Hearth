@@ -125,7 +125,9 @@ function offerUndo(r, noun, n = 1) {
   refreshBin();
 }
 
-const S = { chatId: null, charName: "", charAvatar: "", personaAvatar: "", personaName: "You", editing: null, busy: false, abort: null,
+// Hearth's own phone app: an Android WebView showing the server on the phone itself. "localhost" here is the phone.
+const ON_PHONE = /Android/i.test(navigator.userAgent) && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+const S = { onPhone: ON_PHONE, chatId: null, charName: "", charAvatar: "", personaAvatar: "", personaName: "You", editing: null, busy: false, abort: null,
   // Which chat is generating right now. Not the same as chatId: you can open
   // another chat while a reply is still coming in, and Stop must still reach
   // the one that is actually running.
@@ -8171,9 +8173,11 @@ function renderModels(filter = "") {
     b.innerHTML =
       `<span class="mid"><span class="mname">${esc(m.name)}</span>` +
       `<span class="msub">${esc(m.id)}</span></span>` +
+      // A model on a server of your own costs nothing to ask: no price to show.
+      (m.in === null && m.out === null && $("#provider").value === "custom" ? "" :
       `<span class="mprice${free ? " free" : ""}${m.approx ? " approx" : ""}">` +
       `${money(m.in)} in &middot; ${money(m.out)} out` +
-      `<span class="fill">${fillCost(m)}</span></span>`;
+      `<span class="fill">${fillCost(m)}</span></span>`);
     b.onclick = () => { setModel(m.id, m); $("#modelDialog").close(); renderModels(q); };
     list.appendChild(b);
   });
@@ -8181,6 +8185,8 @@ function renderModels(filter = "") {
 
 async function loadModels() {
   $("#modelHint").textContent = "Fetching the model list…";
+  // The address as typed, not as last saved: a model list from the server you meant, the first time you ask.
+  if ($("#provider").value === "custom") await saveSettings();
   const r = await api("/models?provider=" + encodeURIComponent($("#provider").value));
   if (r.error) {
     allModels = [];
@@ -8190,6 +8196,11 @@ async function loadModels() {
   }
   allModels = r.models;
   const priced = allModels.filter((m) => m.in !== null).length;
+  // A server of your own has no prices to sort by: say what it has.
+  if ($("#provider").value === "custom" && !priced) {
+    $("#modelHint").textContent = `${allModels.length} model${allModels.length === 1 ? "" : "s"} on this server.`;
+    return renderModels($("#modelSearch").value);
+  }
   $("#modelHint").innerHTML =
     `${allModels.length} models, cheapest first. Prices are US dollars per million tokens` +
     (priced < allModels.length ? `; ${allModels.length - priced} have no published price.` : ".") +
@@ -9930,8 +9941,10 @@ function showProvider() {
   $("#keyHint").innerHTML = custom
     // A local server almost never has a key, and saying so saves somebody
     // inventing one to get past a field they think is required.
-    ? `Leave the key empty for anything running on this machine. ` +
-      `The address should end where the paths begin &mdash; usually <code>/v1</code>.`
+    ? `Leave the key empty for anything running on this device or your home network. ` +
+      `The address should end where the paths begin &mdash; usually <code>/v1</code>. ` +
+      (S.onPhone ? `On this phone, <code>localhost</code> is the phone itself: right for a model served here (Termux's llama-server is ` +
+        `<code>http://127.0.0.1:8080/v1</code>); for one on your computer, use its address, like <code>http://192.168.1.20:1234/v1</code>.` : "")
     : `Keys are stored separately per provider. Get one at ` +
       `<a href="${meta.keyUrl}" target="_blank" rel="noopener">${meta.keyUrl.replace(/^https:\/\//, "")}</a>`;
 }

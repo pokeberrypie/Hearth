@@ -55,6 +55,8 @@
    * and says what to do instead. Only the mobile build sets it.
    */
   globalThis.__hearthMaxUpload = 160 * 1024 * 1024;
+  // Running on the phone: "localhost" here is the phone itself, which messages about local models say.
+  globalThis.__hearthOnPhone = true;
 
   if (typeof globalThis.File === "undefined") {
     try {

@@ -1,4 +1,4 @@
-import { PROVIDERS, type ProviderId } from "./providers";
+import { PROVIDERS, type ProviderId, unreachable } from "./providers";
 
 export type ModelInfo = {
   id: string;
@@ -75,7 +75,15 @@ export async function listModels(
     headers.authorization = `Bearer ${key}`;
   }
 
-  const res = await fetch(url, { headers });
+  // Quick to say so when nothing is there: a computer that is off, or the wrong address, can leave a request
+  // waiting minutes before the network gives up on it.
+  let res: Response;
+  try {
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+  } catch (e: any) {
+    if (e?.name === "TimeoutError") throw new Error(`${base} did not answer within 15 seconds. Is the model server running, and is this the right address?`);
+    throw unreachable(base, e) ?? e;
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`${label} would not list models (${res.status}). ${body.slice(0, 200)}`);
