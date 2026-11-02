@@ -831,11 +831,12 @@
               <input type="range" id="max_tokens" min="128" max="32000" step="1">
             </label>
             <p class="hint">The most the model may write in one reply. It usually stops sooner.</p>
-            <label>Conversation sent <span class="v" id="v_context_tokens"></span>
+            <label>Context size <span class="v" id="v_context_tokens"></span>
               <input type="range" id="context_tokens" min="1000" max="200000" step="500">
             </label>
-            <p class="hint">How much of the chat goes with each request, counted in tokens, not
-              messages. Older turns past this are left out.</p>
+            <p class="hint">Everything sent with each request — the card, lorebook, Story World, the story's plan,
+              the chat — plus room for the reply. The chat gets what the rest leaves; its oldest turns go first.
+              For a model on your own device, set this to the server's context (llama-server's <code>-c</code>).</p>
           </section>
 
           <section class="gengroup">

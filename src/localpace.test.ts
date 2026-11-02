@@ -118,3 +118,34 @@ describe("a reply that was all thinking", () => {
     expect(replies()).toEqual([]);
   });
 });
+
+describe("Context size is everything sent, not the chat alone", () => {
+  const seedLong = (n: number) => {
+    db.query("UPDATE characters SET description = ? WHERE id = 'j'").run("A knight of the Kingsguard, proud and tired. ".repeat(130)); // ~1,500 tokens of card
+    for (let i = 0; i < n; i++) db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', ?, '', ?, ?)")
+      .run(`h${i}`, i % 2 ? "assistant" : "user", `Turn ${i}. ${"The road went on through the rain. ".repeat(12)}`, 100 + i);
+  };
+  const inspect = async () => (await call("/api/chats/ch/inspect", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+  const tokens = (r: any) => r.sections.reduce((n: number, x: any) => n + Math.ceil(x.chars / 4), 0);
+
+  test("the card and the rest are counted in: card, chat and the reply's room all fit inside it", async () => {
+    setSettings({ context_tokens: "3000", max_tokens: "500" });
+    seedLong(60);
+    const r = await inspect();
+    // Everything sent, with room for a 500-token reply, inside 3,000.
+    expect(tokens(r) + 500).toBeLessThanOrEqual(3000 + 100);
+    // And the chat still came: the newest turns, not none.
+    expect(JSON.stringify(r.sections)).toContain("Turn 59.");
+    expect(JSON.stringify(r.sections)).not.toContain("Turn 0.");
+  });
+
+  test("on a local server the chat's start still holds still as it grows, with the rest counted in", async () => {
+    setSettings({ context_tokens: "3000", max_tokens: "500" });
+    seedLong(60);
+    const firstTurn = (r: any) => /Turn (\d+)\./.exec(r.sections.find((x: any) => x.label === "Conversation").content)![1];
+    const a = firstTurn(await inspect());
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('h60', 'ch', 'user', '', 'Turn 60. On.', 1000)").run();
+    const b = firstTurn(await inspect());
+    expect(b).toBe(a);
+  });
+});

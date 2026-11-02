@@ -307,7 +307,7 @@ async function* send(a: GenerateArgs, t: ReturnType<typeof resolveTarget>, key: 
         return;
       }
       const sizes = j.n_ctx ? ` It holds ${j.n_ctx} tokens; this asked for ${j.n_prompt_tokens ?? "?"} of story and up to ${reply} for the reply.` : "";
-      const lower = j.n_ctx && reply >= j.n_ctx / 2 ? `Lower "Reply length"` : `Lower "Conversation sent" (or "Reply length")`;
+      const lower = j.n_ctx && reply >= j.n_ctx / 2 ? `Lower "Reply length"` : `Lower "Context size" (or "Reply length")`;
       throw new ContextFull(`${t.label} has less room than Hearth asked for.${sizes} ${lower} in Hearth's generation settings, or start the server with more context (llama-server's -c).`, nPrompt, nCtx, reply);
     }
     throw new Error(`${t.label} returned ${res.status}. ${trimDetail(detail)}`);

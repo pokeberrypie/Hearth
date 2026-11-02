@@ -188,7 +188,7 @@ test("llama-server's 'too long for my context' is said as which setting to lower
     const big = await ask(9000, 150);
     expect(big).toContain("It holds 8192 tokens; this asked for 150 of story and up to 9000 for the reply");
     expect(big).toContain('Lower "Reply length"');
-    expect(await ask(800, 7900)).toContain('Lower "Conversation sent" (or "Reply length")');
+    expect(await ask(800, 7900)).toContain('Lower "Context size" (or "Reply length")');
   } finally { globalThis.fetch = real; }
 });
 

@@ -2667,6 +2667,8 @@ export type Assembled = {
   sampling: ReturnType<typeof sampling>;
   model: string;
   provider: string;
+  /** How much of it, roughly, is the conversation itself: the part that gives way when everything is too much. */
+  historyTokens: number;
 };
 
 /**
@@ -2681,15 +2683,38 @@ export type Assembled = {
  * inspector passes the text sitting in the composer so lore fires against it
  * exactly as it will on send; generate saves the turn first and stages nothing.
  */
-export function assemble(
+/**
+ * Everything the model sees, within the context the settings give it — the card, the preset, the lorebook, Story
+ * World, the plan, the chronicle, the conversation, and room for the reply — not the conversation alone, with the
+ * rest piled on top of it: a context of 9,000 sent 13,000 and more. Built once to measure what everything but the
+ * conversation takes, and, if it is all too much, once more with the conversation given what is left. Worked out
+ * from the rest, not from what the conversation came to, so its window still holds still from turn to turn.
+ */
+export function assemble(chat: any, mode: string, guide: string, stagedUser = "", speaker?: any): Assembled {
+  const first = assembleWith(chat, mode, guide, stagedUser, speaker);
+  const s = withPreset(getSettings());
+  const context = Number(s.context_tokens) > 0 ? Number(s.context_tokens) : 8000;
+  const reply = Number(first.sampling.maxTokens) > 0 ? Number(first.sampling.maxTokens) : 0;
+  const sent = estimateTokens(first.system) + first.messages.reduce((n, m) => n + estimateTokens(m.content) + 4, 0) + estimateTokens(first.prefill ?? "");
+  if (sent + reply <= context) return first;
+  const rest = sent - first.historyTokens;
+  // The conversation's share: what the rest and the reply leave, and never so little it is not a conversation.
+  const share = Math.max(600, context - reply - rest - 64);
+  return assembleWith(chat, mode, guide, stagedUser, speaker, share);
+}
+
+function assembleWith(
   chat: any,
   mode: string,
   guide: string,
   stagedUser = "",
   speaker?: any,
+  /** The conversation's share of the context, when everything else has been measured. */
+  conversation?: number,
 ): Assembled {
   const staged = String(stagedUser ?? "").trim();
-  const s = withPreset(getSettings());
+  let s = withPreset(getSettings());
+  if (conversation) s = { ...s, context_tokens: String(conversation) };
   const cast = membersOf(chat);
   // Whose reply this is. Everyone else in the room is described, not written.
   const char = (speaker ??
@@ -2981,6 +3006,7 @@ export function assemble(
   const win = steadyWindow(s) ? windowOf(history, historyBudget(chat.id, s), windows.get(chat.id))
     : windowOf(history, historyBudget(chat.id, s), null, 1);
   windows.set(chat.id, win.from);
+  const historyTokens = win.kept.reduce((n, m) => n + estimateTokens(m.content) + 4, 0);
   const messages = buildMessages(
     win.kept, char, me.name, Number.MAX_SAFE_INTEGER, others.length > 0, manyHands);
   if (mode === "silent" && messages[messages.length - 1]?.role === "assistant") {
@@ -3255,6 +3281,7 @@ ${DICE_BRIEF}` : DICE_BRIEF;
     // What the narrator was reminded of from earlier, and why — so it can be checked, not assumed.
     remembered: remembered.value ?? null,
     sampling: sampling(s), model: s.model, provider: s.provider,
+    historyTokens,
   };
 }
 
