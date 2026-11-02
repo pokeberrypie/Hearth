@@ -149,3 +149,23 @@ describe("Context size is everything sent, not the chat alone", () => {
     expect(b).toBe(a);
   });
 });
+
+describe("where a reply's time went", () => {
+  test("the wait before the first word is kept apart from the writing, with how much the model read", async () => {
+    globalThis.fetch = (async () => {
+      const enc = new TextEncoder();
+      return new Response(new ReadableStream({ async start(c) {
+        await new Promise((r) => setTimeout(r, 300)); // reading
+        c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "Ramsay smiled." } }] })}\n\n`));
+        c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { completion_tokens: 4, prompt_tokens: 2740 }, timings: { prompt_n: 2740 } })}\n\n`));
+        c.enqueue(enc.encode("data: [DONE]\n\n")); c.close();
+      } }), { headers: { "content-type": "text/event-stream" } });
+    }) as any;
+    const said = await (await send()).text();
+    const m = db.query("SELECT tokens, ms, wait_ms, read_tokens FROM messages WHERE chat_id = 'ch' AND role = 'assistant'").get() as any;
+    expect(m.read_tokens).toBe(2740);
+    expect(m.wait_ms).toBeGreaterThanOrEqual(280);
+    expect(m.wait_ms).toBeLessThanOrEqual(m.ms);
+    expect(said).toContain('"read":2740');
+  });
+});

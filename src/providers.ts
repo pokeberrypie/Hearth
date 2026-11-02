@@ -208,7 +208,7 @@ export function resolveTarget(a: GenerateArgs) {
 export type Chunk =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
-  | { kind: "usage"; tokens: number }
+  | { kind: "usage"; tokens: number; read?: number }
   /** Why the model stopped, when it says: "length", "content_filter", "refusal", "SAFETY"… — how an empty answer is told apart. */
   | { kind: "stop"; reason: string };
 
@@ -359,7 +359,7 @@ async function* send(a: GenerateArgs, t: ReturnType<typeof resolveTarget>, key: 
       if (typeof think === "string" && think) yield { kind: "reasoning", text: think };
       if (typeof m.content === "string" && m.content) yield { kind: "text", text: m.content };
       if (json.usage?.completion_tokens)
-        yield { kind: "usage", tokens: json.usage.completion_tokens };
+        yield { kind: "usage", tokens: json.usage.completion_tokens, read: readOf(json) };
       // OpenRouter passes on the model's own reason beside its normalised one; the model's says more ("SAFETY").
       const c = json.choices?.[0] ?? {};
       if (typeof m.refusal === "string" && m.refusal) yield { kind: "stop", reason: "refusal" };
@@ -405,10 +405,16 @@ async function* send(a: GenerateArgs, t: ReturnType<typeof resolveTarget>, key: 
       const think = d.reasoning ?? d.reasoning_content;
       if (typeof think === "string" && think) yield { kind: "reasoning", text: think };
       if (typeof d.content === "string" && d.content) yield { kind: "text", text: d.content };
-      if (evt.usage?.completion_tokens)
-        yield { kind: "usage", tokens: evt.usage.completion_tokens };
+      if (evt.usage?.completion_tokens || evt.timings?.predicted_n)
+        yield { kind: "usage", tokens: evt.usage?.completion_tokens ?? evt.timings.predicted_n, read: readOf(evt) };
     }
   }
+}
+
+/** How much the model read, when the server says: the usual usage figure, or llama.cpp's own timings. */
+function readOf(o: any): number | undefined {
+  const n = Number(o?.usage?.prompt_tokens ?? o?.timings?.prompt_n);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 /**

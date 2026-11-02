@@ -928,6 +928,12 @@ function statsLine(m) {
   const bits = [];
   if (m.tokens) bits.push(`${m.tokens} tok`);
   if (m.ms) bits.push(`${(m.ms / 1000).toFixed(1)}s`);
+  // Where the time went: reading what it was sent, before the first word, and writing after it. On a phone these
+  // are two different slownesses with two different cures, and one figure for both hid which it was.
+  const wait = m.wait_ms ?? m.wait ?? 0, read = m.read_tokens ?? m.read ?? 0;
+  if (wait >= 1000) bits.push(`read ${read ? `${read.toLocaleString()} ` : ""}in ${(wait / 1000).toFixed(0)}s${read ? ` (${Math.round(read / (wait / 1000))}/s)` : ""}`);
+  const writing = (m.ms || 0) - wait;
+  if (m.tokens && wait && writing > 500) bits.push(`wrote ${(m.tokens / (writing / 1000)).toFixed(1)}/s`);
   return bits.length ? ` &middot; ${bits.join(" &middot; ")}` : "";
 }
 
@@ -3779,7 +3785,7 @@ async function run(mode, content = "", forcedGuide = "") {
           }
           const meta = target.querySelector(".meta-line");
           if (meta) meta.innerHTML = metaLine({ created_at: Date.now() }) +
-            statsLine({ tokens: evt.tokens, ms: evt.ms });
+            statsLine({ tokens: evt.tokens, ms: evt.ms, wait: evt.wait, read: evt.read });
           const th = target.querySelector(".think");
           if (th) {
             th.open = false;

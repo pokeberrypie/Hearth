@@ -1325,6 +1325,9 @@ api.post("/chats/:id/generate", async (c) => {
       let full = "";
       let think = "";
       let tokens = 0;
+      let read = 0;
+      // When the first of the reply came: until then the model was reading what it was sent.
+      let firstAt = 0;
       let failed = false;
       const t0 = Date.now();
 
@@ -1345,8 +1348,9 @@ api.post("/chats/:id/generate", async (c) => {
             signal: ac.signal,
             fitReply,
           })) {
-            if (chunk.kind === "usage") { tokens = chunk.tokens; continue; }
+            if (chunk.kind === "usage") { tokens = chunk.tokens; if (chunk.read) read = chunk.read; continue; }
             if (chunk.kind === "stop") continue;
+            if (!firstAt) firstAt = Date.now();
             if (chunk.kind === "reasoning") {
               think += chunk.text;
               send({ reasoning: chunk.text });
@@ -1480,7 +1484,8 @@ api.post("/chats/:id/generate", async (c) => {
         const ms = Date.now() - t0;
         // Not every provider reports usage; a rough estimate beats a blank.
         if (!tokens) tokens = Math.round((full.length + think.length) / 4);
-        const stats = { tokens, ms };
+        const wait = firstAt ? firstAt - t0 : 0;
+        const stats = { tokens, ms, wait, read };
 
         if (mode === "impersonate") {
           send({ done: true, impersonated: full, ...stats });
@@ -1495,8 +1500,8 @@ api.post("/chats/:id/generate", async (c) => {
           if (!list.length) list.push(swipeTarget.content);
           list.push(full);
           db.query(
-            "UPDATE messages SET content = ?, swipes = ?, swipe_index = ?, reasoning = ?, tokens = ?, ms = ? WHERE id = ?",
-          ).run(full, JSON.stringify(list), list.length - 1, think, tokens, ms, swipeTarget.id);
+            "UPDATE messages SET content = ?, swipes = ?, swipe_index = ?, reasoning = ?, tokens = ?, ms = ?, wait_ms = ?, read_tokens = ? WHERE id = ?",
+          ).run(full, JSON.stringify(list), list.length - 1, think, tokens, ms, wait, read, swipeTarget.id);
           // What the Steward made of the reply this one replaced no longer happened.
           forgetSteward([swipeTarget.id]);
           tieNarration(chatId, swipeTarget.id, t0);
@@ -1505,10 +1510,10 @@ api.post("/chats/:id/generate", async (c) => {
         } else {
           const id = uid();
           db.query(
-            `INSERT INTO messages (id, chat_id, role, name, content, created_at, swipes, swipe_index, reasoning, tokens, ms, character_id)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO messages (id, chat_id, role, name, content, created_at, swipes, swipe_index, reasoning, tokens, ms, wait_ms, read_tokens, character_id)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(id, chatId, "assistant", who.name, full, now(), JSON.stringify([full]), 0,
-                think, tokens, ms, who.id ?? null);
+                think, tokens, ms, wait, read, who.id ?? null);
           tieNarration(chatId, id, t0);
           openingTime(chatId, id, full);
           send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", thrown, ...stats });

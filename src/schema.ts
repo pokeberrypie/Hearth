@@ -314,6 +314,10 @@ export const ALTER_TABLES: string[] = [
     "reasoning TEXT NOT NULL DEFAULT ''",
     "tokens INTEGER NOT NULL DEFAULT 0",
     "ms INTEGER NOT NULL DEFAULT 0",
+    // How long the reply took to begin — the model reading what it was sent — and how much it read, when the
+    // server said. Apart from the writing, because on a phone they are two different slownesses.
+    "wait_ms INTEGER NOT NULL DEFAULT 0",
+    "read_tokens INTEGER NOT NULL DEFAULT 0",
   ].map((col) => `ALTER TABLE messages ADD COLUMN ${col}`),
 
   ...[
