@@ -136,6 +136,39 @@ export function buildPostHistory(char: Character, personaName: string): string {
  */
 export const estimateTokens = (text: string) => Math.ceil(String(text ?? "").length / 4);
 
+/**
+ * Which of the conversation to send: its newest part, within the budget — and the same starting point turn after
+ * turn for as long as that still fits.
+ *
+ * Kept to the last message that fitted, the start moved on by one message every turn, so the first thing that
+ * differed from the last request was the very first message: a server that keeps what it has already read (a
+ * model on a phone, above all) had to read the whole conversation again for every reply. So when the start must
+ * move it moves a long way — down to three-quarters of the budget — and then stays put while the chat grows into
+ * the room it left, and the server reads only what is new.
+ */
+export function windowOf<M extends { id?: string; content: string }>(history: M[], budgetTokens: number, from?: string | null,
+  /** How far down the budget a moved start goes: 1 for the plain newest-that-fits, three-quarters to hold still. */
+  refill = 0.75) {
+  const budget = Number.isFinite(budgetTokens) && budgetTokens > 0 ? budgetTokens : 8000;
+  const cost = (m: M) => estimateTokens(m.content) + 4;
+  const total = (ms: M[]) => ms.reduce((n, m) => n + cost(m), 0);
+  // All of it, whenever all of it fits: a start held from before never leaves out what there is room for.
+  if (total(history) <= budget) return { kept: history, from: history[0]?.id ?? null };
+  if (from) {
+    const i = history.findIndex((h) => h.id === from);
+    if (i >= 0 && total(history.slice(i)) <= budget) return { kept: history.slice(i), from };
+  }
+  const kept: M[] = [];
+  let used = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const c = cost(history[i]);
+    if (used + c > budget * refill && kept.length) break;
+    used += c;
+    kept.unshift(history[i]);
+  }
+  return { kept, from: kept[0]?.id ?? null };
+}
+
 export function buildMessages(
   history: StoredMessage[],
   char: Character,

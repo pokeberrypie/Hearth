@@ -55,6 +55,18 @@ export type GenerateArgs = {
   fitReply?: boolean;
 };
 
+/**
+ * A background asking set aside so a story reply could go first. A model on this phone or this network answers one
+ * request at a time; a reply asked for while the Steward was reading waited the whole reading out. Not a failure:
+ * whoever asked tries again later.
+ */
+export class YieldedToReply extends Error {
+  constructor() { super("Set aside for a story reply; it goes again later."); this.name = "YieldedToReply"; }
+}
+
+/** Background askings in flight to each local server, so a story reply can set them aside. */
+const background = new Map<string, Set<AbortController>>();
+
 /** The server's context is smaller than what was asked: how big each part was, so the asker can make it fit. */
 export class ContextFull extends Error {
   constructor(message: string, readonly nPrompt: number, readonly nCtx: number, readonly reply: number) { super(message); }
@@ -223,9 +235,34 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
    * finishes) sent no error and no answer, and a run waiting on it held its place until the app was restarted: every
    * later run refused as "already going". A story reply has its own signal, and its own stop button.
    */
-  const limit = isLocalBase(t.base) ? LOCAL_TIMEOUT_MS : BACKGROUND_TIMEOUT_MS;
-  if (!a.signal && !a.sampling.stream) a = { ...a, signal: AbortSignal.timeout(limit) };
+  const local = isLocalBase(t.base);
+  const limit = local ? LOCAL_TIMEOUT_MS : BACKGROUND_TIMEOUT_MS;
+  // A background asking: its own time limit, and on a local server, its place given up to a story reply. Made by
+  // hand, not with AbortSignal.any: the phone's Node has no such thing.
+  let own: AbortController | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (!a.signal && !a.sampling.stream) {
+    own = new AbortController();
+    const mine = own;
+    timer = setTimeout(() => mine.abort(new DOMException("The operation timed out.", "TimeoutError")), limit);
+    a = { ...a, signal: own.signal };
+    if (local) {
+      if (!background.has(t.base)) background.set(t.base, new Set());
+      background.get(t.base)!.add(own);
+    }
+  } else if (local && a.sampling.stream) {
+    // A story reply: anything the background has waiting on this server steps aside for it.
+    for (const c of background.get(t.base) ?? []) c.abort(new YieldedToReply());
+  }
+  try {
+    yield* send(a, t, key, limit);
+  } finally {
+    clearTimeout(timer);
+    if (own) background.get(t.base)?.delete(own);
+  }
+}
 
+async function* send(a: GenerateArgs, t: ReturnType<typeof resolveTarget>, key: string, limit: number): AsyncGenerator<Chunk> {
   let res: Response;
   try {
     res =
@@ -233,7 +270,9 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
       : t.wire === "responses" ? await callResponses(a, t.base)
       : await callOpenAI(a, t.base);
   } catch (e: any) {
-    if (e?.name === "TimeoutError") throw new Error(`${t.label} had not answered after ${limit / 60000} minutes, and was given up on.`);
+    const why = a.signal?.aborted ? a.signal.reason : e;
+    if (why instanceof YieldedToReply) throw why;
+    if (why?.name === "TimeoutError" || e?.name === "TimeoutError") throw new Error(`${t.label} had not answered after ${limit / 60000} minutes, and was given up on.`);
     throw unreachable(t.base, e) ?? e;
   }
 
@@ -281,6 +320,7 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
    */
   if (!a.sampling.stream) {
     const json: any = await res.json().catch((e: any) => {
+      if (a.signal?.reason instanceof YieldedToReply) throw a.signal.reason;
       if (e?.name === "TimeoutError" || e?.name === "AbortError") throw new Error(`${t.label} had not finished answering after ${limit / 60000} minutes, and was given up on.`);
       return null;
     });

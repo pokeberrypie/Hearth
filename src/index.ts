@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
-import { ContextFull, generate, PROVIDERS, type ChatMessage } from "./providers";
+import { ContextFull, generate, isLocalBase, PROVIDERS, YieldedToReply, type ChatMessage } from "./providers";
 
 /**
  * The connection half of a generate() call, from settings.
@@ -30,7 +30,7 @@ function connectionFrom(s: Record<string, string>, provider = s.provider) {
 }
 import { dirname, join } from "node:path";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { buildParts, buildMessages, buildPostHistory, estimateTokens, macros, stripSpeakerLabel, type Character } from "./prompt";
+import { buildParts, buildMessages, buildPostHistory, estimateTokens, macros, stripSpeakerLabel, windowOf, type Character } from "./prompt";
 import { namedIn, recall, recallBrief, related } from "./recall";
 import { active as stillGoing, gossipDay, gossipOf, told as knowingTold, willSpread, type Knowing } from "./whispers";
 import { entryFromNote, freshCount, isDue, messagesForNote, notePrompt, parseNote, NOTE_SYSTEM, type Scope } from "./autolore";
@@ -1087,6 +1087,8 @@ function sampling(s: Record<string, string>) {
  * saved after you thought you had cancelled it.
  */
 const running = new Map<string, AbortController>();
+/** Replies stopped because a newer one began: dropped, not saved, so the newer one is the only one the chat gets. */
+const superseded = new WeakSet<AbortController>();
 
 api.post("/chats/:id/stop", (c) => {
   const ac = running.get(c.req.param("id"));
@@ -1115,6 +1117,26 @@ api.get("/chats/:id/running", (c) =>
  * uses. Do not rebuild any of it here: an inspector that can disagree with the
  * real prompt is worse than no inspector at all.
  */
+/** Where each chat's window of the conversation begins (see windowOf). Kept while the server runs; lost, it is chosen again. */
+const windows = new Map<string, string | null>();
+/**
+ * A smaller budget for a chat whose server proved to hold less than Hearth's settings send: learnt once, kept — for
+ * that server only. Moved to a bigger model, the chat has its whole budget back.
+ */
+const fitBudgets = new Map<string, { server: string; tokens: number }>();
+const serverOf = (s: Record<string, string>) => `${s.provider}|${s.provider === "custom" ? s.custom_base ?? "" : ""}|${s.model}`;
+/**
+ * Whether the conversation's window is held steady (see windowOf): for a model on this device or this network, which
+ * keeps what it has read and is slow to read it again. Elsewhere the newest that fits, as it always was.
+ */
+const steadyWindow = (s: Record<string, string>) => s.provider === "custom" && isLocalBase(String(s.custom_base ?? ""));
+/** How much of the conversation a chat may send: the setting, or less if its server has said it holds less. */
+function historyBudget(chatId: string, s: Record<string, string>) {
+  const set = Number(s.context_tokens) > 0 ? Number(s.context_tokens) : 8000;
+  const fit = fitBudgets.get(chatId);
+  return fit && fit.server === serverOf(s) ? Math.min(set, fit.tokens) : set;
+}
+
 /**
  * A story made to fit a server whose context is smaller than Hearth's settings: the oldest messages left out until
  * what is sent, with room for the whole reply, is inside it. The server said how many tokens it was sent, so
@@ -1239,6 +1261,10 @@ api.post("/chats/:id/generate", async (c) => {
   );
 
   const ac = new AbortController();
+  // One reply per chat at a time. One still going — its page gone, its connection dropped — is stopped and let go,
+  // not left to run unseen: a model on a phone answers one request at a time, and the new reply waited behind it.
+  const before = running.get(chatId);
+  if (before) { superseded.add(before); before.abort(); }
   running.set(chatId, ac);
   /*
    * A dropped connection deliberately does NOT stop the reply.
@@ -1334,6 +1360,9 @@ api.post("/chats/:id/generate", async (c) => {
             if (!(err instanceof ContextFull) || attempt > 0 || full || think || ac.signal.aborted) throw err;
             const fit = fitToContext(shaped.system, messages, err);
             messages = fit.messages;
+            // And remembered, so the next turns are sent to fit the first time, from a window that holds still.
+            fitBudgets.set(chatId, { server: serverOf(s), tokens: Math.max(500, Math.floor(fit.messages.reduce((n, m) => n + estimateTokens(String(m.content)) + 4, 0) * 0.9)) });
+            windows.delete(chatId);
             // Even the newest messages alone are too many: then the reply's room is cut, as for any other asking.
             fitReply = !fit.fits;
             console.log(`[fit] the story was ${err.nPrompt} tokens with ${err.reply} for the reply, in ${err.nCtx}: ${fit.dropped} of the oldest messages left out.`);
@@ -1356,6 +1385,15 @@ api.post("/chats/:id/generate", async (c) => {
         }
 
         if (failed) return;
+        if (superseded.has(ac)) { send({ stopped: true }); return; }
+        // Nothing for the story: not saved as an empty message with only its numbers on it, and said why. A thinking
+        // model can spend the whole reply on thinking, which is kept out of the story and shown nowhere else.
+        if (!full.trim() && !ac.signal.aborted && mode !== "continue") {
+          send({ error: think.trim()
+            ? `The model spent the whole reply thinking and wrote nothing for the story (${tokens || Math.round(think.length / 4)} tokens of thinking). Set Thinking to "No thinking" in generation settings, raise Reply length, or use a model that does not think (Qwen3's Instruct-2507).`
+            : "The model sent back nothing for the story. Try again; if it keeps happening, try another model." });
+          return;
+        }
         // Stopped before any prose arrived — during the thinking phase, say.
         // Saving an empty message would put a blank plate in the thread.
         if (ac.signal.aborted && !full) { send({ stopped: true }); return; }
@@ -2938,8 +2976,13 @@ export function assemble(
          + " WHERE sh.chat_id = ? AND sh.open = 1")
     .get(chat.id) as any;
   const manyHands = (sharedWith?.n ?? 0) > 0;
+  // The conversation's window: steady from turn to turn, so a server that keeps what it has read reads only what is
+  // new (see windowOf). Already within the budget, so buildMessages is given no further one to apply.
+  const win = steadyWindow(s) ? windowOf(history, historyBudget(chat.id, s), windows.get(chat.id))
+    : windowOf(history, historyBudget(chat.id, s), null, 1);
+  windows.set(chat.id, win.from);
   const messages = buildMessages(
-    history, char, me.name, Number(s.context_tokens), others.length > 0, manyHands);
+    win.kept, char, me.name, Number.MAX_SAFE_INTEGER, others.length > 0, manyHands);
   if (mode === "silent" && messages[messages.length - 1]?.role === "assistant") {
     messages.push({ role: "user", content: `(${me.name} says nothing.)` });
   }
@@ -3757,18 +3800,11 @@ function recordEvent(chatId: string, fields: Partial<ChronicleEntry>) {
  */
 function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEntry[], cal: Calendar, threads: string[],
   history?: { id: string; content: string }[]) {
-  // The conversation as this reply will see it — without a reply being swiped away, with words not yet sent — newest first.
-  const rows = history ? [...history].reverse()
-    : db.query("SELECT id, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC").all(chat.id) as any[];
-  const budget = Number(s.context_tokens) > 0 ? Number(s.context_tokens) : 8000;
-  const inContext = new Set<string>();
-  let used = 0;
-  for (const r of rows) {
-    const cost = estimateTokens(r.content) + 4;
-    if (used + cost > budget && inContext.size) break;
-    used += cost;
-    inContext.add(r.id);
-  }
+  // The conversation as this reply will see it — without a reply being swiped away, with words not yet sent — and
+  // the same window of it the reply is sent (see windowOf), so what counts as out of view agrees with what is.
+  const rows = history ?? db.query("SELECT id, content FROM messages WHERE chat_id = ? ORDER BY created_at, rowid").all(chat.id) as any[];
+  const inContext = new Set<string>((steadyWindow(s) ? windowOf(rows, historyBudget(chat.id, s), windows.get(chat.id))
+    : windowOf(rows, historyBudget(chat.id, s), null, 1)).kept.map((r: any) => r.id));
   const people = peopleOf(chat);
   const when = (e: ChronicleEntry) => (e.day !== null ? formatDate(cal, { day: e.day, minute: e.minute ?? 0 }) : "");
   return recall({
@@ -3776,7 +3812,8 @@ function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEnt
     bonds: bondsOf(entries),
     present: people.filter((p) => p.present).map((p) => p.name),
     everyone: [...new Set([...people.map((p) => p.name), ...peopleOfChat(chat.id)])],
-    recent: rows.slice(0, 6).map((r) => r.content).join("\n"),
+    // The scene now: the newest six, newest first.
+    recent: rows.slice(-6).reverse().map((r: any) => r.content).join("\n"),
     inContext,
     threads,
     when,
@@ -4460,16 +4497,16 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
   const mine = Date.now();
   offstageBusy.set(chatId, mine);
   try {
-    const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string } =
+    const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string; yielded?: boolean } =
       await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
     // Once a day, and when run by hand: what the chat's own cast want, in the scene or away.
-    if (!o.midday) {
+    if (!o.midday && !r.yielded) {
       const w = await castWantsOf(chatId).catch((e: any) => ({ goals: 0, ended: 0, error: e?.message || "" }));
       if (w.goals || w.ended) {
         r.goals = (r.goals ?? 0) + w.goals;
         const said = [w.goals && `${w.goals} of the cast came to want something`, w.ended && `${w.ended} of their aims ended`].filter(Boolean).join("; ");
         r.note = [r.note, said].filter(Boolean).join(" · ");
-      } else if (w.error && !r.error) r.note = [r.note, `The cast's wants could not be read: ${w.error}`].filter(Boolean).join(" · ");
+      } else if (w.error && !r.error && !/Set aside for a story reply/.test(w.error)) r.note = [r.note, `The cast's wants could not be read: ${w.error}`].filter(Boolean).join(" · ");
     }
     logOffstage(chatId, o.manual ? "manual" : o.midday ? "midday" : "day", r);
     return r;
@@ -4821,6 +4858,8 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
       ({ said, thought, stop } = await askOffstage(conn, fold, OFFSTAGE_SYSTEM, prompt,
         (_s, th) => !!th.trim() && readable(readDecision(th.slice(-6000)))));
     } catch (e: any) {
+      // Set aside for a story reply: not a failure, and the day is not spent — it goes again later.
+      if (e instanceof YieldedToReply) return { acted, quiet, threats, note: "Set aside for your reply; the world offstage goes again later.", yielded: true };
       const error = e?.message || "The Offstage could not be reached.";
       offstageProblems.set(chatId, error);
       return { acted, quiet, threats, error };
@@ -5079,7 +5118,9 @@ export async function offstageTurn(chatId: string) {
   if (chat.offstage_day < 0) { db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId); return; }
   if (day > chat.offstage_day) {
     db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
-    await offstageRun(chatId);
+    const r: any = await offstageRun(chatId);
+    // Set aside for a reply before it could move anyone: the new day is still to come, after the next one.
+    if (r?.yielded && !r.acted) db.query("UPDATE chats SET offstage_day = ? WHERE id = ? AND offstage_day = ?").run(chat.offstage_day, chatId, day);
     return;
   }
   // A long stretch of one day — a feast, a siege, a slow evening — still gives the world its turn:
@@ -5511,6 +5552,12 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
       if (said.length > 8000) break;
     }
   } catch (e: any) {
+    // Set aside for a story reply: not a failed reading. Its place is put back, so these messages are read next
+    // time, and nothing is recorded that would make it wait before trying again.
+    if (e instanceof YieldedToReply) {
+      db.query("UPDATE chats SET steward_at = ? WHERE id = ? AND steward_at = ?").run(readFrom, chat.id, upTo);
+      return { kept: 0, proposed: 0, dropped: 0, problem: "", yielded: true };
+    }
     problem = e?.message || "The Steward could not be reached.";
   }
   // Some services hand back a thinking model's lines as its thinking and leave the answer empty.
@@ -5642,7 +5689,7 @@ export async function stewardTurn(chatId: string) {
   const total = await stewardRun(chat, fresh.slice(-40), s);
   // The day it may just have turned is the Offstage's cue. Asked after each reply too, it asked before this
   // reading was done — so a new day was only ever noticed a reply late.
-  if (!total.problem) await offstageTurn(chatId).catch(() => {});
+  if (!total.problem && !(total as any).yielded) await offstageTurn(chatId).catch(() => {});
 }
 
 /** Whether the Steward is on, what became of its last reading, and how many messages until the next. */
