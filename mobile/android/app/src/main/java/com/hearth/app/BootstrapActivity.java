@@ -27,6 +27,13 @@ import android.widget.Toast;
  */
 public class BootstrapActivity extends Activity {
   private static final int ENGINE_REQUEST = 41;
+  /**
+   * When the engine was quietly started again after Android took it away. Android ends a background process to
+   * free memory — a model server beside Hearth holding gigabytes makes that common — and the engine, in its own
+   * process, went while this launcher stayed: which read as a crash, "ENGINE_PROCESS_DIED", for a Hearth that
+   * had been running perfectly well. Three such ends inside a minute is no longer Android tidying up.
+   */
+  private final java.util.ArrayDeque<Long> quietRestarts = new java.util.ArrayDeque<>();
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -53,6 +60,18 @@ public class BootstrapActivity extends Activity {
       // MainActivity exited on purpose (the user backed out of a working app).
       finish();
       return;
+    }
+    // Nothing recorded: the engine had come up and cleared its markers (MainActivity.onPageFinished), so it did not
+    // fail on its way up — it was ended from outside. Started again, without a crash report, unless it keeps happening.
+    if (!Diagnostics.hasFailure(this)) {
+      long now = android.os.SystemClock.elapsedRealtime();
+      while (!quietRestarts.isEmpty() && now - quietRestarts.peekFirst() > 60_000L) quietRestarts.pollFirst();
+      if (quietRestarts.size() < 3) {
+        quietRestarts.addLast(now);
+        showStarting();
+        startEngine();
+        return;
+      }
     }
     showFailure();
   }
