@@ -1476,7 +1476,9 @@ api.post("/chats/:id/generate", async (c) => {
          * still not leave a Marla behind, and a reply that *was* saved must
          * have her, or the next prompt describes a taproom with nobody in it.
          */
-        if (getSettings().mode === "tabletop") full = applyVerbs(chatId, full, a.playerId);
+        // Not for words written for the player to send, or not: those are a draft, saved nowhere, and what they marked
+        // would be tied to no message and outlive every swipe.
+        if (getSettings().mode === "tabletop" && mode !== "impersonate") full = applyVerbs(chatId, full, a.playerId);
 
         // And extensions get the reply before it is saved, so what an
         // extension changes is what the chat keeps rather than a display trick
@@ -1537,10 +1539,12 @@ api.post("/chats/:id/generate", async (c) => {
         // And the Steward, on the same terms: a failed reading is a gap in the
         // records, never a broken reply.
         if (!failed && !ac.signal.aborted) stewardTurn(chatId).catch(() => {});
-        // A threat that was let in has had its reply; it was a scene to start, not a standing order.
+        // The threat this reply was handed has had its reply; it was a scene to start, not a standing order. Only that
+        // one — any other waits its turn — and marked with the reply that played it, so a swipe gives it back.
         if (!failed && !ac.signal.aborted) {
-          db.query(`UPDATE chronicle SET undone_at = ? WHERE chat_id = ? AND kind = 'threat' AND undone_at IS NULL AND created_at < ?${getSettings().offstage_threat_ask === "1" ? " AND proposed = 0" : ""}`)
-            .run(now(), chatId, t0);
+          const played = threatToPlay(chronicleOf(chatId), t0);
+          if (played) db.query("UPDATE chronicle SET undone_at = ?, data = ? WHERE id = ?")
+            .run(now(), JSON.stringify({ ...dataOf(played), played_by: savedId }), played.id);
         }
         // News that was due: did this reply bring it in? If not, it is offered again — a few times, then dropped.
         if (!failed && !ac.signal.aborted) { try { settleNews(chatId, full, savedId); } catch (e) { console.error("[news]", e); } }
@@ -1582,6 +1586,8 @@ api.post("/messages/:id/swipe", async (c) => {
   if (index !== m.swipe_index) forgetSteward([m.id]);
   db.query("UPDATE messages SET content = ?, swipe_index = ? WHERE id = ?")
     .run(list[index], index, m.id);
+  // The take chosen opens on its own time — "Two days later" — read as a new reply's is.
+  if (index !== m.swipe_index && m.role === "assistant") openingTime(m.chat_id, m.id, String(list[index] ?? ""));
   return c.json({ ok: true, content: list[index] });
 });
 
@@ -1684,8 +1690,21 @@ api.post("/import/settings", async (c) => {
 api.put("/messages/:id", async (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
   const { content } = await c.req.json();
+  const m = db.query("SELECT chat_id, role, swipes, swipe_index FROM messages WHERE id = ?").get(c.req.param("id")) as any;
   forgetSteward([c.req.param("id")]);
-  db.query("UPDATE messages SET content = ? WHERE id = ?").run(content, c.req.param("id"));
+  // The take on screen is the one changed: kept in its place among the swipes too, or moving away from it and back
+  // would bring the old words back — and the Story World, which read the new ones, would disagree with the story.
+  let swipes = m?.swipes ?? null;
+  try {
+    const list = JSON.parse(swipes || "null");
+    if (Array.isArray(list) && Number.isInteger(m.swipe_index) && m.swipe_index >= 0 && m.swipe_index < list.length) {
+      list[m.swipe_index] = content;
+      swipes = JSON.stringify(list);
+    }
+  } catch {}
+  db.query("UPDATE messages SET content = ?, swipes = ? WHERE id = ?").run(content, swipes, c.req.param("id"));
+  // The time it opens on was taken back with the old words; read again from the new ones, as a new reply's is.
+  if (m?.role === "assistant") openingTime(m.chat_id, c.req.param("id"), String(content ?? ""));
   return c.json({ ok: true });
 });
 
@@ -2177,7 +2196,21 @@ api.post("/messages/:id/branch", (c) => {
    * branches made from here on: a branch that already shares a book is left
    * sharing it until somebody asks for it to be split (/own-notes, below).
    */
-  ownNotesBook(newId);
+  const notes = ownNotesBook(newId);
+  // The copy as the book stood at the fork. What was added after the story went on past this point — notes on
+  // scenes the branch never had, a goal "come to pass" in the parent's later days — is the parent's future, not
+  // the branch's. Kept: anything written before the next message after the fork existed, which is what the branch has.
+  const next = (db.query("SELECT MIN(created_at) t FROM messages WHERE chat_id = ? AND created_at > ?").get(src.id, m.created_at) as any)?.t;
+  if (notes && next) {
+    const book = db.query("SELECT entries FROM lorebooks WHERE id = ?").get(notes) as any;
+    try {
+      const all = JSON.parse(book?.entries || "[]");
+      if (Array.isArray(all)) {
+        const kept = all.filter((e: any) => !(Number(e?.added_at) >= next));
+        if (kept.length !== all.length) db.query("UPDATE lorebooks SET entries = ? WHERE id = ?").run(JSON.stringify(kept), notes);
+      }
+    } catch {}
+  }
 
   return c.json({ id: newId, copied: rows.length });
 });
@@ -2751,8 +2784,10 @@ function assembleWith(
   // Continue resumes the last reply and swipe replaces it. Either way that
   // message leaves the history, or the model is asked to write it twice.
   let prefill: string | undefined;
+  let replacing: string | null = null;
   if ((mode === "continue" || mode === "swipe") && history[history.length - 1]?.role === "assistant") {
     if (mode === "continue") prefill = history[history.length - 1].content;
+    else replacing = history[history.length - 1].id ?? null;
     history = history.slice(0, -1);
   }
 
@@ -3105,7 +3140,7 @@ ${DICE_BRIEF}` : DICE_BRIEF;
   const tale = taleBrief(chat.id);
   // And the record of what is so: the date, and how everyone is.
   const remembered: { value?: ReturnType<typeof recall> } = {};
-  const storyWorld = worldBrief(chat, s, history, remembered);
+  const storyWorld = worldBrief(chat, s, history, remembered, replacing);
 
   if (s.mode === "tabletop") {
     const table: string[] = [];
@@ -3878,11 +3913,13 @@ function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEnt
 
 function worldBrief(chat: any, s: Record<string, string>, history?: { id: string; content: string }[],
   /** Filled with what was remembered and why, for the prompt inspector. */
-  remembered?: { value?: ReturnType<typeof recall> }): string | null {
+  remembered?: { value?: ReturnType<typeof recall> },
+  /** A swipe: the take it replaces, whose world is not this take's to be written from. */
+  replacing: string | null = null): string | null {
   // Story World off: a plain story, with nothing of it in the prompt.
   if (s.story_world === "0") return null;
   const cal = calendarOf(chat.id);
-  const entries = chronicleOf(chat.id);
+  const entries = asIfUnsaid(chronicleOf(chat.id), replacing);
   // Each part with how much it matters, so that when there is not room for all of it, what goes first is what the
   // next reply can most do without: rumours before the people in the room, never the date or a threat at the door.
   const lines: { text: string; keep: number }[] = [];
@@ -4391,8 +4428,12 @@ function notesBookFor(chatId: string): any | null {
   const own = chat.auto_lore_book_id
     ? db.query("SELECT * FROM lorebooks WHERE id = ? AND deleted_at IS NULL").get(chat.auto_lore_book_id) as any : null;
   if (own) return own;
+  // The one made for this below, found again — never just any book linked to the chat. That was the first one linked,
+  // which could be the author's own world book, shared with other stories: what came to pass in this one was written
+  // into it, and every other chat reading that book was told it.
   const linked = db.query(`SELECT lorebooks.* FROM lorebooks JOIN lorebook_links ON lorebook_links.book_id = lorebooks.id
-    WHERE lorebook_links.scope = 'chat' AND lorebook_links.target_id = ? AND lorebooks.deleted_at IS NULL ORDER BY lorebooks.created_at LIMIT 1`).get(chatId) as any;
+    WHERE lorebook_links.scope = 'chat' AND lorebook_links.target_id = ? AND lorebooks.deleted_at IS NULL
+      AND lorebooks.name LIKE '% — what came to pass%' ORDER BY lorebooks.created_at LIMIT 1`).get(chatId) as any;
   if (linked) return linked;
   const id = uid();
   db.query("INSERT INTO lorebooks (id, name, entries, created_at, world) VALUES (?,?,?,?,?)")
@@ -4447,7 +4488,15 @@ function viewFor(chat: any, who: string, entries: ChronicleEntry[], cal: Calenda
   const status = statusOf(entries)[who] ?? {};
   const card = db.query("SELECT description, personality FROM characters WHERE name = ? LIMIT 1").get(who) as any;
   const mine = live.filter((e) => e.kind === "offstage" && e.subject === who);
-  const known = live.filter((e) => e.kind === "event" && e.visibility !== "private" && namesIn(`${e.title} ${e.body}`, who))
+  // Events they were at. Where the Steward wrote down who was there, that is who knows it: "Yvenna plans her escape
+  // from Locke" names Locke, and he was not in the room. Without a list, being named in it is the best there is.
+  const wasThere = (e: ChronicleEntry) => {
+    const there = /^With (.+)\.$/.exec(e.body ?? "");
+    // By their own name, never their house: "Jaime Lannister" in the room does not put Cersei Lannister there.
+    return there ? there[1].split(/,\s*/).some((p) => p.trim().toLowerCase() === who.toLowerCase() || meansPerson(p, who))
+      : meansPerson(`${e.title} ${e.body}`, who);
+  };
+  const known = live.filter((e) => e.kind === "event" && e.visibility !== "private" && wasThere(e))
     .slice(-12).map((e) => `${e.day !== null ? `${formatDate(cal, { day: e.day, minute: e.minute ?? 0 })}: ` : ""}${e.title}${e.body ? ` (${e.body})` : ""}`);
   // What they have seen, found or been told — their version, garbled or not.
   known.push(...knowingsOf(entries).filter((k) => k.holder === who).slice(-6).map((k) => knowingTold(k, "self")));
@@ -4567,7 +4616,7 @@ async function askOffstage(conn: any, fold: boolean, system: string, prompt: str
     for await (const chunk of generate({
       ...conn, system: fold ? "" : system,
       messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
-      sampling: { temperature: 0.8, maxTokens, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort },
+      sampling: { temperature: 0.8, maxTokens: answerRoom(maxTokens, system + prompt), topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort },
     })) {
       if (chunk.kind === "text") said += chunk.text;
       else if (chunk.kind === "reasoning") thought += chunk.text;
@@ -4592,7 +4641,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
   const began = offstageBusy.get(chatId);
   if (began && Date.now() - began < OFFSTAGE_STALE_MS) {
     const mins = Math.round((Date.now() - began) / 60_000);
-    return { acted: 0, quiet: 0, threats: 0, note: `The world offstage is already taking its turn — it began ${mins < 1 ? "moments" : `${mins} minute${mins === 1 ? "" : "s"}`} ago. Its result will be under Its last runs.` };
+    return { acted: 0, quiet: 0, threats: 0, busy: true, note: `The world offstage is already taking its turn — it began ${mins < 1 ? "moments" : `${mins} minute${mins === 1 ? "" : "s"}`} ago. Its result will be under Its last runs.` };
   }
   const mine = Date.now();
   offstageBusy.set(chatId, mine);
@@ -4655,7 +4704,11 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
   const active = agendasOf(entries).filter((g) => g.status === "active" && g.who);
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
-  const recent = (db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 10").all(chatId) as any[]).reverse();
+  const asOf = storyMark();
+  const recent = (db.query("SELECT id, name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 10").all(chatId) as any[]).reverse();
+  // What it reads is the scene as it stands: what it makes of it — a goal come to pass, a new one taken up — is that
+  // scene's, and goes with it when it is swiped. A goal "achieved" in a take nobody kept was never achieved.
+  const from = recent.at(-1)?.id ?? null;
   const recap = latestRecap(chat);
   const lineFor = (m: any) => {
     const theirs = active.filter((g) => g.who === m.name);
@@ -4697,7 +4750,7 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
     if (!g) continue;
     ending.add(g.id);
     add.push(normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: "", source: "offstage", visibility: "private",
-      day: at.day, minute: at.minute, created_at: t++,
+      message_id: from, day: at.day, minute: at.minute, created_at: t++,
       data: { of: g.id, status: /DONE|ACHIEVED/i.test(m[1]) ? "achieved" : "abandoned", how: (m[4] ?? "").trim().slice(0, 300) } }));
   }
   const still = active.filter((g) => !ending.has(g.id));
@@ -4709,8 +4762,9 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
     if (once.has(g.who)) continue;
     once.add(g.who);
     add.push(normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: g.goal, body: g.why, source: "offstage",
-      visibility: "private", day: at.day, minute: at.minute, created_at: t++, data: { cast: true } }));
+      visibility: "private", message_id: from, day: at.day, minute: at.minute, created_at: t++, data: { cast: true } }));
   }
+  if (movedOn(recent.map((r) => r.id), asOf)) return { goals: 0, ended: 0, note: "The story changed while the cast was being read; nothing was kept." };
   if (add.length) copyChronicle(add, chatId);
   if (!add.length && !answer.trim()) return { goals: 0, ended: 0, error: emptyAnswer(said, stop) };
   return { goals: once.size, ended: ending.size };
@@ -4817,22 +4871,28 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
  * so the Offstage reads the story once more and gives the people it touches something new to want. Not
  * awaited: the reply that told of it is already done.
  */
-function afterDeaths(chatId: string, deaths: { who: string; evidence: string }[]) {
-  endGoalsOf(chatId, deaths.map((d) => d.who));
+/**
+ * What follows from a death — the dead's goals ended, the living stirred by it — belongs to the words it was read
+ * from, as the death does: a take swiped away takes the death back, and with it everything that came of it. Before,
+ * only the death went; the revenge it stirred and the goals it ended stayed, from a scene that never happened.
+ */
+function afterDeaths(chatId: string, deaths: { who: string; evidence: string; message_id?: string | null }[]) {
+  const from = deaths.map((d) => d.message_id).filter(Boolean).at(-1) ?? null;
+  endGoalsOf(chatId, deaths.map((d) => d.who), from);
   const s = getSettings();
   if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
-  offstageStir(chatId, deaths.map((d) => `${d.who} has died: "${d.evidence}"`), "death").catch(() => {});
+  offstageStir(chatId, deaths.map((d) => `${d.who} has died: "${d.evidence}"`), "death", from).catch(() => {});
 }
 
 /** The goals of the dead end with them, marked as such. */
-function endGoalsOf(chatId: string, who: string[]) {
+function endGoalsOf(chatId: string, who: string[], from: string | null = null) {
   const entries = chronicleOf(chatId);
   const at = clockOf(calendarOf(chatId), entries);
   let t = now();
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   const ended = agendasOf(entries).filter((g) => g.status === "active" && who.some((w) => same(w, g.who)))
     .map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: "", source: "offstage", visibility: "private",
-      day: at.day, minute: at.minute, created_at: t++, data: { of: g.id, status: "died" } }));
+      message_id: from, day: at.day, minute: at.minute, created_at: t++, data: { of: g.id, status: "died" } }));
   if (ended.length) copyChronicle(ended, chatId);
 }
 
@@ -4841,14 +4901,15 @@ function endGoalsOf(chatId: string, who: string[]) {
  * wants it changes — at court, in the city, wherever the news reaches — and what each wants now. They are
  * given those goals, and with them a place in the world offstage, whether or not they had one before.
  */
-async function offstageStir(chatId: string, news: string[], kind = "stir") {
-  const r: { goals: number; note?: string; error?: string } = await stirOf(chatId, news).catch((e: any) => ({ goals: 0, error: e?.message || "The Offstage could not be reached." }));
+async function offstageStir(chatId: string, news: string[], kind = "stir", from: string | null = null) {
+  const r: { goals: number; note?: string; error?: string } = await stirOf(chatId, news, from).catch((e: any) => ({ goals: 0, error: e?.message || "The Offstage could not be reached." }));
   logOffstage(chatId, kind, { goals: r.goals, note: r.goals ? `Stirred by: ${news.join("; ").slice(0, 200)}` : r.note, error: r.error });
   return r;
 }
 
-async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; note?: string; error?: string }> {
+async function stirOf(chatId: string, news: string[], from: string | null = null): Promise<{ goals: number; note?: string; error?: string }> {
   const s = getSettings();
+  const asOf = storyMark();
   const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
   if (!chat) return { goals: 0, error: "No such chat." };
   const entries = chronicleOf(chatId);
@@ -4886,6 +4947,8 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
     ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*(GOAL|DEAD)\W*\|/im.test(fielded(th))));
   } catch (e: any) { return { goals: 0, error: e?.message || "The Offstage could not be reached." }; }
   const answer = fielded(withoutThinking(said).trim() || thought);
+  // The death it was stirred by swiped away while it read: nothing of it stands.
+  if (movedOn([from], asOf)) return { goals: 0, note: "The story changed while the world was answering it; nothing was kept." };
   // Deaths it read, recorded only for a name the story or the news itself uses: a reading cannot kill anyone.
   const given = `${news.join(" ")} ${rows.map((r) => r.content).join(" ")}`.toLowerCase();
   let t0 = now();
@@ -4893,16 +4956,16 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
     .filter((n) => n && !saysNothing(n) && n.toLowerCase() !== player.toLowerCase() && !dead.has(n) && given.includes(n.toLowerCase())).slice(0, 4);
   if (died.length) {
     copyChronicle(died.map((n) => normaliseChronicleEntry({ id: uid(), kind: "status", subject: n, field: "physical", title: "dead",
-      source: "offstage", day: at.day, minute: at.minute, created_at: t0++ })), chatId);
+      source: "offstage", message_id: from, day: at.day, minute: at.minute, created_at: t0++ })), chatId);
     for (const n of died) dead.add(n);
-    endGoalsOf(chatId, died);
+    endGoalsOf(chatId, died, from);
   }
   const goals = stirGoals(answer, { player, dead, active });
   if (!goals.length) return died.length ? { goals: 0, note: `Recorded as dead: ${died.join(", ")}.` }
     : { goals: 0, error: emptyAnswer(said, stop) };
   let t = t0;
   copyChronicle(goals.map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: g.goal, body: g.why,
-    source: "offstage", visibility: "private", day: at.day, minute: at.minute, created_at: t++, data: { stirred: news[0]?.slice(0, 200) ?? "" } })), chatId);
+    source: "offstage", visibility: "private", message_id: from, day: at.day, minute: at.minute, created_at: t++, data: { stirred: news[0]?.slice(0, 200) ?? "" } })), chatId);
   return { goals: goals.length };
 }
 
@@ -5283,7 +5346,9 @@ export const forgetPresence = () => presence.clear();
  */
 async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnection>, fold: boolean, cast: string[], player: string,
   recent: { name?: string; content: string }[], lore: { name: string; content: string; recap: boolean }[]): Promise<string[] | null> {
-  const at = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? "";
+  const last = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? "";
+  // The message, and which take of it: a swipe or an edit keeps the id, and may have walked someone out of the room.
+  const at = `${last}:${changedAt.get(last) ?? 0}`;
   const known = presence.get(chatId);
   if (known && known.at === at) return known.here;
   const system = "You read where a story is right now and say who is physically there. You never continue the story and never explain yourself.";
@@ -5300,7 +5365,7 @@ async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnect
     for await (const chunk of generate({
       ...conn, system: fold ? "" : system,
       messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
-      sampling: { temperature: 0, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+      sampling: { temperature: 0, maxTokens: answerRoom(BACKGROUND_TOKENS, system + prompt), topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
     })) {
       if (chunk.kind === "text") said += chunk.text;
       else if (chunk.kind === "reasoning") thought += chunk.text;
@@ -5335,12 +5400,29 @@ export async function offstageTurn(chatId: string) {
   const day = clockOf(calendarOf(chatId), chronicleOf(chatId)).day;
   // The first time, the day is only noted: turning this on does not set the world moving behind a scene already under way.
   if (chat.offstage_day < 0) { db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId); return; }
+  // The clock gone back — a misread "a year later" taken back by hand — and the world's day with it. Left ahead, the
+  // world would stand still until the story caught up with a day that never came; and what it had sent on its way,
+  // timed from that day, would keep it waiting as long. Both are brought back by as much as the clock was.
+  if (day < chat.offstage_day) {
+    const back = chat.offstage_day - day;
+    db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
+    const shift = db.query("UPDATE chronicle SET data = ? WHERE id = ?");
+    for (const e of liveEntries(chronicleOf(chatId))) {
+      const d = dataOf(e);
+      // Only what was sent from the days that did not happen: news sent before them is on its true way already.
+      if (e.day === null || e.day <= day) continue;
+      if (e.kind === "news" && d.state === "travelling") shift.run(JSON.stringify({ ...d, due: Math.max(day, Number(d.due) - back) }), e.id);
+      else if (e.kind === "hook" && Number.isFinite(Number(d.until))) shift.run(JSON.stringify({ ...d, until: Math.max(day, Number(d.until) - back) }), e.id);
+    }
+    return;
+  }
   if (day > chat.offstage_day) {
     db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
     const r: any = await offstageRun(chatId);
     // Set aside for a reply before it could move anyone: the new day is still to come, after the next one.
     // So is a day set aside because the story changed under it: the swipe undid what it had written, and it is owed.
-    if ((r?.yielded && !r.acted) || r?.setAside) db.query("UPDATE chats SET offstage_day = ? WHERE id = ? AND offstage_day = ?").run(chat.offstage_day, chatId, day);
+    // And a day that found the world still busy with the last one: it has not had its turn, and gets it next reply.
+    if ((r?.yielded && !r.acted) || r?.setAside || r?.busy) db.query("UPDATE chats SET offstage_day = ? WHERE id = ? AND offstage_day = ?").run(chat.offstage_day, chatId, day);
     return;
   }
   // A long stretch of one day — a feast, a siege, a slow evening — still gives the world its turn:
@@ -5364,10 +5446,7 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   const day = clockOf(calendarOf(chatId), entries).day;
   const facts = live.filter((e) => e.kind === "consequence").slice(-6).map((e) => e.title);
   const hooks = live.filter((e) => e.kind === "hook" && (dataOf(e).until ?? day) >= day).slice(-4).map((e) => e.title);
-  // A threat let in — or, when nobody is to be asked, one still waiting from when they were.
-  const threat = (getSettings().offstage_threat_ask === "1" ? live.filter((e) => e.kind === "threat")
-    : [...live.filter((e) => e.kind === "threat"), ...pending(entries).filter((e) => e.kind === "threat")]
-      .sort((a, b) => a.created_at - b.created_at)).at(-1);
+  const threat = threatToPlay(entries);
   const out: string[] = [];
   // Rumours held by people in the scene: theirs to bring up, believe or keep — never the truth of it.
   const s = getSettings();
@@ -5411,6 +5490,18 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
     out.push(`Bring this into the story now, as something happening in the scene: ${threat.title}. Play out the attempt, but do not decide whether it succeeds — the player's character may resist, escape or be helped. Never decide what they do, say or feel.`);
   }
   return out;
+}
+
+/**
+ * The threat the next reply plays: one let in — or, when nobody is to be asked, one still waiting from when they
+ * were — the oldest first, so one sent days ago is not put off for ever by each new one. One at a time: the others
+ * wait for the replies after.
+ */
+function threatToPlay(entries: ChronicleEntry[], before = Infinity) {
+  const mine = (e: ChronicleEntry) => e.kind === "threat" && e.created_at < before;
+  const live = liveEntries(entries).filter(mine);
+  return (getSettings().offstage_threat_ask === "1" ? live : [...live, ...pending(entries).filter(mine)])
+    .sort((a, b) => a.created_at - b.created_at)[0];
 }
 
 /** A line with the one who did it taken out of it: their name, and the part of it that is theirs, become "someone". */
@@ -5507,9 +5598,16 @@ function settleNews(chatId: string, reply: string, by = "") {
   const hits = keys.filter((k) => said.has(k)).length;
   const d = dataOf(news);
   const arrived = keys.length > 0 && hits >= Math.min(3, Math.max(2, Math.ceil(keys.length / 4)));
-  const tries = Number(d.tries ?? 0) + 1;
+  // A try is a turn of the story that let it go by — counted once for each message, however many times that
+  // message is swiped: ten takes of one reply are one chance missed, not ten, and a take swiped away gives its
+  // chance back (see forgetSteward). Before, eight swipes of a single reply could lose news nobody had seen.
+  // News from before this was kept has only its count: carried over, so nothing already pressing is let off.
+  const tried: string[] = Array.isArray(d.tried) ? d.tried.map(String) : Array.from({ length: Number(d.tries) || 0 }, (_, i) => `earlier-${i}`);
+  const turn = by || uid();
+  const nowTried = arrived || tried.includes(turn) ? tried : [...tried, turn].slice(-NEWS_PATIENCE * 2);
+  const tries = Math.max(nowTried.length, arrived ? Number(d.tries ?? 0) : 0);
   const state = arrived ? "arrived" : tries >= NEWS_PATIENCE ? "lost" : "travelling";
-  db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tries: arrived ? d.tries ?? 0 : tries, state, ...(arrived ? { by } : {}) }), news.id);
+  db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tries, tried: nowTried, state, ...(arrived ? { by } : {}) }), news.id);
   // Brought in, it is brought in once: the same event queued again — a plotter keeping at one scheme day after
   // day — has been played too, and is not played over.
   if (arrived) {
@@ -5636,10 +5734,10 @@ api.post("/chats/:id/offstage/news/:news", async (c) => {
   if (!e) return c.json({ error: "No such thing on its way." }, 404);
   const d = dataOf(e);
   const day = clockOf(calendarOf(chatId), entries).day;
-  const next = b.action === "now" ? { ...d, state: "travelling", due: day, tries: 0, first: true }
+  const next = b.action === "now" ? { ...d, state: "travelling", due: day, tries: 0, tried: [], first: true }
     : b.action === "skip" ? { ...d, state: "skipped" }
     // Not yet: a day of the story's time, then it is asked about again, its patience whole.
-    : b.action === "later" ? { ...d, state: "travelling", due: day + 1, tries: 0, first: false }
+    : b.action === "later" ? { ...d, state: "travelling", due: day + 1, tries: 0, tried: [], first: false }
     : null;
   if (!next) return c.json({ error: "Now, later or skip?" }, 400);
   db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify(next), e.id);
@@ -5778,6 +5876,25 @@ function movedOn(ids: (string | null | undefined)[], mark: number): boolean {
   return ids.some((id) => !!id && ((changedAt.get(id) ?? 0) > mark || !db.query("SELECT 1 FROM messages WHERE id = ?").get(id)));
 }
 
+/**
+ * The world as it would be had these words never been said: what forgetSteward does when a take is swiped away,
+ * done to a copy for the take that is to replace it. A swipe is the same turn again, so it is written from the
+ * world before the take it replaces — not after it: not from where that take left everyone, not three days on
+ * because it opened "Three days later", and still handed the threat and the news that take had played.
+ */
+function asIfUnsaid(entries: ChronicleEntry[], id: string | null): ChronicleEntry[] {
+  if (!id) return entries;
+  const t = now();
+  return entries.map((e) => {
+    if (e.message_id === id && !e.undone_at && (e.source === "steward" || e.source === "narrator" || e.source === "offstage")) return { ...e, undone_at: t };
+    if (e.kind === "threat" && e.undone_at && e.message_id !== id && dataOf(e).played_by === id) return { ...e, undone_at: null };
+    if (e.kind === "news" && !e.undone_at && dataOf(e).by === id && dataOf(e).state === "arrived") {
+      return { ...e, data: JSON.stringify({ ...dataOf(e), state: "travelling", tries: 0, tried: [], by: "" }) };
+    }
+    return e;
+  });
+}
+
 function forgetSteward(messageIds: string[], reread = true, narrator = true) {
   const t = now();
   // The Steward reading the same words again replaces its own; only a change to the words moves the story on.
@@ -5806,7 +5923,17 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
       // is the same reply, and what it brought in is still brought in.
       if (narrator) for (const n of db.query("SELECT id, data FROM chronicle WHERE chat_id = ? AND kind = 'news' AND undone_at IS NULL").all(m.chat_id) as any[]) {
         const d = (() => { try { return JSON.parse(n.data || "{}"); } catch { return {}; } })();
-        if (d.by === id && d.state === "arrived") db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "travelling", tries: 0, by: "" }), n.id);
+        if (d.by === id && d.state === "arrived") db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "travelling", tries: 0, tried: [], by: "" }), n.id);
+        // And a chance these words let go by is given back — and news they let go for good is on the road again.
+        else if (Array.isArray(d.tried) && d.tried.includes(id) && (d.state === "travelling" || d.state === "lost")) {
+          const tried = d.tried.filter((x: string) => x !== id);
+          db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tried, tries: tried.length, state: "travelling" }), n.id);
+        }
+      }
+      // So is a threat these words played: it has not come after all, and the next take is handed it again.
+      if (narrator) for (const n of db.query("SELECT id, data FROM chronicle WHERE chat_id = ? AND kind = 'threat' AND undone_at IS NOT NULL AND (message_id IS NULL OR message_id != ?)").all(m.chat_id, id) as any[]) {
+        const d = (() => { try { return JSON.parse(n.data || "{}"); } catch { return {}; } })();
+        if (d.played_by === id) { const { played_by: _, ...rest } = d; db.query("UPDATE chronicle SET undone_at = NULL, data = ? WHERE id = ?").run(JSON.stringify(rest), n.id); }
       }
       if (reread) rewind.run(m.created_at - 1, m.chat_id);
       chats.add(m.chat_id);
@@ -5831,6 +5958,35 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
  * "nothing happened". Room to think, and then to answer.
  */
 const BACKGROUND_TOKENS = 4000;
+
+/**
+ * The room a background asking may give its answer: what it wants, but never more than the Context size leaves
+ * once what it sends is counted — so it fits a small model without the server having to refuse it first. Never less
+ * than a short answer needs.
+ */
+function answerRoom(want: number, sent: string): number {
+  const context = Number(getSettings().context_tokens) > 0 ? Number(getSettings().context_tokens) : 0;
+  if (!context) return want;
+  return Math.max(512, Math.min(want, context - estimateTokens(sent) - 64));
+}
+
+/**
+ * As many of these messages, oldest first, as a reading can hold within the Context size, with the room its answer
+ * needs and the rest of what it is sent (its rules, the people, what is known of them). Always at least one.
+ */
+function thatFit<M extends { content?: string }>(rows: M[], s: Record<string, string>): M[] {
+  const context = Number(s.context_tokens) > 0 ? Number(s.context_tokens) : 8000;
+  const room = Math.max(1500, context - BACKGROUND_TOKENS - 2500);
+  const out: M[] = [];
+  let used = 0;
+  for (const m of rows) {
+    const cost = estimateTokens(String(m.content ?? "")) + 12;
+    if (out.length && used + cost > room) break;
+    out.push(m);
+    used += cost;
+  }
+  return out;
+}
 
 async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   const asOf = storyMark();
@@ -5890,7 +6046,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
       // Low and short: it reports, it does not write. No reasoning asked for;
       // what a model thinks anyway arrives as reasoning, or is cut out of the
       // text by steward.ts.
-      sampling: { temperature: 0.1, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0,
+      sampling: { temperature: 0.1, maxTokens: answerRoom(BACKGROUND_TOKENS, JSON.stringify((req as any).messages ?? "") + String((req as any).system ?? "")), topP: 1, minP: 0,
                   repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0,
                   stream: false, reasoningEffort: "off" },
     })) {
@@ -5938,7 +6094,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
       .filter((e) => e.kind === "time" && e.source !== "steward" && e.message_id).map((e) => e.message_id));
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
     const rank = { time: 0, event: 1, status: 2, death: 2, bond: 3, faction: 4, thread: 5, scene: 6 } as const;
-    const deaths: { who: string; evidence: string }[] = [];
+    const deaths: { who: string; evidence: string; message_id: string | null }[] = [];
     const set = await charges();
     const story = [...checked.claims].filter((c) => !(c.kind === "time" && timed.has(c.message_id))).sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
@@ -5992,7 +6148,7 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           subject: claim.subject, field: "physical", title: "dead",
           evidence: claim.evidence, source: "steward", created_at: t++,
         }));
-        deaths.push({ who: claim.subject, evidence: claim.evidence });
+        deaths.push({ who: claim.subject, evidence: claim.evidence, message_id: claim.message_id ?? null });
       } else {
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
@@ -6035,8 +6191,11 @@ export async function stewardTurn(chatId: string) {
     const since = fresh.filter((m) => m.created_at > last.created_at).length;
     if (!isDue(since, Number(s.steward_every) || 0)) return;
   }
-  // A long silence is read in its latest stretch, not handed over whole.
-  const total = await stewardRun(chat, fresh.slice(-40), s);
+  // A long silence is read in its latest stretch, not handed over whole — and only as much of it as the model can
+  // hold with room to answer: the rest is read next time. Sent whole, forty long replies were more than a phone's
+  // model holds; it refused, the reading was put back to be tried again, and it was refused again, every time — the
+  // Steward stuck for good on the one stretch, the story's date with it.
+  const total = await stewardRun(chat, thatFit(fresh.slice(-40), s), s);
   // The day it may just have turned is the Offstage's cue. Asked after each reply too, it asked before this
   // reading was done — so a new day was only ever noticed a reply late.
   if (!total.problem && !(total as any).yielded) await offstageTurn(chatId).catch(() => {});
@@ -6068,11 +6227,14 @@ api.post("/chats/:id/steward/now", async (c) => {
   const STRETCH = 20, MOST = 100;
   const total = { kept: 0, proposed: 0, dropped: 0, problem: "" };
   let read = 0;
-  for (let i = 0; i < Math.min(fresh.length, MOST); i += STRETCH) {
-    const r = await stewardRun(db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any, fresh.slice(i, Math.min(i + STRETCH, MOST)), s);
+  // Each stretch no more than the model holds (see thatFit): a long one is read in as many as it takes.
+  for (let i = 0; i < Math.min(fresh.length, MOST);) {
+    const stretch = thatFit(fresh.slice(i, Math.min(i + STRETCH, MOST)), s);
+    const r = await stewardRun(db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any, stretch, s);
     if (r.problem) { total.problem = r.problem; break; }
     total.kept += r.kept; total.proposed += r.proposed; total.dropped += r.dropped;
-    read += Math.min(STRETCH, MOST - i, fresh.length - i);
+    read += stretch.length;
+    i += stretch.length;
   }
   if (!total.problem) await offstageTurn(chatId).catch(() => {});
   return c.json({ ...chronicleState(chatId), read: { ...total, read, left: Math.max(0, fresh.length - read) } });
@@ -6249,7 +6411,7 @@ async function locateTale(chatId: string): Promise<{ asked: boolean; here?: bool
     for await (const chunk of generate({
       ...conn, system: fold ? "" : system,
       messages: [{ role: "user", content: fold ? `${system}\n\n---\n\n${prompt}` : prompt }],
-      sampling: { temperature: 0.1, maxTokens: BACKGROUND_TOKENS, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
+      sampling: { temperature: 0.1, maxTokens: answerRoom(BACKGROUND_TOKENS, system + prompt), topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false, reasoningEffort: "off" },
     })) {
       if (chunk.kind === "text") said += chunk.text;
       if (said.length > 4000) break;

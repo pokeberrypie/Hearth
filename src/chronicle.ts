@@ -138,7 +138,11 @@ export function normaliseEntry(raw: any): Entry {
     field: STATUS_FIELDS.includes(raw?.field) ? raw.field : null,
     object: str(raw?.object, 120) || null,
     amount: clamp(Math.round(Number(raw?.amount)) || 0, -100, 100),
-    data: str(typeof raw?.data === "object" && raw?.data ? JSON.stringify(raw.data) : raw?.data, 8000),
+    // Room for what an entry carries — a faction's arms and its members, a news item's record of every turn it
+    // waited — and never cut short: half of a JSON object is not a shorter one, it is none, and an entry whose data
+    // will not read loses all of it.
+    data: (() => { const d = str(typeof raw?.data === "object" && raw?.data ? JSON.stringify(raw.data) : raw?.data, 64000);
+      if (d.length < 64000) return d; try { JSON.parse(d); return d; } catch { return ""; } })(),
     created_at: Math.round(Number(raw?.created_at)) || 0,
     undone_at: intOrNull(raw?.undone_at),
     proposed: !!Number(raw?.proposed ?? 0) || raw?.proposed === true,

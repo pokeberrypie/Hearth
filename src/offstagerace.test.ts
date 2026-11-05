@@ -118,3 +118,32 @@ test("the Steward too: a reading of words swiped away while it read is not kept"
   const events = db.query("SELECT title FROM chronicle WHERE chat_id = 'ch' AND kind = 'event' AND undone_at IS NULL").all();
   expect(events).toEqual([]);
 });
+
+test("a day that finds the world still busy with the last is not lost: the next reply gives it its turn", async () => {
+  await send("/api/chats/ch/offstage/goal", "POST", { who: "Cersei Lannister", goal: "warn Oldtown", why: "" });
+  const { offstageTurn } = await import("./index");
+  await offstageTurn("ch");
+  const before = (db.query("SELECT offstage_day FROM chats WHERE id = 'ch'").get() as any).offstage_day;
+  // A run by hand, slow, still going…
+  const byHand = send("/api/chats/ch/offstage/run", "POST");
+  await (asked() as any);
+  // …when the story turns a day.
+  await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "1 day" });
+  await offstageTurn("ch");
+  expect((db.query("SELECT offstage_day FROM chats WHERE id = 'ch'").get() as any).offstage_day).toBe(before);
+  release();
+  await byHand;
+});
+
+test("the clock taken back by hand takes the world's day back, and what was sent from the days that never came", async () => {
+  const { offstageTurn } = await import("./index");
+  await offstageTurn("ch");
+  // A misread year, and a run on it that sent word due two days later.
+  const year = (await (await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "365 days" })).json()).entries.find((e: any) => e.kind === "time").id;
+  db.query("UPDATE chats SET offstage_day = 365 WHERE id = 'ch'").run();
+  db.query(`INSERT INTO chronicle (id, chat_id, kind, day, title, source, visibility, created_at, data) VALUES ('n9', 'ch', 'news', 365, 'word from Oldtown', 'offstage', 'private', 9e12, '{"due":367,"state":"travelling","tries":0,"mode":"word"}')`).run();
+  await send(`/api/chronicle/${year}/undo`, "POST");
+  await offstageTurn("ch");
+  expect((db.query("SELECT offstage_day FROM chats WHERE id = 'ch'").get() as any).offstage_day).toBe(0);
+  expect(JSON.parse((db.query("SELECT data FROM chronicle WHERE id = 'n9'").get() as any).data).due).toBe(2);
+});

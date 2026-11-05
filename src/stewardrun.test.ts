@@ -675,3 +675,34 @@ describe("Read now", () => {
     expect(r.steward.unread).toBe(0);
   });
 });
+
+describe("a reading the model can hold", () => {
+  test("forty long replies are read in what fits the Context size, oldest first — and the rest the next time, not never", async () => {
+    const { wipe: w, setSettings: set, db: d } = await import("./test-support");
+    w();
+    set({ mode: "story", provider: "openrouter", key_openrouter: "sk", model: "m", steward_on: "1", steward_every: "1", story_world: "1", context_tokens: "16000" });
+    d.query("INSERT INTO characters (id, name, created_at) VALUES ('j', 'Jaime Lannister', 1)").run();
+    d.query("INSERT INTO chats (id, character_id, title, created_at, updated_at) VALUES ('ch', 'j', 'The Road', 1, 1)").run();
+    for (let i = 0; i < 40; i++) d.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', 'assistant', 'Jaime Lannister', ?, ?)")
+      .run(`r${i}`, `Reply ${i}. ${"The road ran on through the rain, and nobody spoke of what had happened. ".repeat(30)}`, 10 + i);
+    const sizes: number[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (_u: any, init: any) => {
+      const b = JSON.parse(init.body);
+      sizes.push(b.messages.reduce((n: number, m: any) => n + String(m.content).length, 0));
+      return Response.json({ choices: [{ message: { content: "NONE" } }] });
+    }) as any;
+    try {
+      const { stewardTurn } = await import("./index");
+      await stewardTurn("ch");
+      const at = (d.query("SELECT steward_at FROM chats WHERE id = 'ch'").get() as any).steward_at;
+      // What it sent, with the 4,000 it keeps for the answer, fits in 16,000.
+      expect(Math.ceil(sizes[0] / 4) + 4000).toBeLessThanOrEqual(16000);
+      // It read from the oldest, and stopped where the room ran out — the rest still to read.
+      expect(at).toBeGreaterThanOrEqual(10);
+      expect(at).toBeLessThan(49);
+      await stewardTurn("ch");
+      expect((d.query("SELECT steward_at FROM chats WHERE id = 'ch'").get() as any).steward_at).toBeGreaterThan(at);
+    } finally { globalThis.fetch = real; }
+  });
+});

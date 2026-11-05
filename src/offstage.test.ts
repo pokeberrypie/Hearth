@@ -238,6 +238,56 @@ describe("a day offstage", () => {
     expect(told).not.toContain("Yvenna is dead");
   });
 
+  test("news let go by in ten takes of one reply has missed one chance, not ten — and a take swiped away gives its chance back", async () => {
+    seed();
+    db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, title, body, source, visibility, created_at, data) VALUES ('n1', 'ch', 'm1', 'news',
+      'the river houses owe the Crown new levies', 'a rider', 'offstage', 'private', 10, '{"due":0,"state":"travelling","tries":0,"mode":"word"}')`).run();
+    story = "The rain fell on the road and nobody spoke.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We ride." })).text();
+    const reply = (db.query("SELECT id FROM messages WHERE chat_id = 'ch' AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any).id;
+    for (let i = 0; i < 9; i++) await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
+    const d = () => JSON.parse((db.query("SELECT data FROM chronicle WHERE id = 'n1'").get() as any).data);
+    expect(d().state).toBe("travelling");
+    expect(d().tries).toBe(1);
+    await send(`/api/messages/${reply}`, "DELETE");
+    expect(d().tries).toBe(0);
+  });
+
+  test("someone named in what happened, who was not there, does not know it; someone who was there does", async () => {
+    seed();
+    await goal("Cersei Lannister", "stop the wedding");
+    db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, title, body, source, visibility, created_at) VALUES
+      ('e1', 'ch', 'm1', 'event', 'Yvenna plans to poison Cersei at the feast', 'With Yvenna Hightower, Jaime Lannister.', 'steward', 'table', 5),
+      ('e2', 'ch', 'm1', 'event', 'The council meets about the levies', 'With Cersei Lannister, Jaime Lannister.', 'steward', 'table', 6)`).run();
+    await send("/api/chats/ch/offstage/run", "POST");
+    const told = JSON.stringify(decided().messages);
+    expect(told).not.toContain("plans to poison Cersei");
+    expect(told).toContain("The council meets about the levies");
+  });
+
+  test("two threats waiting: the reply plays the first, and the second waits for the next — neither is lost", async () => {
+    seed();
+    db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
+    db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t2', 'ch', 'm1', 'threat', 'Someone poisons the wine', 'offstage', 'private', 11)").run();
+    expect(await narrator()).toContain("Someone sends a knife");
+    story = "A knife flashed in the dark.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We walk the walls." })).text();
+    const told = await narrator();
+    expect(told).toContain("Someone poisons the wine");
+    expect(told).not.toContain("Someone sends a knife");
+  });
+
+  test("a threat played in a take that is swiped away has not come: the next take is handed it again", async () => {
+    seed();
+    db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
+    story = "A knife flashed in the dark.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We walk the walls." })).text();
+    expect(await narrator()).not.toContain("Someone sends a knife");
+    const reply = (db.query("SELECT id FROM messages WHERE chat_id = 'ch' AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any).id;
+    await send(`/api/messages/${reply}`, "PUT", { content: "The night passed quietly." });
+    expect(await narrator()).toContain("Someone sends a knife");
+  });
+
   test("one already waiting from when asking was on comes in too, once asking is turned off — and is gone after its reply", async () => {
     seed();
     setSettings({ offstage_threat_ask: "1" });
@@ -903,6 +953,19 @@ describe("who is in the scene is read from the story and the lorebook", () => {
     expect((await ledger()).actions[0].lore).toEqual(["Tyrion taken"]);
   });
 
+  test("who is here is read again for a new take of the same message: an edit may walk someone out of the room", async () => {
+    party();
+    presenceAnswer = "HERE | Jaime Lannister\nHERE | Davren Baratheon\nAWAY | Tyrion Lannister | the Vale road";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const reads = () => asked().filter((m) => m.includes("For each person in the list")).length;
+    expect(reads()).toBe(1);
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(reads()).toBe(1);
+    await send("/api/messages/m2", "PUT", { content: "Davren rode off alone toward the Vale; we watched him go." });
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(reads()).toBe(2);
+  });
+
   test("only the latest recap is how things stand: an older one is read by nobody, the narrator included", async () => {
     party();
     const old = { id: "old", keys: ["Davren", "Arys"], comment: "Current state — the night Nyssara arrived",
@@ -1129,6 +1192,20 @@ describe("goals that end, and are put away", () => {
     expect(entry.comment).toBe("Cersei Lannister: crown Joffrey");
     expect(entry.content).toContain("the Gold Cloaks turned");
     expect(entry.keys).toContain("Cersei");
+  });
+
+  test("never into the author's own lorebook linked to the chat: that may be read by other stories", async () => {
+    court();
+    db.query("INSERT INTO lorebooks (id, name, entries, created_at) VALUES ('world', 'Westeros', '[]', 1)").run();
+    db.query("INSERT INTO lorebook_links (id, book_id, scope, target_id) VALUES ('wl', 'world', 'chat', 'ch')").run();
+    await goal("Cersei Lannister", "crown Joffrey");
+    const id = (await goals())[0].id;
+    await send(`/api/chats/ch/offstage/goal/${id}`, "POST", { status: "achieved", how: "the Gold Cloaks turned" });
+    later(3);
+    await goals();
+    expect((db.query("SELECT entries FROM lorebooks WHERE id = 'world'").get() as any).entries).toBe("[]");
+    const own = db.query("SELECT entries FROM lorebooks WHERE name LIKE '% — what came to pass%'").get() as any;
+    expect(JSON.parse(own.entries)[0].comment).toBe("Cersei Lannister: crown Joffrey");
   });
 
   test("keyed to the person, never to a title; and a goal given up before ends were dated is still put away", async () => {
@@ -1415,6 +1492,15 @@ describe("everyone at the table wants something", () => {
     expect(read).toContain("Locke — in the scene with Yvenna Hightower");
     expect(read).toContain("Lancel Lannister — away from the scene");
     expect(read).not.toContain("- Yvenna Hightower —");
+  });
+
+  test("what the cast came to want, read from a scene, goes with that scene when it is swiped", async () => {
+    table();
+    castAnswer = "GOAL | Locke | deliver both captives to Lord Bolton for the best price | the gold";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(await wants()).toEqual([["Locke", "deliver both captives to Lord Bolton for the best price"]]);
+    await send("/api/messages/m1", "PUT", { content: "The court gathered, and Locke was not among them." });
+    expect(await wants()).toEqual([]);
   });
 
   test("the story plays the aims of those in the scene, as motive; those away stay in the ledger", async () => {

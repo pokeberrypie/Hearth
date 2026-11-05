@@ -52,3 +52,15 @@ test("a branch made the old way — its links left pointing at the chat it came 
   // And the chat it came from is left exactly as it was.
   expect((await goals("ch")).find((x) => x.goal === "warn the river lords").status).toBe("achieved");
 });
+
+test("a branch's notes are the notes as they stood at the fork, not the parent's later days", async () => {
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m5', 'ch', 'assistant', 'Jaime Lannister', 'And later still.', 9.5e12)").run();
+  db.query(`INSERT INTO lorebooks (id, name, entries, created_at) VALUES ('nb', 'The Hand — notes', ?, 1)`).run(JSON.stringify([
+    { id: "a", keys: ["Cersei"], comment: "before", content: "Cersei hated the match.", added_at: 5 },
+    { id: "b", keys: ["Cersei"], comment: "after", content: "Cersei crowned Joffrey.", added_at: 9.6e12 },
+  ]));
+  db.query("UPDATE chats SET auto_lore_book_id = 'nb' WHERE id = 'ch'").run();
+  const branch = (await (await send("/api/messages/m9/branch", "POST", {})).json()).id;
+  const book = db.query("SELECT entries FROM lorebooks WHERE id = (SELECT auto_lore_book_id FROM chats WHERE id = ?)").get(branch) as any;
+  expect(JSON.parse(book.entries).map((e: any) => e.comment)).toEqual(["before"]);
+});
