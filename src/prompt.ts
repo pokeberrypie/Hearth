@@ -156,7 +156,10 @@ export function windowOf<M extends { id?: string; content: string }>(history: M[
   if (total(history) <= budget) return { kept: history, from: history[0]?.id ?? null };
   if (from) {
     const i = history.findIndex((h) => h.id === from);
-    if (i >= 0 && total(history.slice(i)) <= budget) return { kept: history.slice(i), from };
+    // Held while it fits and still fills most of what there is room for. Held from turn to turn it sits between the
+    // refill and the whole budget; well under that, the budget has grown — Context size raised — and a window kept
+    // from when it was small would leave out, for good, what there is now room for.
+    if (i >= 0 && total(history.slice(i)) <= budget && total(history.slice(i)) >= budget * refill * 0.8) return { kept: history.slice(i), from };
   }
   const kept: M[] = [];
   let used = 0;

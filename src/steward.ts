@@ -31,6 +31,7 @@
  * Pure: calling the model and storing what survives is index.ts's business.
  */
 
+import { fielded } from "./fields";
 import { later, readSpan, type Calendar, type Moment } from "./calendar";
 import { BOND_STEP, STATUS_FIELDS, type StatusField } from "./chronicle";
 
@@ -267,7 +268,7 @@ export type Parsed = {
 /** The answer as lines, before anything is checked against the story. */
 export function parseAnswer(raw: string): Parsed {
   const out: Parsed = { time: [], events: [], status: [], bonds: [], factions: [], threads: [], scene: [], deaths: [], none: false, dropped: [], noise: 0 };
-  const text = withoutThinking(raw).replace(/```[a-z]*\n?/gi, "");
+  const text = fielded(withoutThinking(raw).replace(/```[a-z]*\n?/gi, ""));
   for (const original of text.split(/\r?\n/)) {
     const line = tidyLine(original);
     if (!line) continue;

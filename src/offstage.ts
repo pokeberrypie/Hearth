@@ -23,6 +23,7 @@
  *
  * Pure: storing all of this, and asking a model, is index.ts's business.
  */
+import { fielded } from "./fields";
 
 export const LEVELS = ["off", "balanced", "dynamic"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -129,7 +130,7 @@ export const OFFSTAGE_SYSTEM = [
   "PLAN | the number of a planned scene, if one is listed | supports or complicates or conflicts | how, in a few words",
   "",
   "Rules:",
-  "- ACT is only what this person does themselves. Never what the player's character does, says, thinks or feels.",
+  "- ACT is only what this person does themselves. Never what the player's character does, says, thinks or feels. Where ACT names them, it is by their name as given here, never a title or byname.",
   "- easy: it simply happens (writing a letter, a walk, a word with a friend). uncertain or hard: it could fail (bribing a loyal servant, a theft, a lie to someone sharp).",
   "- The last field of ACT is the harm it would do to the player's character: none, social (their name, standing, friendships), physical (their body or freedom), grave (death, maiming, imprisonment for good).",
   "- SEEN and FACT never name the person acting, never point to them — not by title, house, household, servants or friends — and never say why. \"The marriage contract is missing\", not \"the queen's handmaiden took it\". Leave them out when nothing would show or nothing changed.",
@@ -205,9 +206,9 @@ const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/
 export function readDecision(raw: string): Decision {
   const d: Decision = { want: "", fear: "", considered: [], choice: "", why: "", kind: "nothing", act: "", difficulty: "easy",
     harm: "none", seen: "", fact: "", clue: "", goal: null, done: null, reaches: null, threads: [], plan: [], witness: null };
-  const text = String(raw ?? "")
+  const text = fielded(String(raw ?? "")
     .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/```[a-z]*\n?/gi, "");
+    .replace(/```[a-z]*\n?/gi, ""));
   for (const line of text.split(/\r?\n/)) {
     const parts = line.replace(/^[\s>*\-•\d.)]+/, "").split("|").map((p) => unquote(p));
     const key = (parts[0] ?? "").toUpperCase().replace(/[^A-Z]/g, "");

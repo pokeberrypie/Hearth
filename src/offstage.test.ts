@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { daysIn, identityOf, names, pressureOf, readDecision, resolve, rule, saysNothing, traceOf } from "./offstage";
 import { db, setSettings, wipe } from "./test-support";
 
-const { app, offstageTurn, forgetPresence } = await import("./index");
+const { app, offstageTurn, forgetPresence, unnamed } = await import("./index");
 
 const HOME = { incoming: { socket: { remoteAddress: "127.0.0.1" } } };
 const ask = (path: string, init: RequestInit = {}) => app.fetch(new Request(`http://home.test${path}`, init), HOME);
@@ -205,6 +205,24 @@ describe("a day offstage", () => {
     expect(told).not.toContain("Cersei");
     // The ledger, the author's, still says whose it was.
     expect((await ledger()).actions[0].who).toBe("Cersei Lannister");
+  });
+
+  test("who is behind it is gone in every way the line could say it: surname, title, byname, a bare \"She\"", () => {
+    const card = 'Jaime, known as the Kingslayer, is the Lord Commander. Some call him "Goldenhand".';
+    const cases: [string, string, string, string][] = [
+      ["Baelish's men bribe the gold cloaks.", "Petyr Baelish", "", "Someone's men bribe the gold cloaks."],
+      ["Lord Baelish whispers to Cersei.", "Petyr Baelish", "", "Someone whispers to Cersei."],
+      ["When Baelish's coin reaches the gold cloaks, they move.", "Petyr Baelish", "", "When someone's coin reaches the gold cloaks, they move."],
+      ["The Kingslayer rides to the inn with Lannister guards.", "Jaime Lannister", card, "Someone rides to the inn with someone's guards."],
+      ["Goldenhand bribes a septon.", "Jaime Lannister", card, "Someone bribes a septon."],
+      ["She summons Joffrey to her solar.", "Cersei Lannister", "", "Someone summons Joffrey to her solar."],
+      ["Brienne of Tarth rides for the inn.", "Brienne of Tarth", "", "Someone rides for the inn."],
+      // Somebody else's name stays theirs, a house after "a" is a house, and a longer word is a different word.
+      ["Arya Stark poisons Sansa Stark.", "Arya Stark", "", "Someone poisons Sansa Stark."],
+      ["A Lannister man carries Cersei's letter to Tyrion Lannister.", "Cersei Lannister", "", "A Lannister man carries someone's letter to Tyrion Lannister."],
+      ["Jaimeson laughs at Jaime.", "Jaime Lannister", "", "Jaimeson laughs at someone."],
+    ];
+    for (const [text, who, c, want] of cases) expect(unnamed(text, who, c)).toBe(want);
   });
 
   test("by default a threat simply arrives: in the next reply, as a scene, with no question first", async () => {

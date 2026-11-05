@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { fielded } from "./fields";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
 import { ContextFull, generate, isLocalBase, PROVIDERS, YieldedToReply, type ChatMessage } from "./providers";
@@ -2395,6 +2396,7 @@ function softDelete(table: BinTable, ids: string[]) {
  */
 export function ensureStarterCharacter() {
   repairBranchReading();
+  repairBranchLinks();
   if (!libraryIsEmpty(db)) return;
   db.query(
     `INSERT INTO characters
@@ -2700,6 +2702,9 @@ export type Assembled = {
  * from the rest, not from what the conversation came to, so its window still holds still from turn to turn.
  */
 export function assemble(chat: any, mode: string, guide: string, stagedUser = "", speaker?: any): Assembled {
+  // The first build only measures. Where the window starts is the build that is sent's to say: let the measuring
+  // one move it and the two would pull it back and forth every turn, and a local server would read it all again.
+  const held = windows.get(chat.id);
   const first = assembleWith(chat, mode, guide, stagedUser, speaker);
   const s = withPreset(getSettings());
   const context = Number(s.context_tokens) > 0 ? Number(s.context_tokens) : 8000;
@@ -2709,6 +2714,7 @@ export function assemble(chat: any, mode: string, guide: string, stagedUser = ""
   const rest = sent - first.historyTokens;
   // The conversation's share: what the rest and the reply leave, and never so little it is not a conversation.
   const share = Math.max(600, context - reply - rest - 64);
+  if (held === undefined) windows.delete(chat.id); else windows.set(chat.id, held);
   return assembleWith(chat, mode, guide, stagedUser, speaker, share);
 }
 
@@ -3749,16 +3755,30 @@ function copyChronicle(entries: ChronicleEntry[], chatId: string) {
                             source, evidence, scene_id, subject, field, object, amount, data, created_at, undone_at, proposed)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
+  // A copy into a branch is a copy from the same library, so its ids are taken and every entry gets a new one —
+  // and the entries that point at others by id ("this ends that goal", "this is a rumour of that clue", "this news
+  // is of that plot") are pointed at the new ones too. Without that, every branch kept the ends of its goals but
+  // not which goals they ended: everything achieved or given up was wanted again, and every rumour was of nothing.
+  const fresh = new Map<string, string>();
+  for (const e of entries) fresh.set(e.id, e.id && !db.query("SELECT 1 FROM chronicle WHERE id = ?").get(e.id) ? e.id : uid());
+  const relink = <T,>(v: T): T => {
+    if (v === null || v === undefined || v === "") return v;
+    const text = typeof v === "string" ? v : JSON.stringify(v);
+    const out = text.replace(UUID, (id) => fresh.get(id) ?? id);
+    return (typeof v === "string" ? out : JSON.parse(out)) as T;
+  };
   db.transaction(() => {
     for (const e of entries) {
-      ins.run(e.id && !db.query("SELECT 1 FROM chronicle WHERE id = ?").get(e.id) ? e.id : uid(),
+      ins.run(fresh.get(e.id)!,
               chatId, e.message_id, e.kind, e.day, e.minute, e.span, e.title, e.body, e.visibility,
-              e.source, e.evidence, e.scene_id, e.subject, e.field, e.object, e.amount, e.data,
+              e.source, e.evidence, relink(e.scene_id), relink(e.subject), e.field, relink(e.object), e.amount,
+              typeof e.data === "string" || e.data == null ? relink(e.data) : relink(JSON.stringify(e.data)),
               e.created_at, e.undone_at, e.proposed ? 1 : 0);
     }
   })();
   if (entries.length) worldChanged(chatId);
 }
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 /**
  * Anyone sitting at this chat's table is told the world moved on — only the
@@ -3863,32 +3883,70 @@ function worldBrief(chat: any, s: Record<string, string>, history?: { id: string
   if (s.story_world === "0") return null;
   const cal = calendarOf(chat.id);
   const entries = chronicleOf(chat.id);
-  const lines: string[] = [];
+  // Each part with how much it matters, so that when there is not room for all of it, what goes first is what the
+  // next reply can most do without: rumours before the people in the room, never the date or a threat at the door.
+  const lines: { text: string; keep: number }[] = [];
+  const add = (keep: number, ...text: string[]) => { for (const t of text) lines.push({ text: t, keep }); };
   const dated = cal.kind !== "undated" || liveEntries(entries).some((e) => e.kind === "time" || e.kind === "set");
   if (dated) {
     const at = clockOf(cal, entries);
-    lines.push(`Today in the story: ${formatDate(cal, at)}${at.minute ? `, ${partOf(cal, at.minute)}` : ""}.`);
+    add(0, `Today in the story: ${formatDate(cal, at)}${at.minute ? `, ${partOf(cal, at.minute)}` : ""}.`);
   }
   if (s.tracker_source !== "preset") {
     const status = statusOf(entries);
     const here = peopleOf(chat).filter((p) => p.present && status[p.name]);
     if (here.length) {
-      lines.push("How everyone here is right now — keep to this unless the story changes it:");
+      add(2, "How everyone here is right now — keep to this unless the story changes it:");
       for (const p of here) {
         const facts = STATUS_FIELDS.filter((f) => status[p.name]![f]).map((f) => `${f}: ${status[p.name]![f]!.title}`);
-        lines.push(`- ${p.name} — ${facts.join("; ")}`);
+        add(2, `- ${p.name} — ${facts.join("; ")}`);
       }
     }
   }
   // Loose ends the story has left open, so they are not forgotten — a handful,
   // newest first; each a possibility to return to, not something to force.
   const open = threadsOf(entries).filter((t) => t.open).slice(0, 8);
-  if (open.length) lines.push(`Threads still open, to pick up when it fits: ${open.map((t) => t.title).join("; ")}.`);
+  if (open.length) add(3, `Threads still open, to pick up when it fits: ${open.map((t) => t.title).join("; ")}.`);
   const memory = rememberFor(chat, s, entries, cal, open.map((t) => t.title), history);
   if (remembered) remembered.value = memory;
-  lines.push(...recallBrief(memory));
-  lines.push(...offstageBrief(chat.id, entries));
-  return lines.length ? lines.join("\n") : null;
+  add(5, ...recallBrief(memory));
+  for (const line of offstageBrief(chat.id, entries)) {
+    add(line.startsWith("Bring this into the story now") ? 0 : line.startsWith("News reaches") ? 1
+      : line.startsWith("What drives") ? 4 : line.startsWith("What some of the people here") ? 7 : 6, line);
+  }
+  return fitWorld(lines, worldRoom());
+}
+
+/**
+ * How much of the request Story World may take: a quarter of what the context leaves once the reply has its room —
+ * the whole Context size, not the conversation's share of it, so it is the same in both of assemble's builds.
+ */
+function worldRoom() {
+  const all = withPreset(getSettings());
+  const context = Number(all.context_tokens) > 0 ? Number(all.context_tokens) : 8000;
+  const reply = Number(all.max_tokens) > 0 ? Number(all.max_tokens) : 0;
+  return Math.max(300, Math.floor((context - reply) / 4)) * 4;
+}
+
+/**
+ * Story World within its room, in characters: everything, when it fits; otherwise the least needed lines go first —
+ * the last of the least needed kind first — and a heading left with nothing under it goes with them.
+ */
+export function fitWorld(lines: { text: string; keep: number }[], room: number): string | null {
+  const kept = [...lines];
+  const size = () => kept.reduce((n, l) => n + l.text.length + 1, 0);
+  while (kept.length && size() > room) {
+    const worst = Math.max(...kept.map((l) => l.keep));
+    if (worst === 0) break;
+    let i = -1;
+    for (let j = kept.length - 1; j >= 0; j--) if (kept[j].keep === worst) { i = j; break; }
+    kept.splice(i, 1);
+    // A heading ("…right now — keep to this…:") with its list gone says nothing.
+    for (let j = kept.length - 1; j >= 0; j--) {
+      if (kept[j].text.endsWith(":") && kept[j + 1]?.keep !== kept[j].keep) kept.splice(j, 1);
+    }
+  }
+  return kept.length ? kept.map((l) => l.text).join("\n") : null;
 }
 
 /** Whether anybody else is sitting at this chat, which is when secrets start to matter. */
@@ -4539,11 +4597,11 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
   const mine = Date.now();
   offstageBusy.set(chatId, mine);
   try {
-    const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string; yielded?: boolean } =
+    const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string; yielded?: boolean; setAside?: boolean } =
       await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
     // What was done, traced to where the player's character is: the plots whose effects would reach her, queued to
     // play out in the story.
-    if (!r.yielded && r.acted) {
+    if (!r.yielded && !r.setAside && r.acted) {
       const w: { landed: number; looked: number; again?: number; off?: boolean; error?: string } =
         await rippleOf(chatId, mine).catch((e: any) => ({ landed: 0, looked: 0, error: e?.message || "" }));
       // Always said, so it can be seen to have run: what reached her scene, that nothing would yet, or why it failed.
@@ -4555,7 +4613,7 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
       if (said) r.note = [r.note, said].filter(Boolean).join(" · ");
     }
     // Once a day, and when run by hand: what the chat's own cast want, in the scene or away.
-    if (!o.midday && !r.yielded) {
+    if (!o.midday && !r.yielded && !r.setAside) {
       const w = await castWantsOf(chatId).catch((e: any) => ({ goals: 0, ended: 0, error: e?.message || "" }));
       if (w.goals || w.ended) {
         r.goals = (r.goals ?? 0) + w.goals;
@@ -4619,9 +4677,9 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
   ].filter(Boolean).join("\n\n");
   let said = "", thought = "", stop = "";
   try {
-    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*(GOAL|DONE|DROPPED)\W*\|/im.test(th)));
+    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*(GOAL|DONE|DROPPED)\W*\|/im.test(fielded(th))));
   } catch (e: any) { return { goals: 0, ended: 0, error: e?.message || "The Offstage could not be reached." }; }
-  const answer = withoutThinking(said).trim() || thought;
+  const answer = fielded(withoutThinking(said).trim() || thought);
   const same = (a: string, b: string) => a.toLowerCase().trim() === b.toLowerCase().trim();
   // A name as the model gives it, to the member it means: whole, or by the part of it that is theirs.
   const member = (name: string) => members.find((m) => same(m.name, name)) ?? members.find((m) => firstMention(name, m.name) >= 0);
@@ -4699,7 +4757,8 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
   const status = statusOf(entries);
   const here = (membersOf(chat) as any[]).filter((m) => !m.muted && m.name !== player).map((m) => m.name);
   const where = (status[player] as any)?.location?.title ?? "";
-  const recent = (db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 6").all(chatId) as any[]).reverse();
+  const asOf = storyMark();
+  const recent = (db.query("SELECT id, name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 6").all(chatId) as any[]).reverse();
   const recap = latestRecap(chat);
   const system = "You trace what people did out of sight to where the player's character is: how its effects would reach her scene, through whom or what, and when. You never continue the story and never explain yourself.";
   const prompt = [
@@ -4715,12 +4774,12 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
   const fold = needsFoldedSystem(conn.model);
   let said = "", thought = "", stop = "";
   try {
-    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*LANDS?\W*\|/im.test(th)));
+    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*LANDS?\W*\|/im.test(fielded(th))));
   } catch (e: any) {
     if (e instanceof YieldedToReply) return { landed: 0, looked: 0 };
     return { landed: 0, looked: plots.length, error: e?.message || "The Offstage could not be reached." };
   }
-  const answer = withoutThinking(said).trim() || thought;
+  const answer = fielded(withoutThinking(said).trim() || thought);
   let t = now();
   const add: ChronicleEntry[] = [];
   const used = new Set<number>();
@@ -4743,6 +4802,8 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
       message_id: plot.message_id, day: at.day, minute: at.minute, source: "offstage", visibility: "private", created_at: t++,
       data: { due: at.day + days, state: "travelling", tries: 0, touches: true, mode: "scene", ripple: true, of: plot.id } }));
   }
+  // A plot undone, or a scene swiped, while it was being traced: nothing of this tracing stands. Looked at again next run.
+  if (movedOn([...plots.map((e) => e.message_id), ...recent.map((r) => r.id)], asOf)) return { landed: 0, looked: 0, again: plots.length };
   if (add.length) copyChronicle(add, chatId);
   // Each plot looked at once, whether or not it reached her: not asked about again every run.
   const mark = db.query("UPDATE chronicle SET data = ? WHERE id = ?");
@@ -4822,9 +4883,9 @@ async function stirOf(chatId: string, news: string[]): Promise<{ goals: number; 
   ].filter(Boolean).join("\n\n");
   let said = "", thought = "", stop = "";
   try {
-    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*(GOAL|DEAD)\W*\|/im.test(th)));
+    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*(GOAL|DEAD)\W*\|/im.test(fielded(th))));
   } catch (e: any) { return { goals: 0, error: e?.message || "The Offstage could not be reached." }; }
-  const answer = withoutThinking(said).trim() || thought;
+  const answer = fielded(withoutThinking(said).trim() || thought);
   // Deaths it read, recorded only for a name the story or the news itself uses: a reading cannot kill anyone.
   const given = `${news.join(" ")} ${rows.map((r) => r.content).join(" ")}`.toLowerCase();
   let t0 = now();
@@ -4885,7 +4946,7 @@ function trimmed(text: string, n = 1400) {
 /** The goals a stirring named, checked: one each, never the player or the dead, never "none", never one they hold. */
 export function stirGoals(text: string, o: { player: string; dead: Set<string>; active: { who: string; goal: string }[] }) {
   const out: { who: string; goal: string; why: string }[] = [];
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of fielded(text).split(/\r?\n/)) {
     const m = /^\W*GOAL\W*\|\s*([^|]+)\|\s*([^|]+)(?:\|\s*(.+))?$/i.exec(line.trim());
     if (!m) continue;
     const who = m[1].replace(/[*_"]/g, "").trim().slice(0, 60), goal = m[2].trim().slice(0, 200), why = (m[3] ?? "").trim().slice(0, 300);
@@ -4974,6 +5035,8 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     .sort((a, b) => rank(a) - rank(b) || (lastActed.get(a) ?? 0) - (lastActed.get(b) ?? 0))
     .slice(0, Math.min(room, Math.max(1, ACTORS_PER_RUN[level] || (o.manual ? 1 : 0))));
   const trigger = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
+  const asOf = storyMark();
+  const setAside = () => ({ acted, quiet, threats, setAside: true, note: "The story changed while the world was deciding — a reply swiped, edited or deleted — so this day was set aside. It goes again after your next reply." });
   const protection = protectionOf(s.offstage_protection);
   let acted = 0, quiet = 0, threats = 0, unread = 0, took = 0;
   let t = now();
@@ -5077,7 +5140,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     if (r.threat) {
       // What the narrator is handed, with no name behind it: "Someone sends a hired knife…". Who sent it is the
       // ledger's, and the player's to find — a narrator told it is a hired knife that says whose regards it brings.
-      add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "threat", subject: person, title: unnamed(r.act, person), body: r.why,
+      add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "threat", subject: person, title: unnamed(r.act, person, `${card?.description ?? ""} ${card?.personality ?? ""}`), body: r.why,
         // Asked about first only if the author wants to be asked; otherwise it simply comes, in the next reply.
         created_at: t++, proposed: s.offstage_threat_ask === "1", data: { player, harm: r.harm } }));
       threats++;
@@ -5105,6 +5168,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     if (r.achieves && outcome === "succeeded") add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.achieves, status: "achieved", how: r.how } }));
     if (r.goal && outcome !== "dropped") took++;
     if (r.goal && outcome !== "dropped") add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: r.goal.goal, body: r.goal.why, created_at: t++ }));
+    if (movedOn([trigger], asOf)) return setAside();
     copyChronicle(add, chatId);
     entries = chronicleOf(chatId);
     if (outcome === "routine") quiet++; else if (outcome !== "dropped") acted++;
@@ -5243,7 +5307,7 @@ async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnect
       if (said.length > 6000) break;
     }
   } catch { return null; }
-  const text = withoutThinking(said).trim() || thought;
+  const text = fielded(withoutThinking(said).trim() || thought);
   const here: string[] = [];
   let lines = 0;
   for (const line of text.split(/\r?\n/)) {
@@ -5275,7 +5339,8 @@ export async function offstageTurn(chatId: string) {
     db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId);
     const r: any = await offstageRun(chatId);
     // Set aside for a reply before it could move anyone: the new day is still to come, after the next one.
-    if (r?.yielded && !r.acted) db.query("UPDATE chats SET offstage_day = ? WHERE id = ? AND offstage_day = ?").run(chat.offstage_day, chatId, day);
+    // So is a day set aside because the story changed under it: the swipe undid what it had written, and it is owed.
+    if ((r?.yielded && !r.acted) || r?.setAside) db.query("UPDATE chats SET offstage_day = ? WHERE id = ? AND offstage_day = ?").run(chat.offstage_day, chatId, day);
     return;
   }
   // A long stretch of one day — a feast, a siege, a slow evening — still gives the world its turn:
@@ -5349,14 +5414,38 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
 }
 
 /** A line with the one who did it taken out of it: their name, and the part of it that is theirs, become "someone". */
-export function unnamed(text: string, who: string): string {
-  const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "the", "old", "young", "little"]);
-  const own = who.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase()));
+export function unnamed(text: string, who: string, card = ""): string {
+  const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "the", "old", "young", "little", "of"]);
+  const TITLE = "(?:(?:Queen|King|Lord|Lady|Ser|Prince|Princess|Maester|Septa|Septon)\\s+)?";
+  // Capitalised only because a sentence starts there: "When Baelish…" is still Baelish.
+  const OPENERS = new Set(["when", "then", "after", "before", "while", "at", "in", "on", "if", "as", "once", "tonight", "today",
+    "meanwhile", "but", "and", "so", "now", "that", "with", "by", "from", "for", "to", "where", "until", "though"]);
+  const HOLDINGS = "men|man|guards?|soldiers?|gold|coin|silver|banners?|household|knights?|riders?|swords?|host|army|retainers?|servants?|agents?|spies|spy|ships?|letters?|seal";
   const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const someone = (_m: string, poss?: string) => (poss ? "someone's" : "someone");
   let out = String(text);
-  for (const name of [who, own].filter((x): x is string => !!x)) {
-    out = out.replace(new RegExp(`(?:(?:Queen|King|Lord|Lady|Ser|Prince|Princess)\\s+)?\\b${esc(name)}\\b('s)?`, "g"), (_m, poss) => (poss ? "someone's" : "someone"));
+  // What they are called besides their name, as their own card says it: "known as the Kingslayer", "\"Littlefinger\"".
+  const bynames = new Set<string>();
+  for (const m of card.matchAll(/\b(?:known as|called|nicknamed|byname|styled)\s+["“']?((?:the\s+)?[A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)/gi)) bynames.add(m[1]);
+  for (const m of card.matchAll(/["“]((?:[Tt]he\s+)?[A-Z][\w'-]+)["”]/g)) if (!/\s/.test(m[1]) || /^the\s/i.test(m[1])) bynames.add(m[1]);
+  // The whole name, and anything they are called by, wherever it stands.
+  for (const name of [who, ...bynames]) {
+    const bare = name.replace(/^the\s+/i, "");
+    out = out.replace(new RegExp(`${TITLE}(?:\\b[Tt]he\\s+)?\\b${esc(bare)}\\b('s)?`, "g"), someone);
   }
+  // Each part of the name on its own — "Petyr", "Lord Baelish", "Baelish's men" — unless it is plainly somebody
+  // else's: "Sansa Stark" stays Sansa's when it is Arya who acts, and "a Lannister man" is a house, not a person.
+  for (const part of who.split(/\s+/).filter((w) => w.length > 2 && !TITLES.has(w.toLowerCase()))) {
+    out = out.replace(new RegExp(`(?<!\\b(?:[Aa]n?|[Tt]he)\\s)${TITLE}\\b${esc(part)}\\b('s)?(?=(\\s+(?:${HOLDINGS})\\b)?)`, "g"),
+      (m, poss, held, at, all: string) => {
+        const before = all.slice(0, at).match(/([A-Z][\w'-]*)\s$/)?.[1];
+        if (before && !TITLES.has(before.toLowerCase()) && !OPENERS.has(before.toLowerCase())) return m;
+        // "Lannister guards", "Baelish gold": theirs, so someone's.
+        return held && !poss ? "someone's" : someone(m, poss);
+      });
+  }
+  // A line that opens on "She" has no one for it to mean, and the narrator would find someone in the scene to fill it.
+  out = out.replace(/^(?:She|He|They)\b/, "Someone");
   return out.replace(/^someone/, "Someone").replace(/([.!?]\s+)someone/g, "$1Someone");
 }
 
@@ -5625,6 +5714,39 @@ function peopleOf(chat: any): Person[] {
  * to where the parent's Steward had got to, never past the fork (the last message older than the branch).
  * Run at every start, where the library is surely open; once a branch has a place, it is left alone.
  */
+/**
+ * Branches made before their ledgers were copied with their links kept: an entry that points at another by id —
+ * the end of a goal, a rumour of a clue, news of a plot — still points at the one in the chat it was copied from,
+ * which this chat does not have. So the goal's end is there and the goal is wanted all over again. The copy kept
+ * everything else about the entry it pointed at, so it is found again by that — what it is, its title, whose, and
+ * when — and pointed at. Only a link that leads nowhere in its own chat is touched; one that cannot be matched is
+ * left as it was. Safe to run every start: once mended there is nothing left for it to do.
+ */
+export function repairBranchLinks() {
+  try {
+    const rows = db.query(`SELECT id, chat_id, data FROM chronicle WHERE data LIKE '%"of":"%'`).all() as any[];
+    const here = db.query("SELECT 1 FROM chronicle WHERE id = ? AND chat_id = ?");
+    const source = db.query("SELECT kind, title, subject, created_at FROM chronicle WHERE id = ?");
+    const twin = db.query("SELECT id FROM chronicle WHERE chat_id = ? AND kind = ? AND title IS ? AND subject IS ? AND created_at = ? LIMIT 1");
+    const mend = db.query("UPDATE chronicle SET data = ? WHERE id = ?");
+    let mended = 0;
+    db.transaction(() => {
+      for (const r of rows) {
+        let d: any;
+        try { d = JSON.parse(r.data); } catch { continue; }
+        if (!d || typeof d.of !== "string" || here.get(d.of, r.chat_id)) continue;
+        const was = source.get(d.of) as any;
+        if (!was) continue;
+        const now_ = twin.get(r.chat_id, was.kind, was.title, was.subject, was.created_at) as any;
+        if (!now_) continue;
+        mend.run(JSON.stringify({ ...d, of: now_.id }), r.id);
+        mended++;
+      }
+    })();
+    if (mended) console.log(`[startup] mended ${mended} links in branched chats' ledgers`);
+  } catch (e) { console.error("[startup] could not mend branches' ledger links:", e); }
+}
+
 function repairBranchReading() {
   try {
     const stale = db.query(`SELECT c.id, c.created_at, p.steward_at AS parent_at FROM chats c JOIN chats p ON p.id = c.parent_chat_id
@@ -5642,8 +5764,24 @@ function repairBranchReading() {
  * them, so the new words are read in their turn. Taken back, not deleted:
  * the record of what it once thought stays, counting for nothing.
  */
+/**
+ * Each time words already in the story are changed or taken away — a swipe, an edit, a delete — the count moves
+ * on, and the message is marked with where it stood. A reading that waits on a model (the Steward, a day offstage,
+ * the ripple) notes the count before it asks and, before it writes, whether any message it read has moved on
+ * since. If one has, what it made of them belongs to words that are no longer there: written after the swipe
+ * had already undone everything from the old take, it was the one thing the swipe could never take back.
+ */
+let storyChanges = 0;
+const changedAt = new Map<string, number>();
+const storyMark = () => storyChanges;
+function movedOn(ids: (string | null | undefined)[], mark: number): boolean {
+  return ids.some((id) => !!id && ((changedAt.get(id) ?? 0) > mark || !db.query("SELECT 1 FROM messages WHERE id = ?").get(id)));
+}
+
 function forgetSteward(messageIds: string[], reread = true, narrator = true) {
   const t = now();
+  // The Steward reading the same words again replaces its own; only a change to the words moves the story on.
+  if (narrator) for (const id of messageIds) changedAt.set(String(id), ++storyChanges);
   // The narrator's own marks go with the words they were written in, as the Steward's readings do —
   // when the words change. The Steward reading the same words again replaces only its own.
   const undo = db.query(`UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND source IN (${narrator ? "'steward', 'narrator', 'offstage'" : "'steward'"}) AND undone_at IS NULL`);
@@ -5695,6 +5833,7 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
 const BACKGROUND_TOKENS = 4000;
 
 async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
+  const asOf = storyMark();
   if (!rows.length) return { kept: 0, proposed: 0, dropped: 0, problem: "" };
   const readFrom = Number((db.query("SELECT steward_at FROM chats WHERE id = ?").get(chat.id) as any)?.steward_at ?? 0);
   const upTo = rows[rows.length - 1].created_at;
@@ -5862,8 +6001,11 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
         }));
       }
     }
-    copyChronicle(entries, chat.id);
-    if (deaths.length) afterDeaths(chat.id, deaths);
+    // The words changed under the reading: none of it is kept. Those messages are read again, as they now are.
+    if (!movedOn(rows.map((m) => m.id), asOf)) {
+      copyChronicle(entries, chat.id);
+      if (deaths.length) afterDeaths(chat.id, deaths);
+    }
   }
 
   const proposed = checked.claims.filter((c) => (c.kind === "time" && c.proposed) || c.kind === "faction" || c.kind === "scene").length;

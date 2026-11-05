@@ -53,6 +53,17 @@ describe("the conversation's window holds still", () => {
     expect(moved.from).not.toBe(first.from);
   });
 
+  test("a start kept from when the budget was small lets go once it is raised: what there is room for comes back", () => {
+    const small = windowOf(msgs(40), 500);
+    expect(small.kept.length).toBeLessThanOrEqual(4);
+    // Context size raised from 500 to 3,000: the old start would still fit, and would leave out 25 turns for good.
+    const raised = windowOf(msgs(41), 3000, small.from);
+    expect(raised.from).not.toBe(small.from);
+    expect(raised.kept.length).toBeGreaterThan(20);
+    // And from there it holds still again.
+    expect(windowOf(msgs(42), 3000, raised.from).from).toBe(raised.from);
+  });
+
   test("the plain way, for a server that does not keep what it read: the newest that fits", () => {
     expect(windowOf(msgs(20), 1000, null, 1).kept).toHaveLength(9);
   });
@@ -137,6 +148,16 @@ describe("Context size is everything sent, not the chat alone", () => {
     // And the chat still came: the newest turns, not none.
     expect(JSON.stringify(r.sections)).toContain("Turn 59.");
     expect(JSON.stringify(r.sections)).not.toContain("Turn 0.");
+  });
+
+  test("raised again, the chat comes back: a window cut for a small context does not stay cut", async () => {
+    setSettings({ context_tokens: "3000", max_tokens: "500" });
+    seedLong(200); // more than even the raised context holds, so it is the window, not the whole chat, that comes back
+    const small = await inspect();
+    setSettings({ context_tokens: "12000" });
+    const big = await inspect();
+    expect(tokens(big)).toBeGreaterThan(tokens(small) * 2);
+    expect(tokens(big) + 500).toBeLessThanOrEqual(12000 + 100);
   });
 
   test("on a local server the chat's start still holds still as it grows, with the rest counted in", async () => {
