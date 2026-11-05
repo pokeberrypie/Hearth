@@ -61,7 +61,7 @@ import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, min
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
-         resolve as resolveAttempt, saysNothing, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
+         resolve as resolveAttempt, saysNothing, daysIn, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
 import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutSheets, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
@@ -4535,6 +4535,12 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
   try {
     const r: { acted?: number; quiet?: number; threats?: number; goals?: number; note?: string; error?: string; yielded?: boolean } =
       await offstageTurnOf(chatId, o).catch((e: any) => ({ error: e?.message || "The Offstage stopped partway." }));
+    // What was done, traced to where the player's character is: the plots whose effects would reach her, queued to
+    // play out in the story.
+    if (!r.yielded && r.acted) {
+      const w = await rippleOf(chatId, mine).catch((e: any) => ({ landed: 0, error: e?.message || "" }));
+      if (w.landed) r.note = [r.note, `${w.landed} ${w.landed === 1 ? "thing done offstage is" : "things done offstage are"} on their way to your scene`].filter(Boolean).join(" · ");
+    }
     // Once a day, and when run by hand: what the chat's own cast want, in the scene or away.
     if (!o.midday && !r.yielded) {
       const w = await castWantsOf(chatId).catch((e: any) => ({ goals: 0, ended: 0, error: e?.message || "" }));
@@ -4637,6 +4643,91 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
   if (add.length) copyChronicle(add, chatId);
   if (!add.length && !answer.trim()) return { goals: 0, ended: 0, error: emptyAnswer(said, stop) };
   return { goals: once.size, ended: ending.size };
+}
+
+/** How many of a day's plots may be sent on to the scene, by the author's dial: none, a few, or most. */
+const ripplesFor = (s: Record<string, string>) => {
+  const dial = Math.max(0, Math.min(100, Number(s.news_reach ?? 50)));
+  return dial <= 0 ? 0 : dial < 34 ? 1 : dial < 67 ? 2 : 3;
+};
+
+/**
+ * The ripple: what the world did, felt where the player's character is.
+ *
+ * The people offstage decide from their own heads — Cersei does not know where Yvenna is, or who is with her — so
+ * they almost never said that what they did would reach her, and nearly all of it stayed in the ledger: a world
+ * busy behind the scenes and a story that never felt it. This reads both sides at once — what was done, and the
+ * scene the player's character is in — and traces each plot through the people, places, orders, money and supplies
+ * that join it to her. Where it would be felt there, it says how it is first felt and when, and that is queued to
+ * play out in the story (see offstageBrief), as an effect: never who was behind it, which stays the player's to
+ * find. Each plot is looked at once.
+ */
+async function rippleOf(chatId: string, since: number): Promise<{ landed: number; error?: string }> {
+  const s = getSettings();
+  const most = ripplesFor(s);
+  if (!most) return { landed: 0 };
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
+  if (!chat) return { landed: 0 };
+  const entries = chronicleOf(chatId);
+  const live = liveEntries(entries);
+  const at = clockOf(calendarOf(chatId), entries);
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  // This run's plots, and any from the last few days never looked at: what worked, or failed in a way that shows.
+  const plots = live.filter((e) => e.kind === "offstage" && !dataOf(e).rippled && (dataOf(e).outcome === "succeeded" || dataOf(e).outcome === "failed")
+    && (e.created_at >= since || (e.day !== null && e.day >= at.day - 3)))
+    .sort((a, b) => b.created_at - a.created_at).slice(0, 10).reverse();
+  if (!plots.length) return { landed: 0 };
+  // Plots that already sent word of themselves on to her are not sent twice.
+  const sent = new Set(live.filter((e) => e.kind === "news").map((e) => `${e.subject}|${e.day}`));
+  const status = statusOf(entries);
+  const here = (membersOf(chat) as any[]).filter((m) => !m.muted && m.name !== player).map((m) => m.name);
+  const where = (status[player] as any)?.location?.title ?? "";
+  const recent = (db.query("SELECT name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 6").all(chatId) as any[]).reverse();
+  const recap = latestRecap(chat);
+  const system = "You trace what people did out of sight to where the player's character is: how its effects would reach her scene, through whom or what, and when. You never continue the story and never explain yourself.";
+  const prompt = [
+    recap ? `How things stood, from the story's latest recap:\n${recap.content.replace(/\s+/g, " ").slice(0, 1500)}` : "",
+    `The player's character: ${player || "the player"}${where ? `, at ${where}` : ""}${here.length ? `, with ${here.join(", ")}` : ""}.`,
+    `Where the story is now:\n\n${recent.map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content), 500)}`).join("\n\n")}`,
+    `What was done out of sight:\n${plots.map((e, i) => `${i + 1}. ${e.subject}: ${e.title}${dataOf(e).outcome === "failed" ? " (it failed)" : ""}${dataOf(e).fact ? ` — so now: ${dataOf(e).fact}` : ""}`).join("\n")}`,
+    `For each of these whose effects would truly reach ${player || "the player's character"} where she is — an order that changes how she is kept, a visitor, a letter, money or men that arrive or stop, someone near her who now acts differently because of it, a decree read out, a debt called in — one line:`,
+    "LANDS | its number | how it is first felt where she is, as it would begin in a scene: what happens, who does it, what changes — never who was secretly behind it | in how many days",
+    `Follow real routes: who carries it, how far, how long. Leave out what could not reach her, or would not yet. At most ${most + 2}. Nothing else.`,
+  ].filter(Boolean).join("\n\n");
+  const conn = offstageConnection(s);
+  const fold = needsFoldedSystem(conn.model);
+  let said = "", thought = "", stop = "";
+  try {
+    ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*LANDS?\W*\|/im.test(th)));
+  } catch (e: any) {
+    if (e instanceof YieldedToReply) return { landed: 0 };
+    return { landed: 0, error: e?.message || "The Offstage could not be reached." };
+  }
+  const answer = withoutThinking(said).trim() || thought;
+  let t = now();
+  const add: ChronicleEntry[] = [];
+  const used = new Set<number>();
+  for (const line of answer.split(/\r?\n/)) {
+    if (add.length >= most) break;
+    const m = /^\W*LANDS?\W*\|\s*#?(\d+)\W*\|\s*([^|]+?)\s*(?:\|\s*(.+))?$/i.exec(line.trim());
+    if (!m) continue;
+    const n = Number(m[1]) - 1;
+    const plot = plots[n];
+    const felt = m[2].trim();
+    if (!plot || used.has(n) || saysNothing(felt) || felt.length < 12 || sent.has(`${plot.subject}|${plot.day}`)) continue;
+    used.add(n);
+    const days = Math.max(0, Math.min(30, daysIn(m[3] ?? "") ?? 1));
+    // Played out as a scene, with no name behind it: the effect is the story's; whose doing it was is the player's to find.
+    add.push(normaliseChronicleEntry({ id: uid(), kind: "news", subject: plot.subject, title: felt.slice(0, 400), body: "",
+      message_id: plot.message_id, day: at.day, minute: at.minute, source: "offstage", visibility: "private", created_at: t++,
+      data: { due: at.day + days, state: "travelling", tries: 0, touches: true, mode: "scene", ripple: true, of: plot.id } }));
+  }
+  if (add.length) copyChronicle(add, chatId);
+  // Each plot looked at once, whether or not it reached her: not asked about again every run.
+  const mark = db.query("UPDATE chronicle SET data = ? WHERE id = ?");
+  for (const e of plots) mark.run(JSON.stringify({ ...dataOf(e), rippled: true }), e.id);
+  if (!add.length && !answer.trim()) return { landed: 0, error: emptyAnswer(said, stop) };
+  return { landed: add.length };
 }
 
 /**

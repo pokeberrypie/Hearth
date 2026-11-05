@@ -1407,3 +1407,92 @@ describe("word of it, however the model writes the line", () => {
     expect(saysNothing("…")).toBe(true);
   });
 });
+
+describe("the ripple: what is done offstage is felt where the player's character is", () => {
+  let rippleAnswer = "";
+  let rippleAsks = 0;
+  function court() {
+    seed();
+    setSettings({ offstage_level: "dynamic", offstage_per_day: "6", news_reach: "50" });
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('x1', 'ch', 'j', 0)").run();
+    presenceAnswer = "HERE | Jaime Lannister\nAWAY | Cersei Lannister | the Red Keep";
+    rippleAsks = 0;
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (u: any, init: any) => {
+      const body = JSON.parse(init.body);
+      if (JSON.stringify(body.messages).includes("You trace what people did out of sight")) {
+        rippleAsks++;
+        sent.push(body);
+        return Response.json({ choices: [{ message: { content: rippleAnswer } }] });
+      }
+      return inner(u, init);
+    }) as any;
+  }
+  // A plot that names neither Yvenna nor anyone with her: before, it stayed in the ledger.
+  const PLOT = "CHOOSE | the stables | quiet\nACT | Cersei has the Lannister quartermaster withhold Jaime's horses and pay from the westerlands | easy | social\nFACT | the westerlands stewards will send no more horses or silver to Jaime";
+  const coming = async () => (await (await ask("/api/chats/ch/offstage")).json()).news;
+
+  test("a plot that never named her is traced to her scene, and queued to play out there", async () => {
+    court();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "LANDS | 1 | a Lannister rider arrives with word that no more horses or coin will come from the West, and the grooms look to Jaime for orders he cannot pay for | 1";
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.note).toContain("on their way to your scene");
+    const [n] = await coming();
+    expect(n).toMatchObject({ mode: "scene", from: "Cersei Lannister", state: "travelling", in: 1 });
+    // Asked with both sides in view: what was done, and where she is.
+    const asked = JSON.stringify(sent.filter((b) => JSON.stringify(b.messages).includes("You trace what people did out of sight")).at(-1));
+    expect(asked).toContain("withhold Jaime's horses");
+    expect(asked).toContain("with Jaime Lannister");
+  });
+
+  test("when it is due, the narrator plays out the effect — and is never told whose doing it was", async () => {
+    court();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "LANDS | 1 | a Lannister rider arrives with word that no more horses or coin will come from the West | 1";
+    await send("/api/chats/ch/offstage/run", "POST");
+    await send("/api/chats/ch/chronicle", "POST", { kind: "time", text: "1 day" });
+    const told = await narrator();
+    expect(told).toContain("Play this out now");
+    expect(told).toContain("a Lannister rider arrives with word that no more horses or coin will come from the West");
+    expect(told).not.toContain("Cersei");
+  });
+
+  test("each plot is looked at once; the dial at nothing sends none", async () => {
+    court();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "NONE";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(rippleAsks).toBe(1);
+    answers = ["CHOOSE | NOTHING | x\nACT | rests | easy | none"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    // The second run had nothing new that worked: the first plot is not asked about again.
+    expect(rippleAsks).toBe(1);
+
+    court();
+    setSettings({ news_reach: "0" });
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "LANDS | 1 | a rider comes | 1";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(rippleAsks).toBe(0);
+    expect(await coming()).toEqual([]);
+  });
+
+  test("swiping the reply the plot followed takes its ripple with it", async () => {
+    court();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m2', 'ch', 'assistant', 'Jaime Lannister', 'The road went on.', 3)").run();
+    answers = [PLOT];
+    rippleAnswer = "LANDS | 1 | a Lannister rider arrives with word that no more horses will come | 1";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect((await coming()).length).toBe(1);
+    story = "Another take on the road.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
+    expect((await coming()).filter((n: any) => n.told.includes("no more horses"))).toEqual([]);
+    story = "The court is quiet.";
+  });
+});
