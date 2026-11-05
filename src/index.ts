@@ -3934,6 +3934,12 @@ function chronicleState(chatId: string) {
       ...pending(entries).filter((e) => e.kind === "conflict").map((e) => ({ id: e.id, kind: "conflict", scene_id: e.scene_id,
         title: blindAhead(chatId, e.scene_id) ? "" : e.title })),
     ],
+    // Something from offstage due to reach the scene now — asked about above the writing line, and never said:
+    // what it is, and whose doing, stay the story's and the ledger's. Unanswered, it comes in as it would have.
+    arriving: (() => {
+      const n = dueNews(entries, at.day)[0];
+      return n ? { id: n.id, mode: dataOf(n).mode === "scene" ? "scene" : "word", first: !!dataOf(n).first } : null;
+    })(),
   };
 }
 
@@ -4538,11 +4544,12 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
     // What was done, traced to where the player's character is: the plots whose effects would reach her, queued to
     // play out in the story.
     if (!r.yielded && r.acted) {
-      const w: { landed: number; looked: number; off?: boolean; error?: string } =
+      const w: { landed: number; looked: number; again?: number; off?: boolean; error?: string } =
         await rippleOf(chatId, mine).catch((e: any) => ({ landed: 0, looked: 0, error: e?.message || "" }));
       // Always said, so it can be seen to have run: what reached her scene, that nothing would yet, or why it failed.
       const said = w.error ? `The ripple could not be read: ${w.error}`
         : w.landed ? (w.landed === 1 ? "1 thing done offstage is on its way to your scene" : `${w.landed} things done offstage are on their way to your scene`)
+        : w.again ? `Traced ${w.looked} ${w.looked === 1 ? "plot" : "plots"} to your scene — what would reach you is already on its way, or was just felt`
         : w.looked ? `Traced ${w.looked} ${w.looked === 1 ? "plot" : "plots"} to your scene — none would reach you yet`
         : w.off ? "The ripple is off: How much news reaches you is at nothing" : "";
       if (said) r.note = [r.note, said].filter(Boolean).join(" · ");
@@ -4668,7 +4675,7 @@ const ripplesFor = (s: Record<string, string>) => {
  * play out in the story (see offstageBrief), as an effect: never who was behind it, which stays the player's to
  * find. Each plot is looked at once.
  */
-async function rippleOf(chatId: string, since: number): Promise<{ landed: number; looked: number; off?: boolean; error?: string }> {
+async function rippleOf(chatId: string, since: number): Promise<{ landed: number; looked: number; again?: number; off?: boolean; error?: string }> {
   const s = getSettings();
   const most = ripplesFor(s);
   if (!most) return { landed: 0, looked: 0, off: true };
@@ -4717,6 +4724,7 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
   let t = now();
   const add: ChronicleEntry[] = [];
   const used = new Set<number>();
+  let again = 0;
   for (const line of answer.split(/\r?\n/)) {
     if (add.length >= most) break;
     const m = /^\W*LANDS?\W*\|\s*#?(\d+)\W*\|\s*([^|]+?)\s*(?:\|\s*(.+))?$/i.exec(line.trim());
@@ -4725,6 +4733,9 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
     const plot = plots[n];
     const felt = m[2].trim();
     if (!plot || used.has(n) || saysNothing(felt) || felt.length < 12) continue;
+    // Not the same scene twice: someone keeping at one scheme day after day is not felt twice over, the same way.
+    // Not felt twice: on its way already, or felt in the last week.
+    if ([...news, ...add].some((e) => (dataOf(e).state !== "arrived" || (e.day ?? 0) >= at.day - 7) && sameNews(felt, e.title))) { again++; continue; }
     used.add(n);
     const days = Math.max(0, Math.min(30, daysIn(m[3] ?? "") ?? 1));
     // Played out as a scene, with no name behind it: the effect is the story's; whose doing it was is the player's to find.
@@ -4737,7 +4748,7 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
   const mark = db.query("UPDATE chronicle SET data = ? WHERE id = ?");
   for (const e of plots) mark.run(JSON.stringify({ ...dataOf(e), rippled: true }), e.id);
   if (!add.length && !answer.trim()) return { landed: 0, looked: plots.length, error: emptyAnswer(said, stop) };
-  return { landed: add.length, looked: plots.length };
+  return { landed: add.length, looked: plots.length, again };
 }
 
 /**
@@ -5076,7 +5087,9 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     if (word && outcome === "succeeded") {
       const touches = near.some((n) => meansPerson(`${r.act} ${word.told} ${theirs.map((g) => g.goal).join(" ")}`, n));
       const dial = Math.max(0, Math.min(100, Number(s.news_reach ?? 50)));
-      if (touches || newsChance() * 100 < dial) {
+      const already = liveEntries(entries).some((e) => e.kind === "news" && (dataOf(e).state === "travelling" || (dataOf(e).state === "arrived" && (e.day ?? 0) >= at.day - 7))
+        && sameNews(e.title, word.told));
+      if (!already && (touches || newsChance() * 100 < dial)) {
         add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "news", subject: person, title: word.told, body: word.how, created_at: t++,
           // What touches the player's character or their people does not arrive as talk: it happens to them, a
           // scene in the story. The rest is word of it, heard.
@@ -5365,6 +5378,13 @@ const NEWS_FILLER = new Set(["which", "their", "there", "would", "about", "after
 const stems = (text: string) => new Set(String(text).toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/)
   .filter((w) => w.length >= 5 && !NEWS_FILLER.has(w)).map((w) => w.slice(0, 5)));
 
+/** The same event, told twice: most of the rarer words of the shorter telling are in the other. */
+function sameNews(a: string, b: string) {
+  const x = stems(a), y = stems(b);
+  const shared = [...x].filter((w) => y.has(w)).length;
+  return shared >= Math.max(3, Math.ceil(Math.min(x.size, y.size) * 0.6));
+}
+
 /**
  * After a reply: the news that was due — did the story bring it in? Told by the reply carrying enough of its words,
  * by their stems, so a narrator who tells it in its own words is counted. If so it has arrived, by this reply — and
@@ -5384,6 +5404,13 @@ function settleNews(chatId: string, reply: string, by = "") {
   const tries = Number(d.tries ?? 0) + 1;
   const state = arrived ? "arrived" : tries >= NEWS_PATIENCE ? "lost" : "travelling";
   db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tries: arrived ? d.tries ?? 0 : tries, state, ...(arrived ? { by } : {}) }), news.id);
+  // Brought in, it is brought in once: the same event queued again — a plotter keeping at one scheme day after
+  // day — has been played too, and is not played over.
+  if (arrived) {
+    for (const twin of liveEntries(entries).filter((e) => e.kind === "news" && e.id !== news.id && dataOf(e).state === "travelling" && sameNews(e.title, news.title))) {
+      db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...dataOf(twin), state: "arrived", by, twin: news.id }), twin.id);
+    }
+  }
 }
 
 /** The ledger: goals, what people did, what reached the narrator. For the author, who sees it only when they unseal it. */
@@ -5504,8 +5531,11 @@ api.post("/chats/:id/offstage/news/:news", async (c) => {
   const d = dataOf(e);
   const day = clockOf(calendarOf(chatId), entries).day;
   const next = b.action === "now" ? { ...d, state: "travelling", due: day, tries: 0, first: true }
-    : b.action === "skip" ? { ...d, state: "skipped" } : null;
-  if (!next) return c.json({ error: "Now or skip?" }, 400);
+    : b.action === "skip" ? { ...d, state: "skipped" }
+    // Not yet: a day of the story's time, then it is asked about again, its patience whole.
+    : b.action === "later" ? { ...d, state: "travelling", due: day + 1, tries: 0, first: false }
+    : null;
+  if (!next) return c.json({ error: "Now, later or skip?" }, 400);
   db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify(next), e.id);
   return c.json({ ok: true });
 });
@@ -5616,8 +5646,10 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
         if (days.length) unturn.run(Math.min(...days) - 1, m.chat_id);
       }
       undo.run(t, id);
-      // News these words brought in has not arrived after all: back on the road, with its patience whole again.
-      for (const n of db.query("SELECT id, data FROM chronicle WHERE chat_id = ? AND kind = 'news' AND undone_at IS NULL").all(m.chat_id) as any[]) {
+      // News these words brought in has not arrived after all: back on the road, with its patience whole again. Only
+      // when the words themselves changed — swiped, edited, removed — never when the Steward reads them again: that
+      // is the same reply, and what it brought in is still brought in.
+      if (narrator) for (const n of db.query("SELECT id, data FROM chronicle WHERE chat_id = ? AND kind = 'news' AND undone_at IS NULL").all(m.chat_id) as any[]) {
         const d = (() => { try { return JSON.parse(n.data || "{}"); } catch { return {}; } })();
         if (d.by === id && d.state === "arrived") db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "travelling", tries: 0, by: "" }), n.id);
       }

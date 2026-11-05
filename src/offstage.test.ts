@@ -1230,6 +1230,49 @@ describe("what is done offstage reaches the story", () => {
     story = "The court is quiet.";
   });
 
+  test("brought in, it stays brought in when the Steward reads that reply", async () => {
+    court();
+    setSettings({ steward_on: "1", steward_every: "1" });
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(2);
+    story = "Three hard men ride into the yard, asking after a Hightower girl, and the price on her head is the first thing they say.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We rest." })).text();
+    // The Steward reads that reply again, and its answer replaces its own earlier reading of it — not a swipe.
+    await new Promise((r) => setTimeout(r, 200));
+    db.query("UPDATE chats SET steward_at = 0 WHERE id = 'ch'").run();
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (u: any, init: any) => JSON.stringify(JSON.parse(init.body).messages).includes("You keep the records")
+      ? Response.json({ choices: [{ message: { content: 'TIME | an hour | "Three hard men ride into the yard"' } }] }) : inner(u, init)) as any;
+    // Read now, as the button does: the Steward reads them again, whatever its last try came to.
+    await send("/api/chats/ch/steward/now", "POST", {});
+    // It did read them, and its reading stood: so its earlier one of that reply was replaced.
+    expect((db.query("SELECT problem FROM steward_runs ORDER BY created_at DESC LIMIT 1").get() as any).problem).toBe("");
+    expect((await coming())[0].state).toBe("arrived");
+    story = "The court is quiet.";
+  });
+
+  test("the same event is queued once, and played once", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    // She keeps at it the next day: the same word would be sent again, but one is already on its way.
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect((await coming()).filter((n: any) => n.told.includes("three hard men"))).toHaveLength(1);
+    // Twins already queued (from before this was checked) are played with it, not over again.
+    const [first] = await coming();
+    db.query("INSERT INTO chronicle (id, chat_id, kind, subject, title, body, data, visibility, source, created_at, day) VALUES ('tw', 'ch', 'news', 'Cersei Lannister', ?, '', ?, 'private', 'offstage', ?, 0)")
+      .run(first.told, JSON.stringify({ due: 0, state: "travelling", tries: 0, mode: "scene" }), Date.now());
+    later(2);
+    story = "Three hard men ride into the yard, asking after a Hightower girl, and the price on her head is the first thing they say.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We rest." })).text();
+    expect((await coming()).filter((n: any) => n.told.includes("three hard men")).map((n: any) => n.state)).toEqual(["arrived", "arrived"]);
+    story = "The court is quiet.";
+  });
+
   test("the reply that brought it in, swiped away: it never came, and is on its way again", async () => {
     court();
     await plotting();
@@ -1243,6 +1286,31 @@ describe("what is done offstage reaches the story", () => {
     await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
     expect((await coming())[0].state).toBe("travelling");
     story = "The court is quiet.";
+  });
+
+  test("when it is due, the writing line asks — Let it in, Not yet, Skip it — without saying what or whose", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const world = async () => (await ask("/api/chats/ch/chronicle")).json();
+    // On the road, not yet due: nothing asked.
+    expect((await world()).arriving).toBe(null);
+    later(2);
+    const w = await world();
+    expect(w.arriving).toMatchObject({ mode: "scene", first: false });
+    expect(JSON.stringify(w.arriving)).not.toContain("hard men");
+    expect(JSON.stringify(w.arriving)).not.toContain("Cersei");
+    // Not yet: a day on, its patience whole, and not asked about until then.
+    await send(`/api/chats/ch/offstage/news/${w.arriving.id}`, "POST", { action: "later" });
+    expect((await world()).arriving).toBe(null);
+    expect(await narrator()).not.toContain("three hard men");
+    later(1);
+    expect((await world()).arriving?.id).toBe(w.arriving.id);
+    // Let in: it comes with the next reply, and is not asked about again.
+    await send(`/api/chats/ch/offstage/news/${w.arriving.id}`, "POST", { action: "now" });
+    expect((await world()).arriving).toMatchObject({ first: true });
+    expect(await narrator()).toContain("three hard men ride into the yard");
   });
 
   test("Now brings it in on the next reply; Skip lets it go", async () => {

@@ -101,7 +101,9 @@ addEventListener("resize", fitWorldLine);
 function paintScenePrompt(s) {
   const q = GUEST.on ? null : (s?.proposals ?? []).find((p) => (p.kind === "scene" || p.kind === "threat" || p.kind === "conflict") && !p.sealed);
   let box = $("#scenePrompt");
-  if (!q) { if (box) box.hidden = true; return; }
+  // Something from offstage due to reach the scene: asked about only when nothing else is, and only once said yes to.
+  const coming = !q && !GUEST.on && s?.arriving && !s.arriving.first ? s.arriving : null;
+  if (!q && !coming) { if (box) box.hidden = true; return; }
   if (!box) {
     box = document.createElement("div");
     box.id = "scenePrompt";
@@ -109,6 +111,7 @@ function paintScenePrompt(s) {
     box.setAttribute("role", "status");
     $("#composer").before(box);
   }
+  if (coming) return paintArriving(box, coming);
   let d = {};
   try { d = q.data ? JSON.parse(q.data) : {}; } catch {}
   const threat = q.kind === "threat";
@@ -143,6 +146,31 @@ function paintScenePrompt(s) {
   box.querySelector("[data-no]").onclick = async () => { box.hidden = true; await act(`/chronicle/${q.id}/undo`); };
   // The guess is wrong: say where the story really is. Choosing answers the question.
   box.querySelector("[data-pick-scene]")?.addEventListener("click", () => { if (typeof openScenePicker === "function") openScenePicker(); });
+}
+
+/**
+ * Something done offstage about to reach the scene: said only that it is coming, never what or whose — that is the
+ * story's to show and the player's to find. Let in, it comes with the next reply; not yet, a day on; skipped, never.
+ * Left unanswered, it comes in anyway, as it would have: the bar is a say in it, not a gate it waits behind.
+ */
+function paintArriving(box, coming) {
+  const scene = coming.mode === "scene";
+  box.innerHTML = `<span class="spstar" aria-hidden="true">✦</span>
+    <div class="sptext">${scene ? "Something from offstage is about to reach your scene." : "Word from elsewhere is about to reach you."}</div>
+    <div class="spbtns"><button type="button" class="solid" data-arrive="now">Let it in</button>
+      <button type="button" class="linkish" data-arrive="later">Not yet</button>
+      <button type="button" class="linkish" data-arrive="skip">Skip it</button></div>`;
+  box.hidden = false;
+  for (const b of box.querySelectorAll("[data-arrive]")) {
+    b.onclick = async () => {
+      box.hidden = true;
+      const r = await api(`/chats/${S.chatId}/offstage/news/${coming.id}`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: b.dataset.arrive }) }).catch(() => ({ error: "That could not be saved." }));
+      if (r?.error) return toast(r.error);
+      toast(b.dataset.arrive === "now" ? "It comes in with the next reply." : b.dataset.arrive === "later" ? "Held off for a day of the story's time." : "Let go. It will not come.");
+      paintWorldLine();
+    };
+  }
 }
 
 /** A guest's line comes from the table's own state, and moves with the live feed. */
