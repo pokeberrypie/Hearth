@@ -1438,7 +1438,7 @@ describe("the ripple: what is done offstage is felt where the player's character
     answers = [PLOT];
     rippleAnswer = "LANDS | 1 | a Lannister rider arrives with word that no more horses or coin will come from the West, and the grooms look to Jaime for orders he cannot pay for | 1";
     const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
-    expect(r.note).toContain("on their way to your scene");
+    expect(r.note).toContain("1 thing done offstage is on its way to your scene");
     const [n] = await coming();
     expect(n).toMatchObject({ mode: "scene", from: "Cersei Lannister", state: "travelling", in: 1 });
     // Asked with both sides in view: what was done, and where she is.
@@ -1480,6 +1480,46 @@ describe("the ripple: what is done offstage is felt where the player's character
     await send("/api/chats/ch/offstage/run", "POST");
     expect(rippleAsks).toBe(0);
     expect(await coming()).toEqual([]);
+  });
+
+  test("whatever it finds, the run says so: on its way, none would reach her, off, or why it failed", async () => {
+    court();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "NONE";
+    let r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.note).toContain("Traced 1 plot to your scene — none would reach you yet");
+    const l = await (await ask("/api/chats/ch/offstage")).json();
+    expect(l.runs[0].note).toContain("none would reach you yet");
+
+    court();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "";
+    r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.note).toContain("The ripple could not be read: Its model sent back an empty answer");
+
+    court();
+    setSettings({ news_reach: "0" });
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(r.note).toContain("The ripple is off");
+  });
+
+  test("one plot's news is not every plot of that person's that day: her next plot is still traced", async () => {
+    court();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    // Earlier that day, a plot of hers that sent its own word on to the scene.
+    answers = ["CHOOSE | the bounty | now\nACT | Cersei puts a price on Yvenna Hightower's head | easy | social\nREACHES | sellswords on the road | three hard men ride into the yard asking after a Hightower girl | 2"];
+    rippleAnswer = "NONE";
+    await send("/api/chats/ch/offstage/run", "POST");
+    rippleAsks = 0;
+    answers = [PLOT];
+    rippleAnswer = "LANDS | 1 | a Lannister rider arrives with word that no more horses or coin will come from the West | 1";
+    const r = await (await send("/api/chats/ch/offstage/run", "POST")).json();
+    expect(rippleAsks).toBe(1);
+    expect(r.note).toContain("on its way to your scene");
   });
 
   test("swiping the reply the plot followed takes its ripple with it", async () => {

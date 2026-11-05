@@ -4538,8 +4538,14 @@ async function offstageRun(chatId: string, o: { manual?: boolean; midday?: boole
     // What was done, traced to where the player's character is: the plots whose effects would reach her, queued to
     // play out in the story.
     if (!r.yielded && r.acted) {
-      const w = await rippleOf(chatId, mine).catch((e: any) => ({ landed: 0, error: e?.message || "" }));
-      if (w.landed) r.note = [r.note, `${w.landed} ${w.landed === 1 ? "thing done offstage is" : "things done offstage are"} on their way to your scene`].filter(Boolean).join(" · ");
+      const w: { landed: number; looked: number; off?: boolean; error?: string } =
+        await rippleOf(chatId, mine).catch((e: any) => ({ landed: 0, looked: 0, error: e?.message || "" }));
+      // Always said, so it can be seen to have run: what reached her scene, that nothing would yet, or why it failed.
+      const said = w.error ? `The ripple could not be read: ${w.error}`
+        : w.landed ? (w.landed === 1 ? "1 thing done offstage is on its way to your scene" : `${w.landed} things done offstage are on their way to your scene`)
+        : w.looked ? `Traced ${w.looked} ${w.looked === 1 ? "plot" : "plots"} to your scene — none would reach you yet`
+        : w.off ? "The ripple is off: How much news reaches you is at nothing" : "";
+      if (said) r.note = [r.note, said].filter(Boolean).join(" · ");
     }
     // Once a day, and when run by hand: what the chat's own cast want, in the scene or away.
     if (!o.midday && !r.yielded) {
@@ -4662,23 +4668,27 @@ const ripplesFor = (s: Record<string, string>) => {
  * play out in the story (see offstageBrief), as an effect: never who was behind it, which stays the player's to
  * find. Each plot is looked at once.
  */
-async function rippleOf(chatId: string, since: number): Promise<{ landed: number; error?: string }> {
+async function rippleOf(chatId: string, since: number): Promise<{ landed: number; looked: number; off?: boolean; error?: string }> {
   const s = getSettings();
   const most = ripplesFor(s);
-  if (!most) return { landed: 0 };
+  if (!most) return { landed: 0, looked: 0, off: true };
   const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
-  if (!chat) return { landed: 0 };
+  if (!chat) return { landed: 0, looked: 0 };
   const entries = chronicleOf(chatId);
   const live = liveEntries(entries);
   const at = clockOf(calendarOf(chatId), entries);
   const player = whoAmI(chat.persona_id)?.name ?? "";
+  // Plots that already sent word of themselves on to her are not traced again: they are on their way. Matched to the
+  // plot itself — its own news is written with it, a moment after it, or names it — not to whoever did it that day:
+  // one plot's news is not every plot of that person's that day.
+  const news = live.filter((e) => e.kind === "news");
+  const alreadySent = (p: ChronicleEntry) => news.some((n) => dataOf(n).of === p.id
+    || (n.subject === p.subject && n.created_at > p.created_at && n.created_at - p.created_at < 50));
   // This run's plots, and any from the last few days never looked at: what worked, or failed in a way that shows.
   const plots = live.filter((e) => e.kind === "offstage" && !dataOf(e).rippled && (dataOf(e).outcome === "succeeded" || dataOf(e).outcome === "failed")
-    && (e.created_at >= since || (e.day !== null && e.day >= at.day - 3)))
+    && !alreadySent(e) && (e.created_at >= since || (e.day !== null && e.day >= at.day - 3)))
     .sort((a, b) => b.created_at - a.created_at).slice(0, 10).reverse();
-  if (!plots.length) return { landed: 0 };
-  // Plots that already sent word of themselves on to her are not sent twice.
-  const sent = new Set(live.filter((e) => e.kind === "news").map((e) => `${e.subject}|${e.day}`));
+  if (!plots.length) return { landed: 0, looked: 0 };
   const status = statusOf(entries);
   const here = (membersOf(chat) as any[]).filter((m) => !m.muted && m.name !== player).map((m) => m.name);
   const where = (status[player] as any)?.location?.title ?? "";
@@ -4700,8 +4710,8 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
   try {
     ({ said, thought, stop } = await askOffstage(conn, fold, system, prompt, (_s, th) => /^\W*LANDS?\W*\|/im.test(th)));
   } catch (e: any) {
-    if (e instanceof YieldedToReply) return { landed: 0 };
-    return { landed: 0, error: e?.message || "The Offstage could not be reached." };
+    if (e instanceof YieldedToReply) return { landed: 0, looked: 0 };
+    return { landed: 0, looked: plots.length, error: e?.message || "The Offstage could not be reached." };
   }
   const answer = withoutThinking(said).trim() || thought;
   let t = now();
@@ -4714,7 +4724,7 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
     const n = Number(m[1]) - 1;
     const plot = plots[n];
     const felt = m[2].trim();
-    if (!plot || used.has(n) || saysNothing(felt) || felt.length < 12 || sent.has(`${plot.subject}|${plot.day}`)) continue;
+    if (!plot || used.has(n) || saysNothing(felt) || felt.length < 12) continue;
     used.add(n);
     const days = Math.max(0, Math.min(30, daysIn(m[3] ?? "") ?? 1));
     // Played out as a scene, with no name behind it: the effect is the story's; whose doing it was is the player's to find.
@@ -4726,8 +4736,8 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
   // Each plot looked at once, whether or not it reached her: not asked about again every run.
   const mark = db.query("UPDATE chronicle SET data = ? WHERE id = ?");
   for (const e of plots) mark.run(JSON.stringify({ ...dataOf(e), rippled: true }), e.id);
-  if (!add.length && !answer.trim()) return { landed: 0, error: emptyAnswer(said, stop) };
-  return { landed: add.length };
+  if (!add.length && !answer.trim()) return { landed: 0, looked: plots.length, error: emptyAnswer(said, stop) };
+  return { landed: add.length, looked: plots.length };
 }
 
 /**
@@ -5403,6 +5413,7 @@ api.get("/chats/:id/offstage", (c) => {
     // Word on its way to the player's character, and what became of it.
     news: live.filter((e) => e.kind === "news").reverse().slice(0, 20).map((e) => ({ id: e.id, from: e.subject, told: e.title, how: e.body,
       state: dataOf(e).state, garbled: !!dataOf(e).garbled, touches: !!dataOf(e).touches, mode: dataOf(e).mode === "scene" ? "scene" : "word",
+      of: dataOf(e).of ?? null, ripple: !!dataOf(e).ripple,
       in: Math.max(0, Number(dataOf(e).due ?? 0) - clockOf(cal, entries).day), when: when(e) })),
     // Its last runs, kept across restarts: what came of each, or why nothing did.
     runs: (db.query("SELECT kind, note, acted, goals, problem, created_at FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 8").all(chatId) as any[]),

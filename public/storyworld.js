@@ -570,6 +570,7 @@ async function paintOffstage() {
         ${a.plan?.length ? a.plan.map((p) => `<div class="wdwhen">Your plan — ${txt(p.relation)} “${txt(p.title)}”${p.how ? `: ${txt(p.how)}` : ""}</div>`).join("") : ""}
         ${a.why ? `<div class="wdwhy">“${txt(a.why)}”</div>` : ""}
         ${a.considered?.length ? `<details><summary>What they weighed</summary><ul>${a.considered.map((c) => `<li>${txt(c.option)}${c.stakes ? ` — <i>${txt(c.stakes)}</i>` : ""}</li>`).join("")}</ul>${a.want ? `<p class="hint">Wanted: ${txt(a.want)}${a.fear ? `; afraid of: ${txt(a.fear)}` : ""}</p>` : ""}</details>` : ""}
+        ${a.rippled ? `<div class="wdwhen">Traced to your scene: ${(l.news ?? []).some((n) => n.of === a.id) ? "on its way" : "would not reach you"}</div>` : ""}
         ${a.lore?.length ? `<div class="wdwhen">Drew on the lorebook: ${txt(a.lore.join(", "))}</div>` : ""}
         ${a.notes?.length ? `<div class="wdwhen">Held back: ${txt(a.notes.join("; "))}</div>` : ""}</li>`).join("") + quietLine;
     // What is coming to the player's character: events that will play out in the story, and word of the rest.
