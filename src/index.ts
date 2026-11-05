@@ -1326,6 +1326,8 @@ api.post("/chats/:id/generate", async (c) => {
       let think = "";
       let tokens = 0;
       let read = 0;
+      // The message this reply was saved as: news it brought in is tied to it, and goes back on the road if it is swiped.
+      let savedId = "";
       // When the first of the reply came: until then the model was reading what it was sent.
       let firstAt = 0;
       let failed = false;
@@ -1502,6 +1504,7 @@ api.post("/chats/:id/generate", async (c) => {
           db.query(
             "UPDATE messages SET content = ?, swipes = ?, swipe_index = ?, reasoning = ?, tokens = ?, ms = ?, wait_ms = ?, read_tokens = ? WHERE id = ?",
           ).run(full, JSON.stringify(list), list.length - 1, think, tokens, ms, wait, read, swipeTarget.id);
+          savedId = swipeTarget.id;
           // What the Steward made of the reply this one replaced no longer happened.
           forgetSteward([swipeTarget.id]);
           tieNarration(chatId, swipeTarget.id, t0);
@@ -1514,6 +1517,7 @@ api.post("/chats/:id/generate", async (c) => {
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(id, chatId, "assistant", who.name, full, now(), JSON.stringify([full]), 0,
                 think, tokens, ms, wait, read, who.id ?? null);
+          savedId = id;
           tieNarration(chatId, id, t0);
           openingTime(chatId, id, full);
           send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", thrown, ...stats });
@@ -1538,7 +1542,7 @@ api.post("/chats/:id/generate", async (c) => {
             .run(now(), chatId, t0);
         }
         // News that was due: did this reply bring it in? If not, it is offered again — a few times, then dropped.
-        if (!failed && !ac.signal.aborted) { try { settleNews(chatId, full); } catch (e) { console.error("[news]", e); } }
+        if (!failed && !ac.signal.aborted) { try { settleNews(chatId, full, savedId); } catch (e) { console.error("[news]", e); } }
         // And the Offstage, when a day has turned: what the people nobody is watching do.
         if (!failed && !ac.signal.aborted) offstageTurn(chatId).catch(() => {});
       }
@@ -5210,10 +5214,14 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   }
   // What is due to reach the player's character: one thing at a time, so the story is not handed a stack of them.
   const news = dueNews(entries, day)[0];
+  // Pressed once it has waited: told plainly that this reply is the one.
+  const pressed = news ? Number(dataOf(news).tries ?? 0) >= NEWS_PRESS[dataOf(news).mode === "scene" ? "scene" : "word"] : false;
   if (news && dataOf(news).mode === "scene") {
-    out.push(`Play this out now, as something happening where the player's character is (${news.body || "it comes to them"}): ${news.title}. Begin it in the scene and let it unfold; never decide what the player's character does, says or feels.`);
+    out.push(`${pressed ? "This has waited long enough: open this reply with it. " : ""}Play this out now, as something happening where the player's character is (${news.body || "it comes to them"}): ${news.title}. Begin it in the scene and let it unfold; never decide what the player's character does, says or feels.`);
   } else if (news) {
-    out.push(`News reaches the player's character — bring it into the story within the next few replies, the way it would arrive (${news.body || "word of it"}), at a natural moment, never in the middle of a conversation: ${news.title}. This is what they hear, which may not be the whole truth; never decide what they make of it, or what they do.`);
+    out.push(pressed
+      ? `News reaches the player's character, and it has waited long enough — bring it in during this reply, the way it would arrive (${news.body || "word of it"}): ${news.title}. This is what they hear, which may not be the whole truth; never decide what they make of it, or what they do.`
+      : `News reaches the player's character — bring it into the story within the next few replies, the way it would arrive (${news.body || "word of it"}), at a natural moment, never in the middle of a conversation: ${news.title}. This is what they hear, which may not be the whole truth; never decide what they make of it, or what they do.`);
   }
   if (threat) {
     out.push(`Bring this into the story now, as something happening in the scene: ${threat.title}. Play out the attempt, but do not decide whether it succeeds — the player's character may resist, escape or be helped. Never decide what they do, say or feel.`);
@@ -5246,23 +5254,35 @@ function dueNews(entries: ChronicleEntry[], day: number) {
       || Number(dataOf(b).mode === "scene") - Number(dataOf(a).mode === "scene") || a.created_at - b.created_at);
 }
 
+/** Replies a piece of news is offered for before it is let go; after NEWS_PRESS of them, the narrator is pressed. */
+const NEWS_PATIENCE = 8;
+const NEWS_PRESS = { word: 3, scene: 2 };
+/** Words that say nothing about which news it is. */
+const NEWS_FILLER = new Set(["which", "their", "there", "would", "about", "after", "before", "where", "while", "these", "those",
+  "being", "every", "other", "still", "words", "within", "through", "against", "already", "people"]);
+/** The first five letters of each longer word: enough that "healing" meets "healed", "Kingslayer's" meets "Kingslayer". */
+const stems = (text: string) => new Set(String(text).toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/)
+  .filter((w) => w.length >= 5 && !NEWS_FILLER.has(w)).map((w) => w.slice(0, 5)));
+
 /**
- * After a reply: the news that was due — did the story bring it in? Told by the reply carrying its words (the
- * rarer ones: a name, a place, what happened). If so it has arrived; if not, it is offered again, and after four
- * replies that did not take it up it is let go, rather than pressed on a story that has moved on.
+ * After a reply: the news that was due — did the story bring it in? Told by the reply carrying enough of its words,
+ * by their stems, so a narrator who tells it in its own words is counted. If so it has arrived, by this reply — and
+ * should the reply be swiped away, it is back on the road (see forgetSteward). If not, it is offered again, pressed
+ * after a few replies, and let go only after NEWS_PATIENCE: word is told to wait for a natural moment, and was let go
+ * after four replies of waiting for one.
  */
-function settleNews(chatId: string, reply: string) {
+function settleNews(chatId: string, reply: string, by = "") {
   const entries = chronicleOf(chatId);
   const news = dueNews(entries, clockOf(calendarOf(chatId), entries).day)[0];
   if (!news) return;
-  const said = ` ${storyOnly(reply).toLowerCase().replace(/[^a-z\s'-]/g, " ")} `;
-  const keys = [...new Set(news.title.toLowerCase().replace(/[^a-z\s'-]/g, " ").split(/\s+/).filter((w) => w.length > 4))];
-  const hits = keys.filter((k) => said.includes(` ${k}`)).length;
+  const said = stems(storyOnly(reply));
+  const keys = [...stems(news.title)];
+  const hits = keys.filter((k) => said.has(k)).length;
   const d = dataOf(news);
-  const arrived = hits >= Math.min(3, Math.max(2, Math.ceil(keys.length / 3)));
+  const arrived = keys.length > 0 && hits >= Math.min(3, Math.max(2, Math.ceil(keys.length / 4)));
   const tries = Number(d.tries ?? 0) + 1;
-  const state = arrived ? "arrived" : tries >= 4 ? "lost" : "travelling";
-  db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tries, state }), news.id);
+  const state = arrived ? "arrived" : tries >= NEWS_PATIENCE ? "lost" : "travelling";
+  db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tries: arrived ? d.tries ?? 0 : tries, state, ...(arrived ? { by } : {}) }), news.id);
 }
 
 /** The ledger: goals, what people did, what reached the narrator. For the author, who sees it only when they unseal it. */
@@ -5494,6 +5514,11 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
         if (days.length) unturn.run(Math.min(...days) - 1, m.chat_id);
       }
       undo.run(t, id);
+      // News these words brought in has not arrived after all: back on the road, with its patience whole again.
+      for (const n of db.query("SELECT id, data FROM chronicle WHERE chat_id = ? AND kind = 'news' AND undone_at IS NULL").all(m.chat_id) as any[]) {
+        const d = (() => { try { return JSON.parse(n.data || "{}"); } catch { return {}; } })();
+        if (d.by === id && d.state === "arrived") db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "travelling", tries: 0, by: "" }), n.id);
+      }
       if (reread) rewind.run(m.created_at - 1, m.chat_id);
       chats.add(m.chat_id);
     }

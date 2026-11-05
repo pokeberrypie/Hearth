@@ -40,7 +40,31 @@ export const ACTORS_PER_RUN: Record<Level, number> = { off: 0, balanced: 2, dyna
 
 /** "none", "nothing", "n/a", "no new goal": a model filling in a line it was told to leave out. Never a goal. */
 export const saysNothing = (text: string) =>
-  /^\W*(none|nothing|n\/?a|null|no( new)?( goal| aim)?s?|not applicable|-+)\W*$/i.test(String(text ?? "").trim());
+  // Or nothing but a dash, an ellipsis, punctuation: "—" was a model's way of saying no word gets out.
+  /^\W*$/.test(String(text ?? "").trim())
+  || /^\W*(none|nothing|n\/?a|null|no( new)?( goal| aim)?s?|not applicable|-+)\W*$/i.test(String(text ?? "").trim());
+
+const COUNTS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, fourteen: 14, fifteen: 15, twenty: 20, thirty: 30, few: 3, "a few": 3, several: 4, "a couple of": 2, couple: 2 };
+/**
+ * How many days a REACHES line's travel time says, or null if it does not read as one: "3", "in 4 days", "seven
+ * days", "about a week", "a fortnight", "tomorrow". Spelled-out numbers count — "seven days" used to be read as one.
+ */
+export function daysIn(text: string): number | null {
+  const t = String(text ?? "").toLowerCase().replace(/[~≈]/g, "").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 40) return null;
+  if (/^\d+$/.test(t)) return Number(t);
+  if (/^(today|now|at once|immediately|tonight)$/.test(t)) return 0;
+  if (/^tomorrow$/.test(t)) return 1;
+  const m = /^(?:in |within |after )?(?:about |around |some |roughly |nearly |under |over )?(\d+|a couple of|a few|an|a|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|fifteen|twenty|thirty|few|several|couple)(?:\s*(?:-|to|or)\s*\d+)?\s*(days?|nights?|weeks?|fortnights?|moons?|months?)\b/.exec(t);
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? Number(m[1]) : COUNTS[m[1]] ?? 1;
+  const unit = m[2].startsWith("week") ? 7 : m[2].startsWith("fortnight") ? 14 : /^(moon|month)/.test(m[2]) ? 30 : 1;
+  return n * unit;
+}
+
+/** What a model left of the line's own instructions at the start of a field: "how word of it would reach … — ". */
+const ECHO = /^(how word of it would reach[^—–:-]*|what they would hear[^—–:-]*|in how many days[^—–:-]*)[—–:-]+\s*/i;
 
 /** One goal someone is pursuing. */
 export type Agenda = { id: string; who: string; goal: string; why: string };
@@ -217,11 +241,20 @@ export function readDecision(raw: string): Decision {
       if (n > 0 && relation) d.plan.push({ n, relation, how: parts.slice(3).join(" | ") });
     } else if (key === "GOAL" && parts[1] && !saysNothing(parts[1])) d.goal = { goal: parts[1], why: parts.slice(2).join(" | ") };
     else if ((key === "DONE" || key === "ACHIEVED" || key === "ACCOMPLISHED") && parts[1] && !saysNothing(parts[1])) d.done = { goal: parts[1], how: parts.slice(2).join(" | ") };
-    else if ((key === "REACHES" || key === "NEWS" || key === "WORD") && parts[1] && parts[2] && !saysNothing(parts[2])) {
-      const n = parseInt(String(parts[3] ?? "").replace(/[^0-9]/g, ""), 10);
-      const words_ = String(parts[3] ?? "").toLowerCase();
-      const days = Number.isFinite(n) ? n : /week/.test(words_) ? 7 : /fortnight/.test(words_) ? 14 : /month/.test(words_) ? 30 : /day/.test(words_) ? 1 : 3;
-      d.reaches = { how: parts[1], told: parts[2], days: Math.max(0, Math.min(60, days)) };
+    else if (key === "REACHES" || key === "NEWS" || key === "WORD") {
+      // Read whichever order it came in: the travel time is whichever field reads as one, wherever the model put
+      // it; of the other two, what they would hear is the sentence ("that …", or the longer), and the rest is how.
+      // Taken in order, a line written out of order put "seven days" where the news belonged.
+      const fields = parts.slice(1, 4).map((f) => f.replace(ECHO, "").trim()).filter((f) => f);
+      const at = fields.findIndex((f) => daysIn(f) !== null);
+      const days = at >= 0 ? daysIn(fields[at])! : 3;
+      const rest = fields.filter((_, i) => i !== at);
+      const told = rest.length < 2 ? rest[0] ?? ""
+        : /^that\b/i.test(rest[0]) ? rest[0] : /^that\b/i.test(rest[1]) ? rest[1] : rest[1].length >= rest[0].length ? rest[1] : rest[0];
+      const how = rest.find((f) => f !== told) ?? "";
+      // A field left empty or a dash, or a line opening "none of this…", "nothing gets out": no word reaches anyone.
+      const nothing = rest.some((f) => saysNothing(f)) || /^(none|nothing|no word|no one|no news)\b/i.test(told);
+      if (told && !nothing && daysIn(told) === null) d.reaches = { how, told, days: Math.max(0, Math.min(60, days)) };
     }
   }
   if (d.kind === "act" && !d.act) d.kind = "nothing";

@@ -8,7 +8,7 @@
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { identityOf, names, pressureOf, readDecision, resolve, rule, saysNothing, traceOf } from "./offstage";
+import { daysIn, identityOf, names, pressureOf, readDecision, resolve, rule, saysNothing, traceOf } from "./offstage";
 import { db, setSettings, wipe } from "./test-support";
 
 const { app, offstageTurn, forgetPresence } = await import("./index");
@@ -1207,8 +1207,41 @@ describe("what is done offstage reaches the story", () => {
     await send("/api/chats/ch/offstage/run", "POST");
     later(2);
     story = "The fire burned low and nobody spoke of anything much.";
-    for (let i = 0; i < 4; i++) await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We wait." })).text();
+    // Missed: still on its way, and after two misses the narrator is told this reply is the one.
+    for (let i = 0; i < 2; i++) await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We wait." })).text();
+    expect((await coming())[0].state).toBe("travelling");
+    expect(await narrator()).toContain("This has waited long enough: open this reply with it.");
+    // Let go only after eight replies that would not take it up.
+    for (let i = 0; i < 6; i++) await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We wait." })).text();
     expect((await coming())[0].state).toBe("lost");
+    story = "The court is quiet.";
+  });
+
+  test("told in the narrator's own words, it has still arrived", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(2);
+    // Not the news's own sentence: other words, the same matter — riders, a Hightower, a price.
+    story = "Dust on the road: three riders, hard-faced, came into the yard. The captain asked loudly after the Hightower woman, and named the price someone had set on her.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We rest." })).text();
+    expect((await coming())[0].state).toBe("arrived");
+    story = "The court is quiet.";
+  });
+
+  test("the reply that brought it in, swiped away: it never came, and is on its way again", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(2);
+    story = "Three hard men ride into the yard, asking after a Hightower girl, and the price on her head is the first thing they say.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We rest." })).text();
+    expect((await coming())[0].state).toBe("arrived");
+    story = "Nothing came up the road all day.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
+    expect((await coming())[0].state).toBe("travelling");
     story = "The court is quiet.";
   });
 
@@ -1349,5 +1382,28 @@ describe("a request that never answers does not hold the chat", () => {
     expect(second.note).toContain("already taking its turn — it began moments ago");
     release();
     await first;
+  });
+});
+
+describe("word of it, however the model writes the line", () => {
+  const reach = (line: string) => readDecision(`CHOOSE | x | y\nACT | does it | easy | none\n${line}`).reaches;
+
+  test("the travel time is found wherever it was put, spelled out or not", () => {
+    // Lines as a model wrote them in a real chat: in the wrong order, the news itself read as "seven days".
+    expect(reach("REACHES | sailors' talk in ports of ships gathering at Dragonstone | seven days | that Stannis is gathering ships"))
+      .toEqual({ how: "sailors' talk in ports of ships gathering at Dragonstone", told: "that Stannis is gathering ships", days: 7 });
+    expect(reach("REACHES | travellers' talk along the roads | in about 10 days | that the Hand has fled the city")!.days).toBe(10);
+    expect(reach("REACHES | a raven | that Lord Tywin rides north | 3")).toEqual({ how: "a raven", told: "that Lord Tywin rides north", days: 3 });
+    expect(daysIn("a fortnight")).toBe(14);
+    expect(daysIn("about a week")).toBe(7);
+    expect(daysIn("that the king is dead")).toBeNull();
+  });
+
+  test("the line's own instructions echoed back are taken off; a dash, or 'none of this…', is no news", () => {
+    expect(reach("REACHES | how word of it would reach the player's character where they are — she is in the Dreadfort | the white cloak is gone from him | 1")!.how)
+      .toBe("she is in the Dreadfort");
+    expect(reach("REACHES | none of this leaves the room — she is simply abed | — | 2")).toBeFalsy();
+    expect(saysNothing("—")).toBe(true);
+    expect(saysNothing("…")).toBe(true);
   });
 });
