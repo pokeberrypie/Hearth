@@ -5075,7 +5075,9 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
       add.push(normaliseChronicleEntry({ ...base, visibility: "hidden", id: uid(), kind: "consequence", title: r.fact, created_at: t++ }));
     }
     if (r.threat) {
-      add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "threat", subject: person, title: r.act, body: r.why,
+      // What the narrator is handed, with no name behind it: "Someone sends a hired knife…". Who sent it is the
+      // ledger's, and the player's to find — a narrator told it is a hired knife that says whose regards it brings.
+      add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "threat", subject: person, title: unnamed(r.act, person), body: r.why,
         // Asked about first only if the author wants to be asked; otherwise it simply comes, in the next reply.
         created_at: t++, proposed: s.offstage_threat_ask === "1", data: { player, harm: r.harm } }));
       threats++;
@@ -5085,7 +5087,10 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     // the author's dial says. It arrives when the days it takes have passed — see offstageBrief and settleNews.
     const word = r.news;
     if (word && outcome === "succeeded") {
-      const touches = near.some((n) => meansPerson(`${r.act} ${word.told} ${theirs.map((g) => g.goal).join(" ")}`, n));
+      // Whether it lands on her or the people with her is a matter of what was done and what is heard — not of what
+      // the one doing it happens to want: Varys wanting to know Jaime's plans does not make word of his spies a
+      // scene played out in front of her.
+      const touches = near.some((n) => meansPerson(`${r.act} ${word.told}`, n));
       const dial = Math.max(0, Math.min(100, Number(s.news_reach ?? 50)));
       const already = liveEntries(entries).some((e) => e.kind === "news" && (dataOf(e).state === "travelling" || (dataOf(e).state === "arrived" && (e.day ?? 0) >= at.day - 7))
         && sameNews(e.title, word.told));
@@ -5341,6 +5346,18 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
     out.push(`Bring this into the story now, as something happening in the scene: ${threat.title}. Play out the attempt, but do not decide whether it succeeds — the player's character may resist, escape or be helped. Never decide what they do, say or feel.`);
   }
   return out;
+}
+
+/** A line with the one who did it taken out of it: their name, and the part of it that is theirs, become "someone". */
+export function unnamed(text: string, who: string): string {
+  const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "the", "old", "young", "little"]);
+  const own = who.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase()));
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let out = String(text);
+  for (const name of [who, own].filter((x): x is string => !!x)) {
+    out = out.replace(new RegExp(`(?:(?:Queen|King|Lord|Lady|Ser|Prince|Princess)\\s+)?\\b${esc(name)}\\b('s)?`, "g"), (_m, poss) => (poss ? "someone's" : "someone"));
+  }
+  return out.replace(/^someone/, "Someone").replace(/([.!?]\s+)someone/g, "$1Someone");
 }
 
 /**

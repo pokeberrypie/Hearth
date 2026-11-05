@@ -195,6 +195,18 @@ describe("a day offstage", () => {
     expect(l.goals[0]).toMatchObject({ who: "Cersei Lannister", status: "active" });
   });
 
+  test("the narrator is handed the attempt, never who is behind it", async () => {
+    seed();
+    await goal("Cersei Lannister", "be rid of Yvenna");
+    answers = ["CHOOSE | it | desperate\nACT | Queen Cersei sends a hired knife to cut Yvenna Hightower's throat | hard | grave"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const told = await narrator();
+    expect(told).toContain("Someone sends a hired knife to cut Yvenna Hightower's throat");
+    expect(told).not.toContain("Cersei");
+    // The ledger, the author's, still says whose it was.
+    expect((await ledger()).actions[0].who).toBe("Cersei Lannister");
+  });
+
   test("by default a threat simply arrives: in the next reply, as a scene, with no question first", async () => {
     seed();
     await goal("Cersei Lannister", "be rid of Yvenna");
@@ -1251,6 +1263,18 @@ describe("what is done offstage reaches the story", () => {
     expect((db.query("SELECT problem FROM steward_runs ORDER BY created_at DESC LIMIT 1").get() as any).problem).toBe("");
     expect((await coming())[0].state).toBe("arrived");
     story = "The court is quiet.";
+  });
+
+  test("whether word arrives as a scene is in what was done and heard, not in what the one doing it wants", async () => {
+    court("100");
+    // Varys wants to know Jaime's plans — but word of his spies far off is word, not a scene in front of her.
+    await goal("Varys", "learn what Jaime plans");
+    presenceAnswer = "HERE | Jaime Lannister\nAWAY | Varys | the Red Keep\nAWAY | Cersei Lannister | the Red Keep";
+    answers = ["CHOOSE | it | x\nACT | Varys sends more little birds north | easy | social\nREACHES | travellers' talk | that the Spider's birds are thick in the north this season | 1",
+      "CHOOSE | NOTHING | x\nACT | rests | easy | none"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    const word = (await coming()).find((n: any) => /Spider's birds/.test(n.told));
+    expect(word?.mode).toBe("word");
   });
 
   test("the same event is queued once, and played once", async () => {
