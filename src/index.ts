@@ -60,7 +60,7 @@ import { STARTER, libraryIsEmpty, narratorMissing } from "./starter";
 import { WRITE_APOC_SYSTEM, catchUpTo, steeringOf, advance, apocFieldPrompt, apocWritePrompt, cleanField, briefFor, jumpTo, normaliseChapters, readBookmark, readImport, readOutline, scenesOf, startBookmark, toOutline, type Apocryphon, type Bookmark } from "./apocrypha";
 import { BUILTINS, UNDATED, builtin, format as formatDate, fromParts, later, minutesPerDay, normaliseCalendar, partOf, readSpan, type Calendar } from "./calendar";
 import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLOAD_GUIDE, withContrast, type Blazon } from "./heraldry";
-import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
+import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, messageRefs, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
          resolve as resolveAttempt, saysNothing, daysIn, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
 import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutSheets, withoutThinking, type Claim, type Passage, type Person } from "./steward";
@@ -667,7 +667,9 @@ api.get("/chats/:id/export", (c) => {
   // undated, empty of everything the story had established, and alone.
   const at = new Map(messages.map((m, i) => [m.id, i]));
   const chronicle = (db.query("SELECT * FROM chronicle WHERE chat_id = ? ORDER BY created_at").all(chat.id) as any[])
-    .map(({ chat_id: _c, message_id, ...e }) => ({ ...e, message_at: message_id && at.has(message_id) ? at.get(message_id) : null }));
+    .map(({ chat_id: _c, message_id, ...e }) => ({ ...e, message_at: message_id && at.has(message_id) ? at.get(message_id) : null,
+      // The replies its own record names, by their place in the file too (see messageRefs).
+      data: messageRefs(e.data, (id) => (at.has(id) ? `@msg:${at.get(id)}` : null)) }));
   const members = (db.query(`SELECT characters.name, chat_members.position, chat_members.muted FROM chat_members
     JOIN characters ON characters.id = chat_members.character_id WHERE chat_members.chat_id = ? ORDER BY chat_members.position`).all(chat.id) as any[]);
   return new Response(JSON.stringify({ hearth: 1, chat, members, messages: messages.map(({ id: _id, ...m }) => m), chronicle }, null, 2), {
@@ -737,7 +739,8 @@ function restoreWorld(chatId: string, characterId: string, own: any, ids: (strin
       const at = Number.isInteger(e.message_at) ? ids[e.message_at] ?? null : null;
       ins.run(fresh.get(e.id)!, chatId, at, str(e.kind, 40) || "event", Number.isFinite(e.day) ? e.day : null, Number.isFinite(e.minute) ? e.minute : null,
         Number(e.span) || 0, str(e.title), str(e.body), str(e.visibility, 20) || "table", str(e.source, 20) || "user", str(e.evidence),
-        relink(e.scene_id), relink(e.subject), str(e.field, 40) || null, relink(e.object), Number(e.amount) || 0, relink(str(e.data, 200000)) ?? "",
+        relink(e.scene_id), relink(e.subject), str(e.field, 40) || null, relink(e.object), Number(e.amount) || 0,
+        messageRefs(String(relink(str(e.data, 200000)) ?? ""), (ref) => { const m = /^@msg:(\d+)$/.exec(ref); return m ? ids[Number(m[1])] ?? null : null; }),
         Number(e.created_at) || now(), Number.isFinite(e.undone_at) ? e.undone_at : null, e.proposed ? 1 : 0);
     }
   })();
@@ -4165,9 +4168,29 @@ api.post("/chats/:id/chronicle", async (c) => {
 
 /** Taking an entry back, and changing your mind about that. Nothing is ever deleted. */
 function markUndone(c: any, undone: number | null) {
-  const row = db.query("SELECT chat_id FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
+  const row = db.query("SELECT chat_id, kind, title, subject, proposed, evidence, message_id, undone_at FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
   if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
   db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?").run(undone, c.req.param("id"));
+  // A death that was said yes to, taken back: what followed it goes with it — the goals it ended, and what the world
+  // came to want because of it. Put back, it follows again. A question still waiting has had nothing follow it.
+  if (row.kind === "status" && row.title === "dead" && row.subject && !row.proposed) {
+    if (undone && !row.undone_at) {
+      const who = String(row.subject);
+      for (const e of liveEntries(chronicleOf(row.chat_id))) {
+        const d = dataOf(e);
+        const follows = (e.kind === "agenda" && e.subject === who && d.status === "died")
+          || (e.kind === "agenda" && String(d.stirred ?? "").startsWith(`${who} has died`))
+          || (e.kind === "status" && e.title === "dead" && String(e.evidence ?? "").startsWith(`${who} has died`));
+        if (follows) db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?").run(undone, e.id);
+      }
+      // Questions it raised, still waiting, go too.
+      for (const e of pending(chronicleOf(row.chat_id))) {
+        if (e.kind === "status" && e.title === "dead" && String(e.evidence ?? "").startsWith(`${who} has died`)) db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?").run(undone, e.id);
+      }
+    } else if (!undone && row.undone_at) {
+      afterDeaths(row.chat_id, [{ who: row.subject, evidence: row.evidence || row.subject, message_id: row.message_id ?? null }]);
+    }
+  }
   worldChanged(row.chat_id);
   return c.json(chronicleState(row.chat_id));
 }
@@ -4193,7 +4216,15 @@ api.post("/chronicle/:id/accept", (c) => {
     worldChanged(row.chat_id);
     return c.json(chronicleState(row.chat_id));
   }
-  db.query("UPDATE chronicle SET proposed = 0 WHERE id = ?").run(c.req.param("id"));
+  // Yes is the person's word, and kept as theirs: the Steward reading the same words again takes back only its own
+  // guesses, so it never asks again what was already answered. Still tied to the words — swiped, edited or
+  // deleted, it goes with them, as anything the narrator marked does.
+  const full = db.query("SELECT * FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
+  db.query("UPDATE chronicle SET proposed = 0, source = CASE WHEN source = 'steward' THEN 'narrator' ELSE source END WHERE id = ?").run(c.req.param("id"));
+  // A death, accepted: their goals end with them, and the world answers it.
+  if (full?.kind === "status" && full.title === "dead" && full.subject) {
+    afterDeaths(row.chat_id, [{ who: full.subject, evidence: full.evidence || full.subject, message_id: full.message_id ?? null }]);
+  }
   worldChanged(row.chat_id);
   return c.json(chronicleState(row.chat_id));
 });
@@ -4958,13 +4989,15 @@ async function stirOf(chatId: string, news: string[], from: string | null = null
   const died = [...answer.matchAll(/^\W*DEAD\W*\|\s*([^|\n]+)/gim)].map((m) => m[1].replace(/[*_"]/g, "").trim().slice(0, 60))
     .filter((n) => n && !saysNothing(n) && n.toLowerCase() !== player.toLowerCase() && !dead.has(n) && given.includes(n.toLowerCase())).slice(0, 4);
   if (died.length) {
-    copyChronicle(died.map((n) => normaliseChronicleEntry({ id: uid(), kind: "status", subject: n, field: "physical", title: "dead",
-      source: "offstage", message_id: from, day: at.day, minute: at.minute, created_at: t0++ })), chatId);
+    // Asked about, as every death is: a reading of the news is no surer than a reading of the story.
+    const asked = new Set(pending(chronicleOf(chatId)).filter((e) => e.kind === "status" && e.title === "dead").map((e) => e.subject));
+    copyChronicle(died.filter((n) => !asked.has(n)).map((n) => normaliseChronicleEntry({ id: uid(), kind: "status", subject: n, field: "physical", title: "dead",
+      source: "offstage", message_id: from, day: at.day, minute: at.minute, created_at: t0++, proposed: true, evidence: news[0]?.slice(0, 300) ?? "",
+      data: { death: true } })), chatId);
     for (const n of died) dead.add(n);
-    endGoalsOf(chatId, died, from);
   }
   const goals = stirGoals(answer, { player, dead, active });
-  if (!goals.length) return died.length ? { goals: 0, note: `Recorded as dead: ${died.join(", ")}.` }
+  if (!goals.length) return died.length ? { goals: 0, note: `Asked whether they are dead: ${died.join(", ")}.` }
     : { goals: 0, error: emptyAnswer(said, stop) };
   let t = t0;
   copyChronicle(goals.map((g) => normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: g.goal, body: g.why,
@@ -6112,7 +6145,6 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
       .filter((e) => e.kind === "time" && e.source !== "steward" && e.message_id).map((e) => e.message_id));
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
     const rank = { time: 0, event: 1, status: 2, death: 2, bond: 3, faction: 4, thread: 5, scene: 6 } as const;
-    const deaths: { who: string; evidence: string; message_id: string | null }[] = [];
     const story = [...checked.claims].filter((c) => !(c.kind === "time" && timed.has(c.message_id))).sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
     let at = start;
@@ -6159,13 +6191,17 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
           data: { people: namedIn(`${claim.name} ${claim.evidence}`, people.map((p) => p.name)) },
         }));
       } else if (claim.kind === "death") {
-        // Dead, and it stays so: their body is the thing the tracker keeps, wherever they were.
+        // A death is asked about, never simply taken: read wrong — "I'll see you dead", a dream, a lie told to a
+        // guard — it would end everything that person wanted and set the world after revenge. Accepted, it is
+        // dead, and what follows a death follows then (see the accept route). Not asked twice: not of the dead,
+        // and not while the same question is still waiting.
+        const waiting = pending(chronicleOf(chat.id)).some((e) => e.kind === "status" && e.title === "dead" && e.subject === claim.subject);
+        if (waiting || deadIn(chronicleOf(chat.id)).has(claim.subject)) continue;
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
           subject: claim.subject, field: "physical", title: "dead",
-          evidence: claim.evidence, source: "steward", created_at: t++,
+          evidence: claim.evidence, source: "steward", created_at: t++, proposed: true, data: { death: true },
         }));
-        deaths.push({ who: claim.subject, evidence: claim.evidence, message_id: claim.message_id ?? null });
       } else {
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
@@ -6175,7 +6211,6 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
       }
     }
     copyChronicle(entries, chat.id);
-    if (deaths.length) afterDeaths(chat.id, deaths);
   }
 
   // Set aside, it kept nothing, and says so: its count would be a reading the page shows as done.

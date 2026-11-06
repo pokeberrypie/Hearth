@@ -323,6 +323,7 @@ function paintWaiting(list) {
     const what = p.sealed ? "Something sealed"
       : p.kind === "faction" ? `A new faction: <b>${txt(p.title)}</b>${p.body ? ` — ${txt(p.body)}` : ""}`
       : p.kind === "time" ? `Time passing: <b>${txt(p.title)}</b>`
+      : p.kind === "status" && p.title === "dead" ? `A death: did <b>${txt(p.subject ?? "someone")}</b> die? Saying yes ends what they wanted, and the world answers it.`
       : p.kind === "scene" ? `Move to the next scene? <b>${txt(p.title)}</b> seems to have reached its end.`
       : txt(p.title);
     const why = p.evidence ? `<div class="wdwhy">“${txt(p.evidence)}”</div>` : "";

@@ -336,7 +336,15 @@ export function forBranch(entries: Entry[], kept: Map<string, string>, forkAt: n
   return entries
     .filter((e) => (e.message_id ? kept.has(e.message_id) : e.created_at <= forkAt))
     .map((e) => ({ ...e, message_id: e.message_id ? kept.get(e.message_id)! : null }))
-    .map((e) => afterTheFork(e, kept));
+    .map((e) => afterTheFork(e, kept))
+    // And what is about something the branch does not have — the end of a goal taken up after the fork, a rumour
+    // of a trace left after it — is about nothing there.
+    .filter((e, _i, all) => {
+      if (e.kind !== "agenda" && e.kind !== "knows") return true;
+      let of: unknown;
+      try { of = e.data ? JSON.parse(e.data)?.of : undefined; } catch { return true; }
+      return typeof of !== "string" || !of || all.some((x) => x.id === of);
+    });
 }
 
 /**
@@ -374,7 +382,32 @@ function afterTheFork(e: Entry, kept: Map<string, string>): Entry {
  * so everything comes, untied.
  */
 export function forCarryOn(entries: Entry[]): Entry[] {
-  return entries.map((e) => ({ ...e, message_id: null }));
+  return entries.map((e) => ({ ...e, message_id: null, data: messageRefs(e.data, () => null) }));
+}
+
+/**
+ * The messages an entry's own record names — the reply that played a threat, the one that brought news in, the
+ * ones that let it go by — moved to wherever those messages are now: a branch's copies, an export's places in the
+ * file, an import's new rows. One with nowhere to go keeps what it did and loses only the name: the threat stays
+ * played, the news brought in, each chance let go still counted.
+ */
+export function messageRefs(data: string, to: (id: string) => string | null): string {
+  if (!data) return data;
+  let d: any;
+  try { d = JSON.parse(data); } catch { return data; }
+  if (!d || typeof d !== "object") return data;
+  let changed = false;
+  if (typeof d.played_by === "string" && d.played_by) {
+    const n = to(d.played_by); changed = true;
+    if (n) d.played_by = n; else delete d.played_by;
+  }
+  if (typeof d.by === "string" && d.by && (d.state === "arrived" || d.state === "travelling" || d.state === "lost" || d.state === "skipped")) {
+    d.by = to(d.by) ?? ""; changed = true;
+  }
+  if (Array.isArray(d.tried)) {
+    d.tried = d.tried.map((x: string, i: number) => (String(x).startsWith("earlier-") ? x : to(String(x)) ?? `earlier-${i}`)); changed = true;
+  }
+  return changed ? JSON.stringify(d) : data;
 }
 
 export type Viewer = { shared: boolean; host: boolean };

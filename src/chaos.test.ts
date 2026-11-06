@@ -34,10 +34,12 @@ const LINES = [
   "Someone had sent a knife in the night, and Jaime caught it.",
 ];
 
-function standIn(r: () => number) {
+function standIn(r: () => number, racing = false) {
   const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)];
   return (async (_u: any, init: any) => {
     const b = JSON.parse(init.body);
+    // Racing: answers come back late, in any order, as a phone's model's do.
+    if (racing) await new Promise((ok) => setTimeout(ok, Math.floor(r() * 25)));
     const all = JSON.stringify(b.messages) + String(b.system ?? "");
     const json = (content: string) => Response.json({ choices: [{ message: { content } }] });
     if (b.stream) {
@@ -115,6 +117,12 @@ function broken(): string[] {
       if (d.of && !ids.has(d.of) && e.kind !== "news") out.push(`${ch.id}: live ${e.kind} points at ${d.of}, not in this chat`);
       if (e.kind === "news" && d.state === "arrived" && d.by && !msgs.has(d.by)) out.push(`${ch.id}: news arrived by a message that is gone`);
       if (e.kind === "news" && !Number.isFinite(Number(d.due))) out.push(`${ch.id}: news with no due day`);
+      // Nothing follows a death nobody has said yes to.
+      if (e.kind === "agenda" && d.status === "died" && !rows.some((x) => !x.undone_at && !x.proposed && x.kind === "status" && x.title === "dead" && x.subject === e.subject))
+        out.push(`${ch.id}: ${e.subject}'s goals ended by a death that is not (or no longer) accepted`);
+      const stirredBy = /^(.+?) has died/.exec(String(d.stirred ?? ""))?.[1];
+      if (e.kind === "agenda" && stirredBy && /Petyr Baelish/.test(stirredBy) && !rows.some((x) => !x.undone_at && !x.proposed && x.kind === "status" && x.title === "dead" && x.subject === stirredBy))
+        out.push(`${ch.id}: a want stirred by ${stirredBy}'s death, which is not (or no longer) accepted`);
     }
   }
   return out;
@@ -125,10 +133,17 @@ async function settle() {
   for (let i = 0; i < 8; i++) await new Promise((ok) => setTimeout(ok, 2));
 }
 
-async function story(seed: number, steps: number) {
+/** A chat's ledger as it means things — what counts, and how — without the ids a copy gives it. */
+function meaning(chatId: string) {
+  return (db.query("SELECT kind, title, subject, field, amount, day, minute, span, visibility, proposed, undone_at IS NULL AS live FROM chronicle WHERE chat_id = ? ORDER BY created_at, rowid").all(chatId) as any[])
+    .map((e) => JSON.stringify(e)).sort();
+}
+
+async function story(seed: number, steps: number, racing = false) {
   setUp();
   const r = rng(seed);
-  globalThis.fetch = standIn(r);
+  globalThis.fetch = standIn(r, racing);
+  const unawaited: Promise<unknown>[] = [];
   const log: string[] = [];
   let chat = "ch";
   const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)];
@@ -138,6 +153,13 @@ async function story(seed: number, steps: number) {
     const ms = messages();
     const last = ms.at(-1);
     let what = "";
+    // A setting changed mid-story, now and then, as people do — before whatever comes next.
+    if (r() < 0.05) {
+      const [key, vals] = pick([["story_world", ["0", "1"]], ["steward_on", ["0", "1"]], ["offstage_level", ["off", "dynamic", "balanced"]],
+        ["offstage_threat_ask", ["0", "1"]], ["news_reach", ["0", "50", "100"]], ["gossip_level", ["off", "natural", "chaotic"]],
+        ["goal_archive", ["0", "1"]], ["context_tokens", ["6000", "16000"]]] as [string, string[]][]);
+      const v = pick(vals); setSettings({ [key]: v }); log.push(`set ${key}=${v}`);
+    }
     if (k < 0.3) { what = "reply"; await (await send(`/api/chats/${chat}/generate`, "POST", { mode: "reply", content: pick(LINES) })).text(); }
     else if (k < 0.42 && last?.role === "assistant") { what = "swipe"; await (await send(`/api/chats/${chat}/generate`, "POST", { mode: "swipe" })).text(); }
     else if (k < 0.48 && last?.role === "assistant") { what = "continue"; await (await send(`/api/chats/${chat}/generate`, "POST", { mode: "continue" })).text(); }
@@ -154,13 +176,52 @@ async function story(seed: number, steps: number) {
       const m = pick(ms); what = `branch at ${m.id.slice(0, 6)}`;
       const b = await (await send(`/api/messages/${m.id}/branch`, "POST", {})).json();
       if (b.id) chat = b.id;
+    } else if (k < 0.955) {
+      const waiting = db.query("SELECT id, kind, title FROM chronicle WHERE chat_id = ? AND proposed = 1 AND undone_at IS NULL").all(chat) as any[];
+      if (waiting.length) { const e = pick(waiting); const yes = r() < 0.7; what = `${yes ? "accept" : "dismiss"} ${e.kind} ${e.title}`; await send(`/api/chronicle/${e.id}/${yes ? "accept" : "undo"}`, "POST"); }
+    } else if (k < 0.965) {
+      const news = db.query("SELECT id FROM chronicle WHERE chat_id = ? AND kind = 'news' AND undone_at IS NULL").all(chat) as any[];
+      if (news.length) { const a = pick(["now", "later", "skip"]); what = `news ${a}`; await send(`/api/chats/${chat}/offstage/news/${pick(news).id}`, "POST", { action: a }); }
+    } else if (k < 0.972) { what = "read now"; await send(`/api/chats/${chat}/steward/now`, "POST", {}); }
+    else if (k < 0.978) { what = "stir"; await send(`/api/chats/${chat}/offstage/stir`, "POST", { news: "King Robert is dead" }); }
+    else if (k < 0.984) { what = "goal"; await send(`/api/chats/${chat}/offstage/goal`, "POST", { who: pick(CAST), goal: pick(["hold the fords", "stop the wedding"]), why: "" }); }
+    else if (k < 0.988 && ms.length > 2) {
+      what = "carry on";
+      const b = await (await send(`/api/chats/${chat}/carry-on`, "POST", {})).json();
+      if (b.id) chat = b.id;
+    } else if (k < 0.993 && ms.length > 1) {
+      // Out and back in: the copy must mean what the chat meant.
+      what = "export and import";
+      const out = await (await call(`/api/chats/${chat}/export`)).json();
+      const form = new FormData();
+      form.set("file", new Blob([JSON.stringify(out)], { type: "application/json" }), "chat.json");
+      form.set("character_id", "c0");
+      const imp = await (await call("/api/chats/import", { method: "POST", body: form })).json();
+      if (imp.id) {
+        const a = meaning(chat), b = meaning(imp.id);
+        if (JSON.stringify(a) !== JSON.stringify(b)) {
+          const missing = a.filter((x) => !b.includes(x)).slice(0, 2), extra = b.filter((x) => !a.includes(x)).slice(0, 2);
+          return { seed, step: i, log: [...log, what], bad: [`export/import changed the ledger: lost ${missing.join(" ")} gained ${extra.join(" ")}`] };
+        }
+        chat = imp.id;
+      }
+    } else if (k < 0.997) {
+      // A setting changed mid-story, as people do.
+      const [key, vals] = pick([["story_world", ["0", "1"]], ["steward_on", ["0", "1"]], ["offstage_level", ["off", "dynamic", "balanced"]],
+        ["offstage_threat_ask", ["0", "1"]], ["news_reach", ["0", "50", "100"]], ["gossip_level", ["off", "natural", "chaotic"]],
+        ["goal_archive", ["0", "1"]], ["context_tokens", ["6000", "16000"]]] as [string, string[]][]);
+      const v = pick(vals); what = `set ${key}=${v}`; setSettings({ [key]: v });
     } else { what = "turn"; await offstageTurn(chat); }
-    await settle();
+    // Racing: now and then the next thing is done without waiting for the last to finish.
+    if (racing && r() < 0.5) { unawaited.push(settle()); } else { await Promise.all(unawaited.splice(0)); await settle(); }
     log.push(what);
     const bad = broken();
     // What the narrator is sent: inside the Context size with the reply's room, and never a secret act.
     const ins = await (await send(`/api/chats/${chat}/inspect`, "POST", {})).json();
-    if (ins.estTokens + 800 > 16000) bad.push(`${chat}: the narrator is sent ${ins.estTokens} tokens with 800 for the reply, over 16,000`);
+    const ctx = Number((db.query("SELECT value FROM settings WHERE key = 'context_tokens'").get() as any)?.value) || 16000;
+    if (ins.estTokens + 800 > ctx) bad.push(`${chat}: the narrator is sent ${ins.estTokens} tokens with 800 for the reply, over ${ctx}`);
+    const worldOff = (db.query("SELECT value FROM settings WHERE key = 'story_world'").get() as any)?.value === "0";
+    if (worldOff && (ins.sections ?? []).some((x: any) => x.label === "Story World")) bad.push(`${chat}: Story World is off and the narrator was still sent it`);
     const told = JSON.stringify(ins.sections ?? []) + String(ins.system ?? "");
     if (told.includes("writes to the river lords")) bad.push(`${chat}: a secret act reached the narrator`);
     if (what === "turn") {
@@ -168,10 +229,26 @@ async function story(seed: number, steps: number) {
       const day = (await (await call(`/api/chats/${chat}/chronicle`)).json()).now?.day;
       if (od > day) bad.push(`${chat}: the world's day ${od} is ahead of the story's ${day}`);
     }
-    if (bad.length) return { seed, step: i, log, bad };
+    if (bad.length) { await drain(unawaited); return { seed, step: i, log, bad }; }
   }
+  await drain(unawaited);
   return null;
 }
+
+/** Everything a story set going, finished, before the next story wipes the library and reuses its ids. */
+async function drain(unawaited: Promise<unknown>[]) {
+  await Promise.all(unawaited.splice(0));
+  for (let i = 0; i < 40; i++) await new Promise((ok) => setTimeout(ok, 5));
+}
+
+test("and when things are done before the last has finished, with answers coming back late and out of order", async () => {
+  const runs = Number(process.env.CHAOS_RUNS) || 6;
+  const failures: any[] = [];
+  const seeds = process.env.CHAOS_SEED ? [Number(process.env.CHAOS_SEED)] : Array.from({ length: runs }, (_, i) => (i + 1) * 104729);
+  for (const seed of seeds) { const f = await story(seed, 30, true); if (f) failures.push(f); }
+  if (failures.length) console.log("RACING", JSON.stringify(failures.slice(0, 3), null, 1));
+  expect(failures.map((f) => `seed ${f.seed} step ${f.step}: ${f.bad[0]}`)).toEqual([]);
+}, 900_000);
 
 test("random stories keep every rule of the Story World, whatever is done to them", async () => {
   const runs = Number(process.env.CHAOS_RUNS) || 12;
