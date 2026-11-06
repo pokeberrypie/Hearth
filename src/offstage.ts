@@ -329,7 +329,19 @@ export function identityOf(who: string, card: string, factions: string[] = []): 
  * scene instead, and what may reach the narrator — never anything that says
  * who did it. Nothing the model said about the world is believed past this.
  */
-export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[] }): Ruling {
+/**
+ * Whether a line is about this person by their own name — "Yvenna", or her whole name — never by her house: the
+ * Hightower riders are not Yvenna, and Emeric Hightower is her brother, not her.
+ */
+export function byOwnName(text: string, who: string): boolean {
+  const said = new Set(words(text));
+  const own = words(who).find((w) => w.length > 2 && !["the", "lord", "lady", "ser", "king", "queen", "prince", "princess", "of", "maester", "septa", "septon"].includes(w));
+  return !!own && (said.has(own) || said.has(`${own}s`));
+}
+
+export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[];
+  /** Everyone else in the story, so an attack that names one of them is known to be aimed elsewhere. */
+  others?: string[] }): Ruling {
   const notes: string[] = [];
   const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
     threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", achieves: "", how: "", news: null, notes };
@@ -350,16 +362,15 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
     else notes.push("said it finished a goal it could not name");
   }
   // Only ever their own actions: a line that puts words or deeds in the player's mouth is not a decision of theirs.
-  const playerWords = words(o.player).filter((w) => w.length > 2);
-  if (playerWords.length && d.act && playerWords.includes(words(d.act)[0] ?? "")) {
+  if (o.player && d.act && byOwnName(words(d.act).slice(0, 1).join(" "), o.player)) {
     notes.push("acted for the player's character");
     return { ...r, kind: "dropped", act: "", seen: "", fact: "", clue: "", threat: false };
   }
   // A witness: someone else, never the player's character (whose eyes are the player's), with something they saw.
   if (d.kind === "act" && d.witness && r.clue) {
     const who = d.witness.who.replace(/\s+/g, " ").trim().slice(0, 80);
-    if (!who || names(who, o.who)) notes.push("the witness was the one acting");
-    else if (o.player && names(who, o.player)) notes.push("the witness was the player's character");
+    if (!who || byOwnName(who, o.who)) notes.push("the witness was the one acting");
+    else if (o.player && byOwnName(who, o.player)) notes.push("the witness was the player's character");
     else r.witness = { who, saw: d.witness.saw.replace(/\s+/g, " ").trim().slice(0, 240) };
   }
   // How it bears on the plan: only for something they actually did, once per scene, at most two.
@@ -379,7 +390,12 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
       r.threads.push({ move: t.move, name, note: t.note.replace(/\s+/g, " ").trim().slice(0, 240) });
     }
   }
-  const atPlayer = !!o.player && names(d.act, o.player);
+  // Aimed at the player's character: by her own name; or, since harm in ACT is by its own rule harm to her, any harm
+  // to body or freedom that names nobody else — "poisons the Hand's new wife" is her, though it never says Yvenna.
+  // Read by the house, every blow at a Hightower was a blow at her; read only by name, one at her that did not say
+  // it went round every protection and was settled offstage as a fact.
+  const elsewhere = (o.others ?? []).some((n) => n !== o.player && n !== o.who && byOwnName(d.act, n));
+  const atPlayer = !!o.player && (byOwnName(d.act, o.player) || ((d.harm === "physical" || d.harm === "grave") && !elsewhere));
   if (atPlayer && (d.harm === "physical" || d.harm === "grave")) {
     if (o.protection === "sheltered") {
       notes.push("would have harmed the player's character, which this story does not allow");

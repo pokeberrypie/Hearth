@@ -1498,6 +1498,7 @@ api.post("/chats/:id/generate", async (c) => {
           const joined = (a.prefill ?? "") + full;
           db.query("UPDATE messages SET content = ?, ms = ?, tokens = ? WHERE id = ?")
             .run(joined, ms, tokens, continuingId);
+          savedId = continuingId;
           tieNarration(chatId, continuingId, t0);
           send({ done: true, id: continuingId, text: joined, thrown, ...stats });
         } else if (mode === "swipe" && swipeTarget) {
@@ -1541,13 +1542,15 @@ api.post("/chats/:id/generate", async (c) => {
         if (!failed && !ac.signal.aborted) stewardTurn(chatId).catch(() => {});
         // The threat this reply was handed has had its reply; it was a scene to start, not a standing order. Only that
         // one — any other waits its turn — and marked with the reply that played it, so a swipe gives it back.
-        if (!failed && !ac.signal.aborted) {
+        // A draft written for the player (impersonate) is saved nowhere: it plays no threat and brings in no news.
+        const replied = !failed && !ac.signal.aborted && !!savedId;
+        if (replied) {
           const played = threatToPlay(chronicleOf(chatId), t0);
           if (played) db.query("UPDATE chronicle SET undone_at = ?, data = ? WHERE id = ?")
             .run(now(), JSON.stringify({ ...dataOf(played), played_by: savedId }), played.id);
         }
         // News that was due: did this reply bring it in? If not, it is offered again — a few times, then dropped.
-        if (!failed && !ac.signal.aborted) { try { settleNews(chatId, full, savedId); } catch (e) { console.error("[news]", e); } }
+        if (replied) { try { settleNews(chatId, full, savedId); } catch (e) { console.error("[news]", e); } }
         // And the Offstage, when a day has turned: what the people nobody is watching do.
         if (!failed && !ac.signal.aborted) offstageTurn(chatId).catch(() => {});
       }
@@ -5149,7 +5152,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     const card = db.query("SELECT description, personality FROM characters WHERE name = ? LIMIT 1").get(person) as any;
     const theirFactions = factionsOf(entries).filter((f) => f.members.includes(person)).map((f) => f.name);
     const identity = identityOf(person, `${card?.description ?? ""} ${card?.personality ?? ""}`, theirFactions);
-    const r = ruleOn(d, { who: person, player, protection, goals: theirs, identity });
+    const r = ruleOn(d, { who: person, player, protection, goals: theirs, identity, others: [...new Set([...cast, ...peopleOfChat(chatId)])] });
     const out = r.kind === "act" && !r.threat ? resolveAttempt(r.difficulty) : { succeeded: r.kind !== "dropped", roll: null, dc: 0 };
     const outcome = r.kind === "dropped" ? "dropped" : r.threat ? "threat" : r.kind !== "act" ? "routine"
       : out.roll === null ? "succeeded" : out.succeeded ? "succeeded" : "failed";
@@ -5935,6 +5938,11 @@ function forgetSteward(messageIds: string[], reread = true, narrator = true) {
         const d = (() => { try { return JSON.parse(n.data || "{}"); } catch { return {}; } })();
         if (d.played_by === id) { const { played_by: _, ...rest } = d; db.query("UPDATE chronicle SET undone_at = NULL, data = ? WHERE id = ?").run(JSON.stringify(rest), n.id); }
       }
+      // One these same words both sent and played goes with them, for good: nothing is left to give back.
+      if (narrator) for (const n of db.query("SELECT id, data FROM chronicle WHERE kind = 'threat' AND message_id = ? AND undone_at IS NOT NULL").all(id) as any[]) {
+        const d = (() => { try { return JSON.parse(n.data || "{}"); } catch { return {}; } })();
+        if (d.played_by) { const { played_by: _, ...rest } = d; db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify(rest), n.id); }
+      }
       if (reread) rewind.run(m.created_at - 1, m.chat_id);
       chats.add(m.chat_id);
     }
@@ -6084,8 +6092,18 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   // A reading that failed has not read these messages: they are read again next time, not skipped for good.
   if (problem) db.query("UPDATE chats SET steward_at = ? WHERE id = ? AND steward_at = ?").run(readFrom, chat.id, upTo);
 
-  if (!problem) {
-    // Read again, so whatever it made of these messages before is replaced.
+  // The words changed under the reading — a swipe, an edit, a delete while it was asked: none of it is kept, and
+  // nothing it read before is taken back either. Checked before the old reading goes, not after: taken back first
+  // and then found stale, the messages before the changed one lost what was known of them, and were never read
+  // again (the swipe sends the Steward back only to the message it changed).
+  const set = await charges();
+  const stale = movedOn(rows.map((m) => m.id), asOf);
+  // The whole stretch is read again next time — the messages before the changed one too, which may never have been
+  // read at all: the swipe sends the Steward back only as far as the message it changed.
+  if (stale) db.query("UPDATE chats SET steward_at = MIN(steward_at, ?) WHERE id = ?").run(readFrom, chat.id);
+  if (!problem && !stale) {
+    // Read again, so whatever it made of these messages before is replaced. From here to the writing nothing waits,
+    // so nobody can see the world between the old reading taken back and the new one written.
     forgetSteward(rows.map((m) => m.id), false, false);
     const order = new Map(passages.map((p, i) => [p.id, i]));
     // Time a message already moved the clock by — its opening line, the
@@ -6095,7 +6113,6 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
     // In story order, and within one message: time first, then what happened, then how everyone is after it.
     const rank = { time: 0, event: 1, status: 2, death: 2, bond: 3, faction: 4, thread: 5, scene: 6 } as const;
     const deaths: { who: string; evidence: string; message_id: string | null }[] = [];
-    const set = await charges();
     const story = [...checked.claims].filter((c) => !(c.kind === "time" && timed.has(c.message_id))).sort((a, b) =>
       order.get(a.message_id)! - order.get(b.message_id)! || rank[a.kind] - rank[b.kind]);
     let at = start;
@@ -6157,13 +6174,12 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
         }));
       }
     }
-    // The words changed under the reading: none of it is kept. Those messages are read again, as they now are.
-    if (!movedOn(rows.map((m) => m.id), asOf)) {
-      copyChronicle(entries, chat.id);
-      if (deaths.length) afterDeaths(chat.id, deaths);
-    }
+    copyChronicle(entries, chat.id);
+    if (deaths.length) afterDeaths(chat.id, deaths);
   }
 
+  // Set aside, it kept nothing, and says so: its count would be a reading the page shows as done.
+  if (stale && !problem) return { kept: 0, proposed: 0, dropped: 0, problem: "", stale: true };
   const proposed = checked.claims.filter((c) => (c.kind === "time" && c.proposed) || c.kind === "faction" || c.kind === "scene").length;
   db.query(
     `INSERT INTO steward_runs (id, chat_id, model, kept, proposed, dropped, problem, answer, created_at)

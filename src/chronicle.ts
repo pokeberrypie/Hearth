@@ -335,7 +335,38 @@ export function clockOf(cal: Calendar, entries: Entry[], upTo?: string): Moment 
 export function forBranch(entries: Entry[], kept: Map<string, string>, forkAt: number): Entry[] {
   return entries
     .filter((e) => (e.message_id ? kept.has(e.message_id) : e.created_at <= forkAt))
-    .map((e) => ({ ...e, message_id: e.message_id ? kept.get(e.message_id)! : null }));
+    .map((e) => ({ ...e, message_id: e.message_id ? kept.get(e.message_id)! : null }))
+    .map((e) => afterTheFork(e, kept));
+}
+
+/**
+ * What a reply did to an entry, carried into a branch by the reply's copy there — or undone, when that reply came
+ * after the fork and so never happened in the branch: a threat it played is still to come, news it brought in is
+ * still on its way, and a chance it let go by was never let go. Before, the branch kept them played, brought in
+ * and let go by messages it did not have: the attack was lost there, and nothing could ever give it back.
+ */
+function afterTheFork(e: Entry, kept: Map<string, string>): Entry {
+  if (e.kind !== "threat" && e.kind !== "news") return e;
+  let d: any;
+  try { d = e.data ? JSON.parse(e.data) : {}; } catch { return e; }
+  if (!d || typeof d !== "object") return e;
+  let undone = e.undone_at;
+  if (e.kind === "threat" && typeof d.played_by === "string") {
+    if (kept.has(d.played_by)) d.played_by = kept.get(d.played_by);
+    else { delete d.played_by; undone = null; }
+  }
+  if (e.kind === "news") {
+    if (Array.isArray(d.tried)) {
+      d.tried = d.tried.filter((x: string) => kept.has(x) || String(x).startsWith("earlier-")).map((x: string) => kept.get(x) ?? x);
+      d.tries = d.tried.length;
+      if (d.state === "lost" && d.tries < 8) d.state = "travelling";
+    }
+    if (typeof d.by === "string" && d.by) {
+      if (kept.has(d.by)) d.by = kept.get(d.by);
+      else if (d.state === "arrived") { d.state = "travelling"; d.by = ""; }
+    }
+  }
+  return { ...e, undone_at: undone, data: JSON.stringify(d) };
 }
 
 /**

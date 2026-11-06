@@ -213,3 +213,13 @@ test("ordinals", () => {
 test("every built-in calendar formats day 0 without a stray brace", () => {
   for (const cal of BUILTINS) expect(format(cal, { day: 0, minute: 0 })).not.toMatch(/[{}]/);
 });
+
+describe("numbers as stories write them", () => {
+  test("twenty-one days, thirty six days, a day or two", () => {
+    const at = { day: 10, minute: 9 * 60 };
+    const day = MOONS.hoursPerDay * 60;
+    expect(readSpan(MOONS, "Twenty-one days later", at)).toBe(21 * day);
+    expect(readSpan(MOONS, "thirty six days later", at)).toBe(36 * day);
+    expect(readSpan(MOONS, "A day or two later", at)).toBe(day);
+  });
+});

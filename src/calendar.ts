@@ -289,7 +289,7 @@ const WORD_NUMBERS: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
   nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
   sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30,
-  forty: 40, fifty: 50, hundred: 100, few: 3, several: 3, couple: 2, half: 0.5, dozen: 12,
+  forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100, few: 3, several: 3, couple: 2, half: 0.5, dozen: 12,
 };
 
 /** Units a span can be counted in, in minutes; months and years depend on the calendar. */
@@ -413,6 +413,13 @@ function spanOf(cal: Calendar, input: string, from: Moment): number | null {
   const or = words.findIndex((w, i) => (w === "or" || w === "to") && i > 0 && i < words.length - 1);
   if (or > 0 && countOf(words[or - 1]) !== null && countOf(words[or + 1]) !== null) words.splice(or, 2);
   words = words.filter((w) => w !== "a" && w !== "an");
+  // "Twenty-one", "thirty six": one number, said in two words (the hyphen has already been split on).
+  for (let i = 0; i < words.length - 1; i++) {
+    const tens = WORD_NUMBERS[words[i]], ones = WORD_NUMBERS[words[i + 1]];
+    if (tens >= 20 && tens <= 90 && tens % 10 === 0 && ones >= 1 && ones <= 9 && Number.isInteger(ones)) words.splice(i, 2, String(tens + ones));
+  }
+  // "A day or two": the low end, one of them, as any other range is read.
+  if (words.length === 3 && words[1] === "or" && countOf(words[2]) !== null && unitMinutes(cal, words[0]) !== null) words = [words[0]];
 
   let count: number | null = 1;
   let unit: string | undefined;

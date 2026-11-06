@@ -265,6 +265,32 @@ describe("a day offstage", () => {
     expect(told).toContain("The council meets about the levies");
   });
 
+  test("words written for the player to send play no threat and bring in no news: they are a draft, saved nowhere", async () => {
+    seed();
+    db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
+    db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, title, body, source, visibility, created_at, data) VALUES ('n1', 'ch', 'm1', 'news',
+      'the river houses owe the Crown new levies', 'a rider', 'offstage', 'private', 11, '{"due":0,"state":"travelling","tries":0,"mode":"word"}')`).run();
+    story = "I tell them the river houses owe the Crown new levies, and I watch the knife.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "impersonate" })).text();
+    expect(await narrator()).toContain("Someone sends a knife");
+    const d = JSON.parse((db.query("SELECT data FROM chronicle WHERE id = 'n1'").get() as any).data);
+    expect(d.state).toBe("travelling");
+    expect(d.tries ?? 0).toBe(0);
+  });
+
+  test("news a continued reply brings in is that reply's: swiped away, it is on its way again", async () => {
+    seed();
+    db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, title, body, source, visibility, created_at, data) VALUES ('n1', 'ch', NULL, 'news',
+      'the river houses owe the Crown new levies', 'a rider', 'offstage', 'private', 11, '{"due":0,"state":"travelling","tries":0,"mode":"word"}')`).run();
+    story = "A rider came: the river houses owe the Crown new levies, he said.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "continue" })).text();
+    const d = () => JSON.parse((db.query("SELECT data FROM chronicle WHERE id = 'n1'").get() as any).data);
+    expect(d().state).toBe("arrived");
+    expect(d().by).toBe("m1");
+    await send("/api/messages/m1", "PUT", { content: "The court gathered." });
+    expect(d().state).toBe("travelling");
+  });
+
   test("two threats waiting: the reply plays the first, and the second waits for the next — neither is lost", async () => {
     seed();
     db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
@@ -1730,5 +1756,29 @@ describe("the ripple: what is done offstage is felt where the player's character
     await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
     expect((await coming()).filter((n: any) => n.told.includes("no more horses"))).toEqual([]);
     story = "The court is quiet.";
+  });
+});
+
+describe("who an act is aimed at is read by name, not by house", () => {
+  const base = (act: string, harm: string, extra = "") => readDecision(`CHOOSE | it | x\nACT | ${act} | hard | ${harm}${extra}`);
+  const o = { who: "Cersei Lannister", player: "Yvenna Hightower", protection: "fair" as const, goals: [], others: ["Emeric Hightower", "Jaime Lannister", "Tyrion Lannister"] };
+
+  test("a blow at her brother is not a blow at her", () => {
+    expect(rule(base("sends a man after Emeric Hightower", "grave"), o).threat).toBe(false);
+  });
+
+  test("a blow at her that never says her name is still at her: harm in ACT is harm to her", () => {
+    expect(rule(base("has the Hand's new wife's wine poisoned", "grave"), o).threat).toBe(true);
+    expect(rule(base("has the Hand's new wife's wine poisoned", "grave"), { ...o, protection: "sheltered" }).kind).toBe("dropped");
+  });
+
+  test("her house is not her: Hightower riders are an act of someone else's", () => {
+    expect(rule(base("Hightower riders seize the ford", "none"), { ...o, who: "Emeric Hightower" }).kind).not.toBe("dropped");
+  });
+
+  test("a witness of the same house as the one acting is still a witness", () => {
+    const d = base("bribes the archivist", "none", "\nCLUE | a Lannister pin by the shelves\nWITNESS | Tyrion Lannister | a woman in a hood");
+    d.difficulty = "uncertain";
+    expect(rule(d, o).witness?.who).toBe("Tyrion Lannister");
   });
 });

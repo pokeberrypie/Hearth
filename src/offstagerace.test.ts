@@ -147,3 +147,29 @@ test("the clock taken back by hand takes the world's day back, and what was sent
   expect((db.query("SELECT offstage_day FROM chats WHERE id = 'ch'").get() as any).offstage_day).toBe(0);
   expect(JSON.parse((db.query("SELECT data FROM chronicle WHERE id = 'n9'").get() as any).data).due).toBe(2);
 });
+
+test("the Steward set aside by an edit mid-read takes nothing back: what it knew of the earlier messages stays", async () => {
+  setSettings({ steward_on: "1", steward_every: "1", story_world: "1" });
+  // m1 was read before: the court gathered. Then the reading of m1 and m2 again (as after a swipe further back).
+  db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at, evidence) VALUES ('ev1', 'ch', 'm1', 'event', 'The court gathers', 'steward', 'table', 5, 'The court gathered')").run();
+  db.query("UPDATE chats SET steward_at = 0 WHERE id = 'ch'").run();
+  let reached!: () => void; const atGate = new Promise<void>((ok) => (reached = ok));
+  let open!: () => void; const gate = new Promise<void>((ok) => (open = ok));
+  globalThis.fetch = (async (_u: any, init: any) => {
+    if (JSON.stringify(JSON.parse(init.body).messages).includes("You keep the records")) {
+      reached(); await gate;
+      return Response.json({ choices: [{ message: { content: 'EVENT | The court gathers | 1 | "The court gathered"' } }] });
+    }
+    return Response.json({ choices: [{ message: { content: "NONE" } }] });
+  }) as any;
+  const { stewardTurn } = await import("./index");
+  const running = stewardTurn("ch");
+  await atGate;
+  await send("/api/messages/m2", "PUT", { content: "Jaime stayed in the city." });
+  open();
+  await running;
+  const live = db.query("SELECT id FROM chronicle WHERE chat_id = 'ch' AND kind = 'event' AND undone_at IS NULL").all();
+  expect(live).toHaveLength(1);
+  // And it reads the whole stretch again next time, from before the first of it.
+  expect((db.query("SELECT steward_at FROM chats WHERE id = 'ch'").get() as any).steward_at).toBeLessThan(2);
+});
