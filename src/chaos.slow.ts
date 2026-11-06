@@ -3,7 +3,7 @@
  * valid and random — and after every step, the things that must always be true of the Story World, however it
  * got there. Each failure prints the seed and the steps, so it can be played again exactly.
  *
- * CHAOS_RUNS=500 bun test src/chaos.test.ts for a long night of it; the suite runs a few.
+ * CHAOS_RUNS=500 bun test ./src/chaos.slow.ts for a long night of it; the suite runs a few.
  */
 import { afterAll, expect, test } from "bun:test";
 import { db, setSettings, wipe } from "./test-support";
@@ -14,7 +14,19 @@ const call = (path: string, init: RequestInit = {}) => app.fetch(new Request(`ht
 const send = (path: string, method: string, body?: unknown) =>
   call(path, { method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 const realFetch = globalThis.fetch;
-afterAll(() => { globalThis.fetch = realFetch; });
+// What the last story set going is let finish — with its stand-in still answering — and the library left empty,
+// so nothing of it lands in whichever test file runs next.
+afterAll(async () => {
+  for (let i = 0; i < 300; i++) await new Promise((ok) => setTimeout(ok, 5));
+  if (process.env.CHAOS_LINGER) {
+    const calls: string[] = [];
+    globalThis.fetch = (async (_u: any, init: any) => { calls.push(String(init?.body ?? "").slice(0, 120)); return Response.json({ choices: [{ message: { content: "NONE" } }] }); }) as any;
+    for (let i = 0; i < 1000; i++) await new Promise((ok) => setTimeout(ok, 5));
+    console.log("LINGERING CALLS", calls.length, JSON.stringify(calls.slice(0, 3)));
+  }
+  globalThis.fetch = realFetch;
+  wipe();
+}, 30_000);
 
 /** A small seeded random, so a failing story can be told again exactly. */
 function rng(seed: number) {
@@ -238,7 +250,7 @@ async function story(seed: number, steps: number, racing = false) {
 /** Everything a story set going, finished, before the next story wipes the library and reuses its ids. */
 async function drain(unawaited: Promise<unknown>[]) {
   await Promise.all(unawaited.splice(0));
-  for (let i = 0; i < 40; i++) await new Promise((ok) => setTimeout(ok, 5));
+  for (let i = 0; i < 80; i++) await new Promise((ok) => setTimeout(ok, 5));
 }
 
 test("and when things are done before the last has finished, with answers coming back late and out of order", async () => {

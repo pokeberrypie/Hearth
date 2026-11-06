@@ -3937,14 +3937,14 @@ function worldBrief(chat: any, s: Record<string, string>, history?: { id: string
   }
   if (s.tracker_source !== "preset") {
     const status = statusOf(entries);
-    const here = peopleOf(chat).filter((p) => p.present && status[p.name]);
-    if (here.length) {
-      add(2, "How everyone here is right now — keep to this unless the story changes it:");
-      for (const p of here) {
-        const facts = STATUS_FIELDS.filter((f) => status[p.name]![f]).map((f) => `${f}: ${status[p.name]![f]!.title}`);
-        add(2, `- ${p.name} — ${facts.join("; ")}`);
-      }
-    }
+    const tracked = peopleOf(chat).filter((p) => p.present && status[p.name]);
+    const isHere = inScene(chat, entries);
+    const line = (name: string) => `- ${name} — ${STATUS_FIELDS.filter((f) => status[name]![f]).map((f) => `${f}: ${status[name]![f]!.title}`).join("; ")}`;
+    const here = tracked.filter((p) => isHere(p.name)), away = tracked.filter((p) => !isHere(p.name));
+    if (here.length) add(2, "How everyone here is right now — keep to this unless the story changes it:", ...here.map((p) => line(p.name)));
+    // Those of the cast somewhere else: under "here", Tywin at his desk in the Tower and Emeric at the Eyrie were told
+    // to a narrator as people in the room, and a narrator told so brings them in.
+    if (away.length) add(6, "Elsewhere, as far as the record shows — where they are and how, for reference; not in this scene unless the story has them here:", ...away.map((p) => line(p.name)));
   }
   // Loose ends the story has left open, so they are not forgotten — a handful,
   // newest first; each a possibility to return to, not something to force.
@@ -3964,6 +3964,42 @@ function worldBrief(chat: any, s: Record<string, string>, history?: { id: string
  * How much of the request Story World may take: a quarter of what the context leaves once the reply has its room —
  * the whole Context size, not the conversation's share of it, so it is the same in both of assemble's builds.
  */
+/**
+ * Whether someone of the cast is in the scene with the player now: by the latest reading of who is here, when it is
+ * a reading of the story as it stands; otherwise by where each is tracked — somewhere that shares nothing with where
+ * the player's character is, is elsewhere. Unknown is here: nobody is sent away on no word at all.
+ */
+function inScene(chat: any, entries: ChronicleEntry[]): (name: string) => boolean {
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  const status = statusOf(entries);
+  const last = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chat.id) as any)?.id ?? "";
+  const read = presence.get(chat.id);
+  const fresh = read && read.at === `${last}:${changedAt.get(last) ?? 0}` ? new Set(read.here) : null;
+  const mine = (status[player] as any)?.location?.title ?? "";
+  const where = (n: string) => (status[n] as any)?.location?.title ?? "";
+  // Here: the player; anyone with no place on record (nobody is sent away on no word at all); and then, until nobody
+  // more joins, anyone whose place shares something with the place of someone here, or who is "with" someone here —
+  // a feast is one hall told a dozen ways: "at the corner table", "with Davren", "beside her on the bench".
+  const here = new Set<string>([player]);
+  const everyone = Object.keys(status);
+  if (!mine) for (const n of everyone) here.add(n);
+  for (const n of everyone) if (!where(n)) here.add(n);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const n of everyone) {
+      if (here.has(n)) continue;
+      const theirs = where(n);
+      const near = [...here].some((h) => (where(h) && samePlace(theirs, where(h))) || (h && meansPerson(theirs, h)));
+      if (near) { here.add(n); grew = true; }
+    }
+  }
+  return (name: string) => {
+    if (name === player) return true;
+    if (fresh) return fresh.has(name);
+    return !where(name) || here.has(name);
+  };
+}
+
 function worldRoom() {
   const all = withPreset(getSettings());
   const context = Number(all.context_tokens) > 0 ? Number(all.context_tokens) : 8000;
@@ -5480,7 +5516,8 @@ export async function offstageTurn(chatId: string) {
 function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   const live = liveEntries(entries);
   const day = clockOf(calendarOf(chatId), entries).day;
-  const facts = live.filter((e) => e.kind === "consequence").slice(-6).map((e) => e.title);
+  // A "fact" of a word or two ("Word") is a model's answer broken off, not something true in the world.
+  const facts = live.filter((e) => e.kind === "consequence" && e.title.trim().split(/\s+/).length >= 3).slice(-6).map((e) => e.title);
   const hooks = live.filter((e) => e.kind === "hook" && (dataOf(e).until ?? day) >= day).slice(-4).map((e) => e.title);
   const threat = threatToPlay(entries);
   const out: string[] = [];
@@ -5499,7 +5536,8 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   // Not those away: their plans stay in the ledger, and the story learns only what becomes true.
   {
     const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
-    const here = new Set(chat ? (membersOf(chat) as any[]).filter((m) => !m.muted).map((m) => m.name) : []);
+    const isHere = chat ? inScene(chat, entries) : () => false;
+    const here = new Set(chat ? (membersOf(chat) as any[]).filter((m) => !m.muted && isHere(m.name)).map((m) => m.name) : []);
     const drives = agendasOf(entries).filter((g) => g.status === "active" && here.has(g.who)).slice(0, 8);
     if (drives.length) {
       out.push(`What drives the people in the scene — their own aims, which the player's character does not know. Let each shape what they do, say and hold back, as people with a purpose would; never state it in the telling, and never have them confess it unless the moment truly draws it out: ${drives.map((g) => `${g.who} wants ${g.goal}${g.why ? ` (${g.why})` : ""}`).join("; ")}.`);

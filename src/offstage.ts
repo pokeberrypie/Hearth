@@ -405,6 +405,9 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
     if (o.protection === "fair" || d.harm === "grave") { r.threat = true; r.fact = ""; r.clue = ""; r.threads = []; r.plan = []; r.witness = null; }
   }
   const id = o.identity ?? [];
+  // A word or two is an answer broken off, not something seen or now true.
+  if (r.seen.trim().split(/\s+/).length < 3) r.seen = "";
+  if (r.fact.trim().split(/\s+/).length < 3) r.fact = "";
   if (r.seen && names(r.seen, o.who, id)) { notes.push("what could be seen pointed to who did it"); r.seen = ""; }
   if (r.fact && names(r.fact, o.who, id)) { notes.push("what changed pointed to who did it"); r.fact = ""; }
   // News: only of something they did, and — when it was done in secret, which a deliberate trace says it was —

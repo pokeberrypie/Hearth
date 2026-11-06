@@ -60,3 +60,22 @@ test("a new take is written from the world before the take it replaces, not afte
   // Nor three days on: the date is the one before that take opened "Three days later".
   expect(told).not.toMatch(/Today in the story:[^"]*\b(4|fourth)\b/);
 });
+
+test("someone of the cast who is elsewhere is told as elsewhere, not as one of those here — nor their aims as the room's", async () => {
+  db.query("INSERT INTO personas (id, name, created_at) VALUES ('y', 'Yvenna Hightower', 1)").run();
+  db.query("UPDATE chats SET persona_id = 'y' WHERE id = 'ch'").run();
+  db.query("INSERT INTO characters (id, name, created_at) VALUES ('t', 'Tywin Lannister', 1)").run();
+  db.query("INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES ('a', 'ch', 'j', 0, 0), ('b', 'ch', 't', 1, 0)").run();
+  const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+  st("l1", "Yvenna Hightower", "seated on the bench by the fire");
+  st("l2", "Jaime Lannister", "on the bench beside Yvenna");
+  st("l3", "Tywin Lannister", "the Tower of the Hand, at his desk");
+  await send("/api/chats/ch/offstage/goal", "POST", { who: "Tywin Lannister", goal: "ready the realm's answer", why: "" });
+  const sections = (await (await send("/api/chats/ch/inspect", "POST", {})).json()).sections as any[];
+  const world = sections.find((x) => x.label === "Story World").content as string;
+  const here = world.split("Elsewhere, as far as the record shows")[0];
+  expect(here).toContain("Jaime Lannister — location: on the bench");
+  expect(here).not.toContain("Tywin Lannister —");
+  expect(world).toContain("Elsewhere, as far as the record shows");
+  expect(world).not.toContain("Tywin Lannister wants");
+});
