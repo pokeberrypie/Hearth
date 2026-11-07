@@ -440,3 +440,10 @@ describe("deaths", () => {
     expect(STEWARD_SYSTEM).toContain("DEATH when anyone dies");
   });
 });
+
+test("the last thing the Steward reads, after the story, is what to do with it — with a line's shape, not 'go on'", async () => {
+  const { stewardPrompt, REPORT_NOW } = await import("./steward");
+  const p = stewardPrompt([{ name: "Jaime", present: true }], "Day 1", [{ id: "m1", who: "Jaime", text: "He drew his sword." }]);
+  expect(p.endsWith(REPORT_NOW)).toBe(true);
+  expect(REPORT_NOW).toContain("Do not continue the story");
+});

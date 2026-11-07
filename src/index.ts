@@ -3982,12 +3982,28 @@ function worldBrief(chat: any, s: Record<string, string>, history?: { id: string
  * a reading of the story as it stands; otherwise by where each is tracked — somewhere that shares nothing with where
  * the player's character is, is elsewhere. Unknown is here: nobody is sent away on no word at all.
  */
+/** Whether the record itself places this person with the player — by where each is, not by having no word at all. */
+function placedWith(chat: any, entries: ChronicleEntry[], name: string): boolean {
+  const status = statusOf(entries);
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  if (!(status[name] as any)?.location?.title || !(status[player] as any)?.location?.title) return false;
+  return inSceneByRecord(chat, entries)(name);
+}
+
 function inScene(chat: any, entries: ChronicleEntry[]): (name: string) => boolean {
   const player = whoAmI(chat.persona_id)?.name ?? "";
   const status = statusOf(entries);
   const last = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chat.id) as any)?.id ?? "";
   const read = presence.get(chat.id);
   const fresh = read && read.at === `${last}:${changedAt.get(last) ?? 0}` ? new Set(read.here) : null;
+  const byRecord = inSceneByRecord(chat, entries);
+  return (name: string) => (name === player ? true : fresh ? fresh.has(name) || placedWith(chat, entries, name) : byRecord(name));
+}
+
+/** Who is with the player by the record alone: where each is tracked, joined through whoever they are with. */
+function inSceneByRecord(chat: any, entries: ChronicleEntry[]): (name: string) => boolean {
+  const player = whoAmI(chat.persona_id)?.name ?? "";
+  const status = statusOf(entries);
   const mine = (status[player] as any)?.location?.title ?? "";
   const where = (n: string) => (status[n] as any)?.location?.title ?? "";
   // Here: the player; anyone with no place on record (nobody is sent away on no word at all); and then, until nobody
@@ -4006,11 +4022,7 @@ function inScene(chat: any, entries: ChronicleEntry[]): (name: string) => boolea
       if (near) { here.add(n); grew = true; }
     }
   }
-  return (name: string) => {
-    if (name === player) return true;
-    if (fresh) return fresh.has(name);
-    return !where(name) || here.has(name);
-  };
+  return (name: string) => name === player || !where(name) || here.has(name);
 }
 
 function worldRoom() {
@@ -4887,8 +4899,13 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
     const who = member(m[2].replace(/[*_"]/g, ""));
     if (!who) continue;
     const theirs = active.filter((g) => g.who === who.name && !ending.has(g.id));
-    // The goal it names, or their only one.
-    const g = theirs.find((x) => same(x.goal, m[3]) || x.goal.toLowerCase().includes(m[3].toLowerCase().trim().slice(0, 24))) ?? (theirs.length === 1 ? theirs[0] : undefined);
+    // The goal it names — or their only one, if what it says shares a word with it. Not just because they have one:
+    // "DONE | Jaime | <a paragraph of the story>", from a small model writing prose where a line should be, ended
+    // the only aim he had.
+    const said = new Set(m[3].toLowerCase().split(/[^a-z0-9']+/).filter((w) => w.length > 3));
+    const shares = (goal: string) => goal.toLowerCase().split(/[^a-z0-9']+/).some((w) => w.length > 3 && said.has(w));
+    const g = theirs.find((x) => same(x.goal, m[3]) || x.goal.toLowerCase().includes(m[3].toLowerCase().trim().slice(0, 24)))
+      ?? (theirs.length === 1 && shares(theirs[0].goal) && m[3].split(/\s+/).length <= 40 ? theirs[0] : undefined);
     if (!g) continue;
     ending.add(g.id);
     add.push(normaliseChronicleEntry({ id: uid(), kind: "agenda", subject: g.who, title: "", source: "offstage", visibility: "private",
@@ -5213,8 +5230,13 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
   // Only the reading says who is here. Who has spoken lately is not where they are: in a story told from several
   // places, the people writing scenes at court are exactly the ones away from the player.
   const onstage = new Set<string>();
-  if (read) for (const n of read) onstage.add(n);
-  else {
+  if (read) {
+    for (const n of read) onstage.add(n);
+    // A reading that sends away someone the record has with the player — at the same table, beside her — is not
+    // taken over the record: a small model's "AWAY | Jaime" had the man beside her deciding his day offstage, in a
+    // scene he was sitting in. Only where the record has them placed with her; where it has nothing, it stands.
+    for (const n of cast) if (!onstage.has(n) && placedWith(chat, entries, n)) onstage.add(n);
+  } else {
     for (const n of recentRows.map((r) => r.name).filter(Boolean)) onstage.add(n);
     for (const n of namedIn(recentRows.map((r) => r.content).join("\n"), cast)) onstage.add(n);
     const whereIs = (who: string) => (status[who] as any)?.location?.title ?? "";

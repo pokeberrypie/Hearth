@@ -161,6 +161,16 @@ export function stewardSystem(o: Options = { tracking: true }): string {
 
 export const STEWARD_SYSTEM = stewardSystem();
 
+/**
+ * The last thing read, after the story: what to do with it. "Write your lines now" was read by a small model as
+ * "go on with the story", and it did — the date, then the last two lines again. Named, with the shape of a line,
+ * the same model wrote lines. The example's words are in no story: copied, its quote is found nowhere, and it is
+ * dropped like any other line that does not quote what was said.
+ */
+export const REPORT_NOW = "That is the story to read. Now report on it, and only on it: lines in the format above, each its kind, then its parts set apart by |, ending in the story's own words in quotes, like this:\n"
+  + 'EVENT | The duke sets his seal to the treaty | 2 | "he pressed his seal into the wax"\n'
+  + "or, if nothing in it is worth recording, the single word NONE. Do not continue the story.";
+
 /** The part of the request that changes: who is here, when it is, and what was said. */
 export function stewardPrompt(people: Person[], nowText: string, passages: Passage[], o: Options = { tracking: true }): string {
   const roster = people.length
@@ -187,7 +197,7 @@ export function stewardPrompt(people: Person[], nowText: string, passages: Passa
     ? `\nScenes planned after it:\n${o.scene.ahead.map((a, i) => `${i + 1}. ${a.title || "untitled"}${a.setting ? ` (${a.setting})` : ""}`).join("\n")}`
     : "";
   const scene = o.scene ? `\n\nThe planned scene now: ${o.scene.title || "untitled"} — it ends when: ${o.scene.ending}${ahead}` : "";
-  return `People in this story:\n${roster}${already}${groups}${threads}${scene}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\nWrite your lines now.`;
+  return `People in this story:\n${roster}${already}${groups}${threads}${scene}\n\nIt is now: ${nowText}\n\nThe story so far, latest part:\n\n${story}\n\n${REPORT_NOW}`;
 }
 
 /**

@@ -1001,6 +1001,17 @@ describe("who is in the scene is read from the story and the lorebook", () => {
     expect(reads()).toBe(2);
   });
 
+  test("a reading that sends away someone the record has beside her is not taken over the record", async () => {
+    party();
+    const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+    st("l1", "Yvenna Hightower", "on the bench by the fire in the inn");
+    st("l2", "Davren Baratheon", "on the bench beside Yvenna");
+    // A weak reading: everyone away.
+    presenceAnswer = "AWAY | Jaime Lannister | the road\nAWAY | Davren Baratheon | the road\nAWAY | Tyrion Lannister | the Vale road";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(asked().some((m) => m.includes("deciding for: Davren"))).toBe(false);
+  });
+
   test("only the latest recap is how things stand: an older one is read by nobody, the narrator included", async () => {
     party();
     const old = { id: "old", keys: ["Davren", "Arys"], comment: "Current state — the night Nyssara arrived",
@@ -1536,6 +1547,17 @@ describe("everyone at the table wants something", () => {
     expect(await wants()).toEqual([["Locke", "deliver both captives to Lord Bolton for the best price"]]);
     await send("/api/messages/m1", "PUT", { content: "The court gathered, and Locke was not among them." });
     expect(await wants()).toEqual([]);
+  });
+
+  test("a line that says someone's aim is done but names nothing of it does not end it", async () => {
+    table();
+    await send("/api/chats/ch/offstage/goal", "POST", { who: "Locke", goal: "deliver both captives to Lord Bolton", why: "" });
+    castAnswer = "DONE | Locke | The silence at the table was not the polite sort; it was the heavy quiet of a room where a secret had been dragged into the light.";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect((await ledger()).goals.find((g: any) => g.who === "Locke").status).toBe("active");
+    castAnswer = "DONE | Locke | both captives handed to Bolton's men at the gate";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect((await ledger()).goals.find((g: any) => g.who === "Locke").status).toBe("achieved");
   });
 
   test("the story plays the aims of those in the scene, as motive; those away stay in the ledger", async () => {
