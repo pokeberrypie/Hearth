@@ -41,6 +41,8 @@ export type Person = {
   note?: string;
   /** In the scene now. Only they have their status tracked. */
   present?: boolean;
+  /** Tracked somewhere else when last seen: still tracked, but told so, so the scene is not laid at their door. */
+  elsewhere?: string;
   /** What the tracker already says about them, so only changes are reported. */
   known?: Partial<Record<StatusField, string>>;
 };
@@ -143,7 +145,7 @@ export function stewardSystem(o: Options = { tracking: true }): string {
     "- TIME when the story shows time passing: \"three days later\", \"they rode until dawn\" — and also when it simply moves on to a later part of the day or the next one without saying how long: they wake to morning light (\"the next morning\"), the sun has set (\"until dusk\"), they sleep the night (\"until dawn\"). Say how long in plain words (\"3 days\", \"until dawn\", \"the next morning\"). One line for each step, in the order they happen.",
     "- EVENT only for something that actually happened in this part. Not plans, threats, guesses, dreams, or memories of the past.",
     ...(o.tracking ? [
-      "- STATUS only for people marked (here), using their number from the list, and only when the story changes something about them or shows it for the first time.",
+      "- STATUS only for people marked (here), or marked last known elsewhere when this part of the story shows them — arriving, leaving, seen or heard of — using their number from the list, and only when the story changes something about them or shows it for the first time. Never give someone elsewhere what was done or said in a scene they are not in.",
       "- For STATUS, \"what\" is one of: physical (injuries, health, tiredness), mental (mood, state of mind), clothes (what they wear), location (where they are), inventory (what they carry). Say how they are now in a few words.",
     ] : []),
     "- DEATH when anyone dies in this part of the story — whoever and wherever they are, in the scene or far from it. Only a death that happens here: not wounded, not dying, not feared dead, not a death remembered from before.",
@@ -163,7 +165,7 @@ export const STEWARD_SYSTEM = stewardSystem();
 export function stewardPrompt(people: Person[], nowText: string, passages: Passage[], o: Options = { tracking: true }): string {
   const roster = people.length
     ? people.map((p, i) => {
-        const notes = [p.note, o.tracking && p.present ? "here" : ""].filter(Boolean).join(", ");
+        const notes = [p.note, o.tracking && p.present ? (p.elsewhere ? `last known elsewhere: ${p.elsewhere}` : "here") : ""].filter(Boolean).join(", ");
         return `${i + 1}. ${p.name}${notes ? ` (${notes})` : ""}`;
       }).join("\n")
     : "(nobody named yet)";

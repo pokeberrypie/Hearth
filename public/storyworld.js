@@ -369,7 +369,12 @@ function timelineHtml(s, who) {
     if (e.kind === "time") {
       return `<li class="wdpassed"><span>Time passes${e.title ? ` · ${txt(e.title)}` : ""}</span>${host ? undoBtn(e) : ""}</li>`;
     }
-    if (e.kind === "set") return `<li class="wdpassed"><span>The date is set</span>${host ? undoBtn(e) : ""}</li>`;
+    if (e.kind === "set") {
+      let d = {}; try { d = JSON.parse(e.data || "{}"); } catch {}
+      // A date that was wrong all along, put right: what came before moves with it (see /chronicle/:id/correct).
+      const fix = host && !d.corrected ? ` <button type="button" class="linkish" data-correct="${e.id}" title="Move everything recorded before this by as much as the date moved, so the story runs on unbroken">It was a correction</button>` : "";
+      return `<li class="wdpassed"><span>The date is set${d.corrected ? " · what came before moved with it" : ""}</span>${fix}${host ? undoBtn(e) : ""}</li>`;
+    }
     if (e.kind !== undefined && e.kind !== "event") return "";
     const when = e.when ?? "";
     return `<li class="wdevent"><span class="wddot"></span>
@@ -837,6 +842,9 @@ async function factionEditor(f) {
 function wireBody(who) {
   const body = $("#wdBody");
   for (const b of body.querySelectorAll("[data-undo]")) b.onclick = () => act(`/chronicle/${b.dataset.undo}/undo`);
+  for (const b of body.querySelectorAll("[data-correct]")) b.onclick = () => {
+    if (confirm("Was the story's date wrong before this, rather than time jumping ahead?\n\nEverything recorded before it will be moved by the same amount, so it all happened on the right dates.")) act(`/chronicle/${b.dataset.correct}/correct`);
+  };
   for (const b of body.querySelectorAll("[data-reveal]")) b.onclick = () => act(`/chronicle/${b.dataset.reveal}/reveal`);
   for (const b of body.querySelectorAll("[data-hide]")) b.onclick = () => act(`/chronicle/${b.dataset.hide}/hide`);
   for (const b of body.querySelectorAll("[data-pass]")) b.onclick = () => post(`/chats/${S.chatId}/chronicle`, { kind: "time", text: b.dataset.pass });

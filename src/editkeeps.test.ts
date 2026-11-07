@@ -79,3 +79,20 @@ test("someone of the cast who is elsewhere is told as elsewhere, not as one of t
   expect(world).toContain("Elsewhere, as far as the record shows");
   expect(world).not.toContain("Tywin Lannister wants");
 });
+
+test("a date set to put the story right moves what came before with it, once", async () => {
+  db.query("DELETE FROM chronicle").run();
+  const post = (b: any) => send("/api/chats/ch/chronicle", "POST", b);
+  await post({ kind: "set", day: 100 });
+  await post({ kind: "event", title: "The joust" });
+  await post({ kind: "time", text: "2 days" });
+  await post({ kind: "event", title: "The feast" });
+  // Thirteen years on, by hand: the date had been wrong all along.
+  const set = (await (await post({ kind: "set", day: 5000 })).json()).entries.filter((e: any) => e.kind === "set").at(-1).id;
+  const r = await (await send(`/api/chronicle/${set}/correct`, "POST")).json();
+  const ev = (t: string) => r.entries.find((e: any) => e.title === t).day;
+  expect(ev("The feast")).toBe(5000);
+  expect(ev("The joust")).toBe(4998);
+  expect(r.now.day).toBe(5000);
+  expect((await send(`/api/chronicle/${set}/correct`, "POST")).status).toBe(400);
+});

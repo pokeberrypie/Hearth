@@ -4230,6 +4230,38 @@ function markUndone(c: any, undone: number | null) {
   worldChanged(row.chat_id);
   return c.json(chronicleState(row.chat_id));
 }
+/**
+ * A date set by hand that was a correction, not a leap: the story had been told on the wrong date, and setting the
+ * right one left everything before it on the old — a story set in 298 telling of last week as thirteen years gone,
+ * the narrator remembering it so and the people offstage knowing it so. Everything written before it is moved by
+ * as far as the clock was, so the story runs on unbroken into the date that was set. Once.
+ */
+api.post("/chronicle/:id/correct", (c) => {
+  const row = db.query("SELECT * FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
+  if (!row || row.kind !== "set" || row.undone_at) return c.json({ error: "Only a date that was set can be a correction." }, 400);
+  const d = dataOf(row);
+  if (d.corrected) return c.json({ error: "Already moved." }, 400);
+  const cal = calendarOf(row.chat_id);
+  const entries = chronicleOf(row.chat_id);
+  // Where the clock stood just before this was set, and so how far it moved.
+  const before = liveEntries(entries).filter((e) => e.created_at < row.created_at);
+  const was = clockOf(cal, before);
+  const shift = Number(row.day) - was.day;
+  if (!shift) return c.json({ error: "It did not move the date." }, 400);
+  const move = db.query("UPDATE chronicle SET day = ?, data = ? WHERE id = ?");
+  db.transaction(() => {
+    for (const e of entries) {
+      if (e.created_at >= row.created_at || e.id === row.id) continue;
+      const ed = dataOf(e);
+      for (const k of ["due", "until", "day", "since"]) if (Number.isFinite(Number(ed[k])) && ed[k] !== null && ed[k] !== "") ed[k] = Number(ed[k]) + shift;
+      // An earlier set is moved with the rest: it was on the wrong date too.
+      move.run(e.day === null ? null : e.day + shift, JSON.stringify(ed), e.id);
+    }
+    db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, corrected: shift }), row.id);
+  })();
+  worldChanged(row.chat_id);
+  return c.json(chronicleState(row.chat_id));
+});
 api.post("/chronicle/:id/undo", (c) => markUndone(c, now()));
 api.post("/chronicle/:id/restore", (c) => markUndone(c, null));
 
@@ -6091,8 +6123,12 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
   const reading = new Set(rows.map((m) => m.id));
   const before = chronicleOf(chat.id).filter((e) => !(e.source === "steward" && e.message_id && reading.has(e.message_id)));
   const known = statusOf(before);
+  // Who is in the scene, as the narrator is told it (see inScene): anyone of the cast last known somewhere else is
+  // marked so, still trackable — they may walk in — but no longer all "here", which laid the scene at their door.
+  const isHere = inScene(chat, before);
   const people = peopleOf(chat).map((p) => ({
     ...p,
+    elsewhere: p.present && !isHere(p.name) ? String((known[p.name] as any)?.location?.title ?? "").slice(0, 80) || undefined : undefined,
     known: Object.fromEntries(Object.entries(known[p.name] ?? {}).map(([f, e]) => [f, e!.title])),
   }));
   // Factions it should not propose again: those that exist, and those already waiting on a person.
