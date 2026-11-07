@@ -415,6 +415,9 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
   if (d.kind === "act" && d.reaches && !r.threat) {
     const told = d.reaches.told.replace(/\s+/g, " ").trim().slice(0, 240);
     if ((d.clue || r.clue) && names(told, o.who, id)) notes.push("the news named who was secretly behind it");
+    // What they would hear, said: not a word or two — "a day", "—" — which is a field left empty and the next one
+    // read into it. Queued as a scene, those went ahead of real news and held it back for replies on end.
+    else if (told.split(/\s+/).length < 3 || told.length < 12 || saysNothing(told)) notes.push("what word of it would say was not said");
     else if (told) r.news = { how: d.reaches.how.replace(/\s+/g, " ").trim().slice(0, 120), told, days: d.reaches.days };
   }
   if (r.goal && r.kind !== "dropped") r.goal = { goal: r.goal.goal.slice(0, 200), why: r.goal.why.slice(0, 300) };

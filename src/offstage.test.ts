@@ -1001,6 +1001,15 @@ describe("who is in the scene is read from the story and the lorebook", () => {
     expect(reads()).toBe(2);
   });
 
+  test("someone the reading leaves out is not sent away by being left out", async () => {
+    party();
+    presenceAnswer = "AWAY | Tyrion Lannister | the Vale road";
+    answers = ["CHOOSE | it | x\nACT | asks his guards about the road ahead | easy | none"];
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(asked().some((m) => m.includes("deciding for: Tyrion"))).toBe(true);
+    expect(asked().some((m) => m.includes("deciding for: Davren"))).toBe(false);
+  });
+
   test("a reading that sends away someone the record has beside her is not taken over the record", async () => {
     party();
     const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
@@ -1811,5 +1820,15 @@ describe("who an act is aimed at is read by name, not by house", () => {
     const d = base("bribes the archivist", "none", "\nCLUE | a Lannister pin by the shelves\nWITNESS | Tyrion Lannister | a woman in a hood");
     d.difficulty = "uncertain";
     expect(rule(d, o).witness?.who).toBe("Tyrion Lannister");
+  });
+});
+
+describe("word of it, said", () => {
+  test("a REACHES line whose message is a word or two — the days read into it — sends no news", () => {
+    const o = { who: "Cersei Lannister", player: "Yvenna Hightower", protection: "fair" as const, goals: [] };
+    const junk = readDecision("CHOOSE | it | x\nACT | writes to the river lords | easy | none\nREACHES | a rider | a day");
+    expect(rule(junk, o).news).toBeNull();
+    const real = readDecision("CHOOSE | it | x\nACT | writes to the river lords | easy | none\nREACHES | a rider | the river lords are summoned to King's Landing | 3");
+    expect(rule(real, o).news?.told).toBe("the river lords are summoned to King's Landing");
   });
 });

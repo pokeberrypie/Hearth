@@ -5510,7 +5510,7 @@ function notesFor(lore: { content: string; recap: boolean }[], cap: number) {
 }
 
 /** Who was read as in the scene, for the message it was read at: asked once per turn of the story, not per run. */
-const presence = new Map<string, { at: string; here: string[] }>();
+const presence = new Map<string, { at: string; here: string[]; away?: string[] }>();
 /** For tests, whose chats reuse the same ids from one to the next. */
 export const forgetPresence = () => presence.clear();
 
@@ -5549,6 +5549,7 @@ async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnect
   } catch { return null; }
   const text = fielded(withoutThinking(said).trim() || thought);
   const here: string[] = [];
+  const away: string[] = [];
   let lines = 0;
   for (const line of text.split(/\r?\n/)) {
     const m = /^\W*(HERE|AWAY)\W*\|\s*([^|]+)/i.exec(line.trim());
@@ -5556,10 +5557,14 @@ async function whoIsHere(chatId: string, conn: ReturnType<typeof offstageConnect
     lines++;
     const name = m[2].trim().toLowerCase();
     const who = cast.find((c) => c.toLowerCase() === name) ?? namedIn(m[2], cast)[0];
-    if (who && m[1].toUpperCase() === "HERE") here.push(who);
+    if (who) (m[1].toUpperCase() === "HERE" ? here : away).push(who);
   }
   if (!lines) return null;
-  presence.set(chatId, { at, here });
+  // Someone it left out is not "away" for that: a small model answered for two of eighteen, and the other sixteen
+  // were sent offstage by saying nothing. Those it did not name are left to the record (see inScene).
+  const byRecord = inSceneByRecord(db.query("SELECT * FROM chats WHERE id = ?").get(chatId), chronicleOf(chatId));
+  for (const n of cast) if (!here.includes(n) && !away.includes(n) && byRecord(n)) here.push(n);
+  presence.set(chatId, { at, here, away });
   return here;
 }
 

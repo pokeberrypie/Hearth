@@ -177,6 +177,10 @@ export function unreachable(base: string, e: any): Error | null {
     return new Error(`Nothing is answering at ${where}. Is the model server running${looped && onPhone
       ? " on this phone (in Termux, or the app serving it)? Here, localhost is the phone itself; a model on your computer needs your computer's address, like 192.168.1.20" : ""}, and on that port?`);
   }
+  // The runtime's own waiting given up: a server that was reached and was still working, not one that was not there.
+  if (code === "UND_ERR_HEADERS_TIMEOUT" || code === "UND_ERR_BODY_TIMEOUT") {
+    return new Error(`${where} was reached, but had not answered after five minutes, and the connection was given up on. A model reading a long story on a slow processor can take that long; a smaller Context size makes it read less.`);
+  }
   if (code === "ENOTFOUND" || code === "EAI_AGAIN") return new Error(`No computer called "${where}" could be found. Check the address, or use its number (like 192.168.1.20).`);
   if (["EHOSTUNREACH", "ENETUNREACH", "ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "ECONNRESET"].includes(code)) {
     return new Error(`${where} could not be reached. If the model runs on another computer: is it on the same wifi, and is its server set to accept other devices (LM Studio: "Serve on Local Network"; Ollama: OLLAMA_HOST=0.0.0.0; KoboldCpp and llama-server: --host 0.0.0.0)?`);
@@ -216,6 +220,30 @@ export type Chunk =
 export const BACKGROUND_TIMEOUT_MS = 4 * 60_000;
 /** The same, for a model on this machine or the home network: a phone's processor reading a long story is slow. */
 export const LOCAL_TIMEOUT_MS = 20 * 60_000;
+
+/**
+ * A model on this phone or this network may take longer than five minutes to say its first word: a phone's processor
+ * reading a long story is that slow. The runtimes' own fetch gave up at five (Node 18, the phone's — "fetch failed",
+ * read as the server being unreachable) or six (Bun), whatever Hearth's own limits said, so past a certain length
+ * of story every reply from a phone model failed however long one was willing to wait. For those servers only, the
+ * runtime's limit is lifted; Hearth's own (see LOCAL_TIMEOUT_MS, and the stop button) still hold. Measured: both
+ * answered after six and a half minutes once lifted. Node's dispatcher is made from the class of its own, which
+ * exists once fetch has been used — no library to bring, and nothing the phone's Node lacks.
+ */
+let patient: unknown = undefined;
+async function untimed(base: string): Promise<Record<string, unknown>> {
+  if (!isLocalBase(base)) return {};
+  if (typeof (globalThis as any).Bun !== "undefined") return { timeout: false };
+  if (patient === undefined) {
+    patient = null;
+    try { await fetch("http://127.0.0.1:1/"); } catch { /* refused at once: it only has to have been tried */ }
+    try {
+      const Agent = (globalThis as any)[Symbol.for("undici.globalDispatcher.1")]?.constructor;
+      if (typeof Agent === "function") patient = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+    } catch { patient = null; }
+  }
+  return patient ? { dispatcher: patient } : {};
+}
 
 export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
   const t = resolveTarget(a);
@@ -474,7 +502,7 @@ export function thinkingOffRequest(provider: string, base: string, model: string
   return { model: id, extra };
 }
 
-function callOpenAI(a: GenerateArgs, base: string) {
+async function callOpenAI(a: GenerateArgs, base: string) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     // NanoGPT requires this for streaming, and would be misled by it otherwise.
@@ -537,6 +565,7 @@ function callOpenAI(a: GenerateArgs, base: string) {
   }
 
   return fetch(`${base}/chat/completions`, {
+    ...(await untimed(base)),
     method: "POST",
     headers,
     signal: a.signal,
@@ -553,7 +582,7 @@ function callOpenAI(a: GenerateArgs, base: string) {
  * every OpenAI-compatible address takes chat/completions, because the ones
  * that don't fail with a 404 that reads like a missing model.
  */
-function callResponses(a: GenerateArgs, base: string) {
+async function callResponses(a: GenerateArgs, base: string) {
   const s = a.sampling;
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -580,6 +609,7 @@ function callResponses(a: GenerateArgs, base: string) {
   }
 
   return fetch(`${base}/responses`, {
+    ...(await untimed(base)),
     method: "POST",
     headers,
     signal: a.signal,
@@ -592,7 +622,7 @@ const ANTHROPIC_THINKING: Record<string, number> = {
   minimal: 1024, low: 4096, medium: 10000, high: 20000,
 };
 
-function callAnthropic(a: GenerateArgs, base: string) {
+async function callAnthropic(a: GenerateArgs, base: string) {
   const s = a.sampling;
   // Anthropic supports temperature and top_p only. min_p and the repetition
   // penalties have no equivalent, so they are dropped rather than faked.
@@ -622,6 +652,7 @@ function callAnthropic(a: GenerateArgs, base: string) {
   }
 
   return fetch(`${base}/messages`, {
+    ...(await untimed(base)),
     method: "POST",
     headers: {
       "content-type": "application/json",
