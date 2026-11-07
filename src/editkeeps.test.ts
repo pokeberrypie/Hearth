@@ -167,3 +167,63 @@ test("a correction says first what it will do, and can be taken back", async () 
   // And it can be made again.
   expect((await send(`/api/chronicle/${set}/correct`, "POST")).status).toBe(200);
 });
+
+test("named, but the record has them across the city: spoken of, not to — someone in the scene answers", async () => {
+  db.query("INSERT INTO personas (id, name, created_at) VALUES ('y', 'Yvenna Hightower', 1)").run();
+  db.query("UPDATE chats SET persona_id = 'y', turn_order = 'named' WHERE id = 'ch'").run();
+  db.query("INSERT INTO characters (id, name, created_at) VALUES ('t', 'Tywin Lannister', 1)").run();
+  db.query("INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES ('a', 'ch', 'j', 0, 0), ('b', 'ch', 't', 1, 0)").run();
+  const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+  st("l1", "Yvenna Hightower", "seated on the bench by the fire");
+  st("l2", "Jaime Lannister", "on the bench beside Yvenna");
+  st("l3", "Tywin Lannister", "the Tower of the Hand, at his desk");
+  const { nextSpeaker } = await import("./index");
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('u1', 'ch', 'user', 'Yvenna Hightower', 'I sit down and write to Lord Tywin in the Tower.', 3)").run();
+  expect(nextSpeaker(db.query("SELECT * FROM chats WHERE id = 'ch'").get()).name).toBe("Jaime Lannister");
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('u2', 'ch', 'user', 'Yvenna Hightower', 'Jaime, what do you make of it?', 4)").run();
+  expect(nextSpeaker(db.query("SELECT * FROM chats WHERE id = 'ch'").get()).name).toBe("Jaime Lannister");
+});
+
+const replyWith = async (reply: string, mine: string) => {
+  db.query("DELETE FROM chronicle").run();
+  setSettings({ provider: "openrouter", key_openrouter: "sk", model: "m" });
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    const enc = new TextEncoder();
+    return new Response(new ReadableStream({ start(c) {
+      c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\ndata: [DONE]\n\n`)); c.close();
+    } }), { headers: { "content-type": "text/event-stream" } });
+  }) as any;
+  try { await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: mine })).text(); }
+  finally { globalThis.fetch = real; }
+};
+
+test("the player's own 'Three days later' moves the date", async () => {
+  await replyWith("The road was dry, and Brienne rode ahead.", "Three days later, I ride out with Brienne.");
+  expect(await day()).toBe(3);
+});
+
+test("and a reply opening on the same skip is saying it again, not three more days", async () => {
+  await replyWith("Three days later, the road was dry.", "Three days later, I ride out with Brienne.");
+  expect(await day()).toBe(3);
+});
+
+test("a reply that is all thinking and no story is asked for again, once, before any error", async () => {
+  setSettings({ provider: "openrouter", key_openrouter: "sk", model: "m" });
+  let calls = 0;
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    const enc = new TextEncoder();
+    const delta = calls === 1 ? { reasoning: "Let me think about this for a long while." } : { content: "He drew his sword." };
+    return new Response(new ReadableStream({ start(c) {
+      c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\ndata: [DONE]\n\n`)); c.close();
+    } }), { headers: { "content-type": "text/event-stream" } });
+  }) as any;
+  let out = "";
+  try { out = await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "Go on." })).text(); }
+  finally { globalThis.fetch = real; }
+  expect(calls).toBe(2);
+  expect(out).not.toContain('"error"');
+  expect((db.query("SELECT content FROM messages WHERE role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any).content).toBe("He drew his sword.");
+});

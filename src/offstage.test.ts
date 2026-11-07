@@ -1738,6 +1738,28 @@ describe("the ripple: what is done offstage is felt where the player's character
     expect(asked).toContain("Cersei Lannister (at the Red Keep, in her solar)");
   });
 
+  test("what the scene already shows happening is not queued to come after it", async () => {
+    court();
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m2', 'ch', 'assistant', 'Jaime Lannister', 'In the yard the grooms turned from Jaime, for no horses or coin had come from the West, and the Lannister rider who said so stood by the gate.', 3)").run();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "LANDS | 1 | a Lannister rider at the gate says no horses or coin will come from the West, and the grooms turn from Jaime | 1";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect(await coming()).toEqual([]);
+  });
+
+  test("a scene meant for where she was goes behind word that can reach her where she is", async () => {
+    court();
+    const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 50)`).run(id, who, where);
+    st("l1", "Yvenna Hightower", "on the Riverlands road, cloaked plain");
+    db.query(`INSERT INTO chronicle (id, chat_id, kind, title, body, source, visibility, created_at, data) VALUES
+      ('s1', 'ch', 'news', 'In the yard forge the armorer measures Jaime for a new grip', '', 'offstage', 'private', 10, '{"due":0,"state":"travelling","tries":0,"mode":"scene","at":"the great hall of the Red Keep"}'),
+      ('w1', 'ch', 'news', 'the Riverlords have closed the fords to Hightower riders', 'a rider', 'offstage', 'private', 11, '{"due":0,"state":"travelling","tries":0,"mode":"word"}')`).run();
+    const told = await narrator();
+    expect(told).toContain("closed the fords");
+    expect(told).not.toContain("armorer measures Jaime");
+  });
+
   test("when it is due, the narrator plays out the effect — and is never told whose doing it was", async () => {
     court();
     await goal("Cersei Lannister", "bring Jaime to heel");

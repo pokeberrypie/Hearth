@@ -890,9 +890,12 @@ export function nextSpeaker(chat: any, wanted?: string, roll: () => number = Mat
   if (order === "named") {
     const latest = db.query("SELECT role, content, character_id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 2")
       .all(chat.id) as { role: string; content: string; character_id: string | null }[];
+    // Named, and in the scene: "I write to my brother Emeric at the Eyrie" named him, and he answered — from the
+    // Eyrie, a whole scene of reading a letter not yet sent. Someone the record has elsewhere is spoken of, not to.
+    const reachable = getSettings().story_world === "0" ? cast : (() => { const h = inScene(chat, chronicleOf(chat.id)); return cast.filter((m) => h(m.name)); })();
     for (const [i, msg] of latest.entries()) {
       if (i > 0 && msg.role === "user") break;
-      const named = calledOn(msg.content, cast, msg.role === "user" ? null : (msg.character_id ?? ""));
+      const named = calledOn(msg.content, reachable.length ? reachable : cast, msg.role === "user" ? null : (msg.character_id ?? ""));
       if (named) return named;
       if (msg.role !== "user") break;
     }
@@ -1237,6 +1240,9 @@ api.post("/chats/:id/generate", async (c) => {
     userMessageId = uid();
     db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at, tokens) VALUES (?,?,?,?,?,?,?)")
       .run(userMessageId, chatId, "user", "", content.trim(), t, Math.round(content.trim().length / 4));
+    // "Three days later, I ride out…": the player's own time, read as the narrator's opening is, before the reply is
+    // written — so the reply, and Story World with it, are on the day the player said, not two readings behind.
+    openingTime(chatId, userMessageId, content.trim());
     hostSpoke(chatId);
   }
   db.query("UPDATE chats SET updated_at = ? WHERE id = ?").run(t, chatId);
@@ -1351,6 +1357,7 @@ api.post("/chats/:id/generate", async (c) => {
           // Asked once as it is; and if the server's context is too small for it, once more, made to fit — the
           // oldest messages left out before any of the reply's length is given up (see fitToContext).
           let messages = shaped.messages, sampling = a.sampling, fitReply = false;
+          let rethought = false;
           for (let attempt = 0; ; attempt++) {
           try {
           for await (const chunk of generate({
@@ -1373,6 +1380,17 @@ api.post("/chats/:id/generate", async (c) => {
             }
             full += chunk.text;
             send({ delta: chunk.text });
+          }
+          // All thinking and no story: asked once more, before saying so. GLM on NanoGPT, told not to think, mostly
+          // does not — and now and then thinks through the whole reply anyway (one in eight, played on the author's
+          // own chat). Twice in a row is rare; once is not worth an error.
+          if (!full.trim() && think.trim() && !ac.signal.aborted && mode !== "continue" && !rethought) {
+            rethought = true;
+            console.log(`[reply] ${a.model} thought through the whole reply (${tokens || Math.round(think.length / 4)} tokens) and wrote nothing; asking again.`);
+            think = "";
+            tokens = 0;
+            send({ notice: "The model thought through the whole reply without writing; asking it again." });
+            continue;
           }
           break;
           } catch (err: any) {
@@ -1719,7 +1737,7 @@ api.put("/messages/:id", async (c) => {
   } catch {}
   db.query("UPDATE messages SET content = ?, swipes = ? WHERE id = ?").run(content, swipes, c.req.param("id"));
   // The time it opens on was taken back with the old words; read again from the new ones, as a new reply's is.
-  if (m?.role === "assistant") openingTime(m.chat_id, c.req.param("id"), String(content ?? ""));
+  if (m?.role === "assistant" || m?.role === "user") openingTime(m.chat_id, c.req.param("id"), String(content ?? ""));
   return c.json({ ok: true });
 });
 
@@ -4100,7 +4118,7 @@ function chronicleState(chatId: string) {
     // Something from offstage due to reach the scene now — asked about above the writing line, and never said:
     // what it is, and whose doing, stay the story's and the ledger's. Unanswered, it comes in as it would have.
     arriving: (() => {
-      const n = dueNews(entries, at.day)[0];
+      const n = dueNews(entries, at.day, chatId)[0];
       return n ? { id: n.id, mode: dataOf(n).mode === "scene" ? "scene" : "word", first: !!dataOf(n).first } : null;
     })(),
   };
@@ -4989,7 +5007,7 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
     `What was done out of sight:\n${plots.map((e, i) => `${i + 1}. ${e.subject}${e.subject && whereOf(e.subject) && !here.includes(e.subject) ? ` (at ${whereOf(e.subject)})` : ""}: ${e.title}${dataOf(e).outcome === "failed" ? " (it failed)" : ""}${dataOf(e).fact ? ` — so now: ${dataOf(e).fact}` : ""}`).join("\n")}`,
     `For each of these whose effects would truly reach ${player || "the player's character"} where she is — an order that changes how she is kept, a visitor, a letter, money or men that arrive or stop, someone near her who now acts differently because of it, a decree read out, a debt called in — one line:`,
     "LANDS | its number | how it is first felt where she is, as it would begin in a scene: what happens, who does it, what changes — never who was secretly behind it | in how many days",
-    `Follow real routes: who carries it, how far, how long. Someone far from her does not appear at her side: what they did reaches her by a rider, a letter, a rumour, or someone already near her — and only as fast as that could travel. Leave out what could not reach her, or would not yet. At most ${most + 2}. Nothing else.`,
+    `Only what is still to come: nothing the story above already shows happening. Follow real routes: who carries it, how far, how long. Someone far from her does not appear at her side: what they did reaches her by a rider, a letter, a rumour, or someone already near her — and only as fast as that could travel. Leave out what could not reach her, or would not yet. At most ${most + 2}. Nothing else.`,
   ].filter(Boolean).join("\n\n");
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
@@ -5016,12 +5034,15 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
     // Not the same scene twice: someone keeping at one scheme day after day is not felt twice over, the same way.
     // Not felt twice: on its way already, or felt in the last week.
     if ([...news, ...add].some((e) => (dataOf(e).state !== "arrived" || (e.day ?? 0) >= at.day - 7) && sameNews(felt, e.title))) { again++; continue; }
+    // Already in the story: the scene it was read against shows it happening. Jaime at the forge, his left-handed grip
+    // on the anvil, was queued to come after the reply that played it — and was offered again, turn after turn.
+    if (shownIn(felt, recent.map((r) => r.content).join("\n"))) { again++; continue; }
     used.add(n);
     const days = Math.max(0, Math.min(30, daysIn(m[3] ?? "") ?? 1));
     // Played out as a scene, with no name behind it: the effect is the story's; whose doing it was is the player's to find.
     add.push(normaliseChronicleEntry({ id: uid(), kind: "news", subject: plot.subject, title: felt.slice(0, 400), body: "",
       message_id: plot.message_id, day: at.day, minute: at.minute, source: "offstage", visibility: "private", created_at: t++,
-      data: { due: at.day + days, state: "travelling", tries: 0, touches: true, mode: "scene", ripple: true, of: plot.id } }));
+      data: { due: at.day + days, state: "travelling", tries: 0, touches: true, mode: "scene", ripple: true, of: plot.id, ...(where ? { at: where } : {}) } }));
   }
   // A plot undone, or a scene swiped, while it was being traced: nothing of this tracing stands. Looked at again next run.
   if (movedOn([...plots.map((e) => e.message_id), ...recent.map((r) => r.id)], asOf)) return { landed: 0, looked: 0, again: plots.length };
@@ -5398,7 +5419,8 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
         add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "news", subject: person, title: word.told, body: word.how, created_at: t++,
           // What touches the player's character or their people does not arrive as talk: it happens to them, a
           // scene in the story. The rest is word of it, heard.
-          data: { due: at.day + word.days, state: "travelling", tries: 0, touches, mode: touches ? "scene" : "word", garbled: newsWrong && !touches } }));
+          data: { due: at.day + word.days, state: "travelling", tries: 0, touches, mode: touches ? "scene" : "word", garbled: newsWrong && !touches,
+            ...(touches && playerPlace(chatId, entries) ? { at: playerPlace(chatId, entries) } : {}) } }));
       }
     }
     // Finished: only if it worked. A goal is not achieved by trying.
@@ -5668,7 +5690,7 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
     out.push(`Things that could be noticed, if the player's character is somewhere to notice them. Never decide that they noticed, or what they make of it — that is the player's: ${hooks.join("; ")}.`);
   }
   // What is due to reach the player's character: one thing at a time, so the story is not handed a stack of them.
-  const news = dueNews(entries, day)[0];
+  const news = dueNews(entries, day, chatId)[0];
   // Pressed once it has waited: told plainly that this reply is the one.
   const pressed = news ? Number(dataOf(news).tries ?? 0) >= NEWS_PRESS[dataOf(news).mode === "scene" ? "scene" : "word"] : false;
   if (news && dataOf(news).mode === "scene") {
@@ -5752,9 +5774,16 @@ function meansPerson(text: string, person: string): boolean {
 const newsChance = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
 
 /** What is on its way to the player's character whose days are up: what happens to them first, then word; oldest first. */
-function dueNews(entries: ChronicleEntry[], day: number) {
+function dueNews(entries: ChronicleEntry[], day: number, chatId?: string) {
+  // A scene is where it was meant to happen: queued while she was at the castle, it goes to the back while she seems
+  // to be somewhere else — not first in line, offered reply after reply where it cannot happen, holding back
+  // everything behind it. Only to the back, never out: the tracker words the same hall a dozen ways, and a scene
+  // hidden for a change of words would never come. Word finds her anywhere.
+  const now = chatId ? playerPlace(chatId, entries) : "";
+  const away = (e: ChronicleEntry) => dataOf(e).mode === "scene" && !!dataOf(e).at && !!now && !samePlace(String(dataOf(e).at), now);
   return liveEntries(entries).filter((e) => e.kind === "news" && dataOf(e).state === "travelling" && Number(dataOf(e).due ?? 0) <= day)
     .sort((a, b) => Number(!!dataOf(b).first) - Number(!!dataOf(a).first)
+      || Number(away(a)) - Number(away(b))
       || Number(dataOf(b).mode === "scene") - Number(dataOf(a).mode === "scene") || a.created_at - b.created_at);
 }
 
@@ -5782,9 +5811,24 @@ function sameNews(a: string, b: string) {
  * after a few replies, and let go only after NEWS_PATIENCE: word is told to wait for a natural moment, and was let go
  * after four replies of waiting for one.
  */
+/** Where the player's character is, as the tracker last had it: "" when it has no word. */
+function playerPlace(chatId: string, entries: ChronicleEntry[]): string {
+  const chat = db.query("SELECT persona_id FROM chats WHERE id = ?").get(chatId) as any;
+  const player = chat ? whoAmI(chat.persona_id)?.name ?? "" : "";
+  return String((statusOf(entries)[player] as any)?.location?.title ?? "");
+}
+
+/** Whether the story text already shows this: the same test that says news has been brought in (see settleNews). */
+function shownIn(told: string, story: string): boolean {
+  const said = stems(storyOnly(story));
+  const keys = [...stems(told)];
+  const hits = keys.filter((k) => said.has(k)).length;
+  return keys.length > 0 && hits >= Math.max(3, Math.ceil(keys.length / 2));
+}
+
 function settleNews(chatId: string, reply: string, by = "") {
   const entries = chronicleOf(chatId);
-  const news = dueNews(entries, clockOf(calendarOf(chatId), entries).day)[0];
+  const news = dueNews(entries, clockOf(calendarOf(chatId), entries).day, chatId)[0];
   if (!news) return;
   const said = stems(storyOnly(reply));
   const keys = [...stems(news.title)];
@@ -7860,6 +7904,10 @@ function openingTime(chatId: string, messageId: string, text: string) {
   const cal = calendarOf(chatId);
   const span = readSpan(cal, said, clockOf(cal, entries));
   if (!span) return;
+  // A reply opening on the very skip the player's message just made ("Three days later," and "Three days later,")
+  // is saying it again, not three more days.
+  const before = db.query("SELECT m.id, m.role FROM messages m, messages me WHERE me.id = ? AND m.chat_id = me.chat_id AND (m.created_at < me.created_at OR (m.created_at = me.created_at AND m.rowid < me.rowid)) ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1").get(messageId) as any;
+  if (before?.role === "user" && liveEntries(entries).some((e) => e.kind === "time" && e.message_id === before.id && e.span === span)) return;
   const t = now();
   recordNarrated(chatId, { kind: "time", span, title: said, day: null, minute: null });
   tieNarration(chatId, messageId, t);
