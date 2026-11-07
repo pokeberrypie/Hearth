@@ -64,3 +64,32 @@ test("a branch's notes are the notes as they stood at the fork, not the parent's
   const book = db.query("SELECT entries FROM lorebooks WHERE id = (SELECT auto_lore_book_id FROM chats WHERE id = ?)").get(branch) as any;
   expect(JSON.parse(book.entries).map((e: any) => e.comment)).toEqual(["before"]);
 });
+
+test("a threat played, and news brought in, by a reply after the fork are still to come in the branch", async () => {
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m10', 'ch', 'assistant', 'Jaime Lannister', 'After the fork.', 9.9e12)").run();
+  db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at, undone_at, data) VALUES
+    ('t1', 'ch', NULL, 'threat', 'Someone sends a knife', 'offstage', 'private', 5, 9.9e12, '{"played_by":"m10"}'),
+    ('n1', 'ch', NULL, 'news', 'word from Oldtown', 'offstage', 'private', 6, NULL, '{"due":0,"state":"arrived","by":"m10","tried":["m10"],"tries":1}')`).run();
+  const branch = (await (await send("/api/messages/m9/branch", "POST", {})).json()).id;
+  const t = db.query("SELECT undone_at, data FROM chronicle WHERE chat_id = ? AND kind = 'threat'").get(branch) as any;
+  const n = JSON.parse((db.query("SELECT data FROM chronicle WHERE chat_id = ? AND kind = 'news'").get(branch) as any).data);
+  expect(t.undone_at).toBeNull();
+  expect(n.state).toBe("travelling");
+  expect(n.tried).toEqual([]);
+});
+
+test("exported and imported, a threat still knows the reply that played it: swiped there, it comes back", async () => {
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m5', 'ch', 'assistant', 'Jaime Lannister', 'A knife flashed.', 5e12)").run();
+  db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at, undone_at, data) VALUES
+    ('t1', 'ch', NULL, 'threat', 'Someone sends a knife', 'offstage', 'private', 5, 6e12, '{"played_by":"m5"}')`).run();
+  const out = await (await ask("/api/chats/ch/export")).json();
+  const form = new FormData();
+  form.set("file", new Blob([JSON.stringify(out)], { type: "application/json" }), "chat.json");
+  form.set("character_id", "j");
+  const id = (await (await ask("/api/chats/import", { method: "POST", body: form })).json()).id;
+  const played = JSON.parse((db.query("SELECT data FROM chronicle WHERE chat_id = ? AND kind = 'threat'").get(id) as any).data).played_by;
+  const reply = (db.query("SELECT id FROM messages WHERE chat_id = ? AND content = 'A knife flashed.'").get(id) as any).id;
+  expect(played).toBe(reply);
+  await send(`/api/messages/${reply}`, "PUT", { content: "The night passed quietly." });
+  expect((db.query("SELECT undone_at FROM chronicle WHERE chat_id = ? AND kind = 'threat'").get(id) as any).undone_at).toBeNull();
+});

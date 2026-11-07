@@ -2814,12 +2814,16 @@ function assembleWith(
   // In a group the model still writes one character. The rest are scenery it is
   // allowed to move — without this it either ignores them or speaks for them.
   if (others.length) {
-    const room = others
-      .map((o) => `**${o.name}** — ${(o.description || "no description").split("\n")[0].slice(0, 240)}`)
-      .join("\n");
+    const who = (o: any) => `**${o.name}** — ${(o.description || "no description").split("\n")[0].slice(0, 240)}`;
+    // Who of them is in the scene, as Story World tells it (see inScene): the rest of the cast are kept, in case
+    // the story brings them in, but not under "in the scene" — Tywin at his desk and Emeric at the Eyrie were, and
+    // in the same request Story World said they were elsewhere.
+    const isHere = s.story_world === "0" ? () => true : inScene(chat, asIfUnsaid(chronicleOf(chat.id), replacing));
+    const here = others.filter((o: any) => isHere(o.name)), away = others.filter((o: any) => !isHere(o.name));
     parts.charDescription = [
       parts.charDescription,
-      `# Also in the scene\n${room}\n\n` +
+      (here.length ? `# Also in the scene\n${here.map(who).join("\n")}\n\n` : "") +
+        (away.length ? `# Elsewhere now — not in this scene unless the story brings them\n${away.map(who).join("\n")}\n\n` : "") +
         `You are writing ${char.name} only. The others may be referred to, reacted to and ` +
         `spoken about, but never spoken *for* — do not write their dialogue or their actions.`,
     ].filter(Boolean).join("\n\n");
@@ -4243,15 +4247,18 @@ api.post("/chronicle/:id/correct", (c) => {
   if (d.corrected) return c.json({ error: "Already moved." }, 400);
   const cal = calendarOf(row.chat_id);
   const entries = chronicleOf(row.chat_id);
-  // Where the clock stood just before this was set, and so how far it moved.
-  const before = liveEntries(entries).filter((e) => e.created_at < row.created_at);
+  // Where the clock stood just before this was set, and so how far it moved. "Before" is the ledger's own order —
+  // not the time each was written, which entries written in the same moment share.
+  const at = entries.findIndex((e) => e.id === row.id);
+  const earlier = new Set(entries.slice(0, Math.max(0, at)).map((e) => e.id));
+  const before = liveEntries(entries).filter((e) => earlier.has(e.id));
   const was = clockOf(cal, before);
   const shift = Number(row.day) - was.day;
   if (!shift) return c.json({ error: "It did not move the date." }, 400);
   const move = db.query("UPDATE chronicle SET day = ?, data = ? WHERE id = ?");
   db.transaction(() => {
     for (const e of entries) {
-      if (e.created_at >= row.created_at || e.id === row.id) continue;
+      if (!earlier.has(e.id)) continue;
       const ed = dataOf(e);
       for (const k of ["due", "until", "day", "since"]) if (Number.isFinite(Number(ed[k])) && ed[k] !== null && ed[k] !== "") ed[k] = Number(ed[k]) + shift;
       // An earlier set is moved with the rest: it was on the wrong date too.

@@ -78,6 +78,10 @@ test("someone of the cast who is elsewhere is told as elsewhere, not as one of t
   expect(here).not.toContain("Tywin Lannister —");
   expect(world).toContain("Elsewhere, as far as the record shows");
   expect(world).not.toContain("Tywin Lannister wants");
+  // And the cast listed with the character being written agrees with it.
+  const system = (await (await send("/api/chats/ch/inspect", "POST", {})).json()).system as string;
+  expect(system.split("# Elsewhere now")[0]).not.toContain("**Tywin Lannister**");
+  expect(system).toContain("# Elsewhere now");
 });
 
 test("a date set to put the story right moves what came before with it, once", async () => {
@@ -95,4 +99,21 @@ test("a date set to put the story right moves what came before with it, once", a
   expect(ev("The joust")).toBe(4998);
   expect(r.now.day).toBe(5000);
   expect((await send(`/api/chronicle/${set}/correct`, "POST")).status).toBe(400);
+});
+
+test("a correction moves everything before it, even what was written in the same moment", async () => {
+  db.query("DELETE FROM chronicle").run();
+  const ins = db.query("INSERT INTO chronicle (id, chat_id, kind, day, minute, title, source, visibility, created_at) VALUES (?, 'ch', ?, ?, 0, ?, 'steward', 'table', 50)");
+  ins.run("s0", "set", 100, "");
+  ins.run("e1", "event", 100, "The joust");
+  ins.run("s1", "set", 5000, "");
+  const r = await (await send("/api/chronicle/s1/correct", "POST")).json();
+  expect(r.entries.find((e: any) => e.title === "The joust").day).toBe(5000);
+});
+
+test("a fact of a word or two is an answer broken off, and the narrator is not told it", async () => {
+  db.query("INSERT INTO chronicle (id, chat_id, kind, title, source, visibility, created_at) VALUES ('f1', 'ch', 'consequence', 'Word', 'offstage', 'hidden', 5), ('f2', 'ch', 'consequence', 'The river lords have letters', 'offstage', 'hidden', 6)").run();
+  const world = ((await (await send("/api/chats/ch/inspect", "POST", {})).json()).sections as any[]).find((x) => x.label === "Story World")?.content ?? "";
+  expect(world).toContain("The river lords have letters");
+  expect(world).not.toMatch(/; Word\b|: Word\b/);
 });

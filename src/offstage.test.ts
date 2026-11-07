@@ -291,6 +291,15 @@ describe("a day offstage", () => {
     expect(d().state).toBe("travelling");
   });
 
+  test("continuing one reply three times is one chance let go by, not three", async () => {
+    seed();
+    db.query(`INSERT INTO chronicle (id, chat_id, message_id, kind, title, body, source, visibility, created_at, data) VALUES ('n1', 'ch', NULL, 'news',
+      'the river houses owe the Crown new levies', 'a rider', 'offstage', 'private', 11, '{"due":0,"state":"travelling","tries":0,"mode":"word"}')`).run();
+    story = "The rain fell on the road and nobody spoke.";
+    for (let i = 0; i < 3; i++) await (await send("/api/chats/ch/generate", "POST", { mode: "continue" })).text();
+    expect(JSON.parse((db.query("SELECT data FROM chronicle WHERE id = 'n1'").get() as any).data).tries).toBe(1);
+  });
+
   test("two threats waiting: the reply plays the first, and the second waits for the next — neither is lost", async () => {
     seed();
     db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
