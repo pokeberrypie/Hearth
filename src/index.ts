@@ -897,6 +897,15 @@ export function nextSpeaker(chat: any, wanted?: string, roll: () => number = Mat
       if (msg.role !== "user") break;
     }
   }
+  // Nobody named: the next is someone in the scene. Left to the list or to whoever has spoken least, Tywin at his
+  // desk across the city answered a feast he was not at. Named, they answer wherever the record has them — the
+  // record may be behind the story, and the author asked. With nobody known to be here, the whole cast as before.
+  if (getSettings().story_world !== "0") {
+    const isHere = inScene(chat, chronicleOf(chat.id));
+    const here = cast.filter((m) => isHere(m.name));
+    if (here.length && here.length < cast.length) cast.splice(0, cast.length, ...here);
+    if (cast.length === 1) return cast[0];
+  }
   if (order === "list" || order === "named") {
     // The one after whoever spoke last, in the order of the cast; round again from the top.
     const lastId = (db.query("SELECT character_id FROM messages WHERE chat_id = ? AND role = 'assistant' AND character_id IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1")

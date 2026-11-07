@@ -117,3 +117,23 @@ test("a fact of a word or two is an answer broken off, and the narrator is not t
   expect(world).toContain("The river lords have letters");
   expect(world).not.toMatch(/; Word\b|: Word\b/);
 });
+
+test("left to the turn order, the one who answers is someone in the scene — never the one across the city", async () => {
+  db.query("INSERT INTO personas (id, name, created_at) VALUES ('y', 'Yvenna Hightower', 1)").run();
+  db.query("UPDATE chats SET persona_id = 'y' WHERE id = 'ch'").run();
+  db.query("INSERT INTO characters (id, name, created_at) VALUES ('t', 'Tywin Lannister', 1)").run();
+  db.query("INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES ('a', 'ch', 'j', 0, 0), ('b', 'ch', 't', 1, 0)").run();
+  const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+  st("l1", "Yvenna Hightower", "seated on the bench by the fire");
+  st("l2", "Jaime Lannister", "on the bench beside Yvenna");
+  st("l3", "Tywin Lannister", "the Tower of the Hand, at his desk");
+  // Jaime has just spoken: by the list, or by who has spoken least, it would be Tywin's turn.
+  db.query("UPDATE messages SET character_id = 'j' WHERE id = 'm1'").run();
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('u1', 'ch', 'user', 'Yvenna Hightower', 'And then?', 3)").run();
+  const { nextSpeaker } = await import("./index");
+  for (const order of ["", "list", "named"]) {
+    db.query("UPDATE chats SET turn_order = ? WHERE id = 'ch'").run(order);
+    const chat = db.query("SELECT * FROM chats WHERE id = 'ch'").get();
+    for (let i = 0; i < 10; i++) expect(nextSpeaker(chat, undefined, () => i / 10).name).toBe("Jaime Lannister");
+  }
+});
