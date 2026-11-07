@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { fielded } from "./fields";
+import { bareName, fielded, hasName } from "./fields";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
 import { ContextFull, generate, isLocalBase, PROVIDERS, YieldedToReply, type ChatMessage } from "./providers";
@@ -4253,6 +4253,25 @@ api.post("/chronicle/:id/correct", (c) => {
   const row = db.query("SELECT * FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
   if (!row || row.kind !== "set" || row.undone_at) return c.json({ error: "Only a date that was set can be a correction." }, 400);
   const d = dataOf(row);
+  // Taken back: everything before it moves back by as far as it was moved, and the date reads as a leap again.
+  if (c.req.query("undo") === "1") {
+    const by = Number(d.corrected);
+    if (!by) return c.json({ error: "It was not moved." }, 400);
+    const entries = chronicleOf(row.chat_id);
+    const at = entries.findIndex((e) => e.id === row.id);
+    const move = db.query("UPDATE chronicle SET day = ?, data = ? WHERE id = ?");
+    db.transaction(() => {
+      for (const e of entries.slice(0, Math.max(0, at))) {
+        const ed = dataOf(e);
+        for (const k of ["due", "until", "day", "since"]) if (Number.isFinite(Number(ed[k])) && ed[k] !== null && ed[k] !== "") ed[k] = Number(ed[k]) - by;
+        move.run(e.day === null ? null : e.day - by, JSON.stringify(ed), e.id);
+      }
+      const { corrected: _, ...rest } = d;
+      db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify(rest), row.id);
+    })();
+    worldChanged(row.chat_id);
+    return c.json(chronicleState(row.chat_id));
+  }
   if (d.corrected) return c.json({ error: "Already moved." }, 400);
   const cal = calendarOf(row.chat_id);
   const entries = chronicleOf(row.chat_id);
@@ -4264,6 +4283,11 @@ api.post("/chronicle/:id/correct", (c) => {
   const was = clockOf(cal, before);
   const shift = Number(row.day) - was.day;
   if (!shift) return c.json({ error: "It did not move the date." }, 400);
+  // Asked first, what it would do: how many entries, and from what date to what — so the right one is chosen.
+  if (c.req.query("preview") === "1") {
+    const dated = entries.filter((e) => earlier.has(e.id) && e.day !== null);
+    return c.json({ shift, count: dated.length, from: formatDate(cal, was), to: formatDate(cal, { day: Number(row.day), minute: row.minute ?? 0 }) });
+  }
   const move = db.query("UPDATE chronicle SET day = ?, data = ? WHERE id = ?");
   db.transaction(() => {
     for (const e of entries) {
@@ -5400,8 +5424,17 @@ function knowingsOf(entries: ChronicleEntry[]): Knowing[] {
 
 /** After a reply: when the story's day has turned, the Offstage takes its turn — once per day, never per message. */
 /** Whether two tracked locations are the same place: "the Wicker Inn" and "The Wicker Inn common room" are. */
+/**
+ * Words in a "where" that say how someone is, or which side of something, not where: "seated at his desk in the
+ * Tower" and "seated beside Brienne on the bench" share "seated", and that put the Hand at a feast across the city.
+ */
+const NOT_PLACES = new Set(["room", "common", "outside", "inside", "near", "with", "their", "hall",
+  "seated", "sitting", "sits", "standing", "stands", "lying", "lies", "kneeling", "leaning", "resting", "waiting", "watching",
+  "beside", "behind", "before", "against", "across", "among", "along", "alone", "back", "front", "side", "toward", "towards",
+  "under", "above", "below", "upon", "onto", "into", "from", "within", "still", "just", "there", "here", "again", "later",
+  "while", "where", "under", "close", "next", "over", "away", "left", "right", "other", "same", "end", "edge"]);
 function samePlace(a: string, b: string): boolean {
-  const words = (x: string) => new Set(groupKey(x).split(" ").filter((w) => w.length > 3 && !["room", "common", "outside", "inside", "near", "with", "their", "hall"].includes(w)));
+  const words = (x: string) => new Set(groupKey(x).split(" ").filter((w) => w.length > 3 && !NOT_PLACES.has(w)));
   const wa = words(a);
   return [...words(b)].some((w) => wa.has(w));
 }
@@ -5669,9 +5702,10 @@ export function unnamed(text: string, who: string, card = ""): string {
  */
 function meansPerson(text: string, person: string): boolean {
   const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "bronze", "the", "old", "young", "little", "grand", "high", "sir", "dame"]);
-  const own = person.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase()));
+  const own = person.split(/\s+/).find((w) => (w.length > 2 || /[^\x00-\x7f]/.test(w)) && !TITLES.has(w.toLowerCase()));
   if (!own) return false;
-  return new RegExp(`(^|[^a-z])${own.toLowerCase().replace(/[^a-z']/g, "")}([^a-z]|$)`).test(text.toLowerCase());
+  // In any alphabet (see hasName): "ジェイミー" stripped to nothing was found in every line, and "Zoë" in none.
+  return hasName(text, bareName(own));
 }
 
 /**

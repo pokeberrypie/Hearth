@@ -137,3 +137,33 @@ test("left to the turn order, the one who answers is someone in the scene — ne
     for (let i = 0; i < 10; i++) expect(nextSpeaker(chat, undefined, () => i / 10).name).toBe("Jaime Lannister");
   }
 });
+
+test("how someone is placed is not where: seated at his desk in the Tower is not seated on the bench at the feast", async () => {
+  db.query("INSERT INTO personas (id, name, created_at) VALUES ('y', 'Yvenna Hightower', 1)").run();
+  db.query("UPDATE chats SET persona_id = 'y' WHERE id = 'ch'").run();
+  db.query("INSERT INTO characters (id, name, created_at) VALUES ('t', 'Tywin Lannister', 1)").run();
+  db.query("INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES ('a', 'ch', 'j', 0, 0), ('b', 'ch', 't', 1, 0)").run();
+  const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+  st("l1", "Yvenna Hightower", "seated on the bench by the fire");
+  st("l3", "Tywin Lannister", "seated at his desk in the Tower of the Hand");
+  const world = ((await (await send("/api/chats/ch/inspect", "POST", {})).json()).sections as any[]).find((x) => x.label === "Story World").content as string;
+  expect(world.split("Elsewhere, as far as the record shows")[0]).not.toContain("Tywin Lannister —");
+});
+
+test("a correction says first what it will do, and can be taken back", async () => {
+  db.query("DELETE FROM chronicle").run();
+  const post = (b: any) => send("/api/chats/ch/chronicle", "POST", b);
+  await post({ kind: "set", day: 100 });
+  await post({ kind: "event", title: "The joust" });
+  const set = (await (await post({ kind: "set", day: 5000 })).json()).entries.filter((e: any) => e.kind === "set").at(-1).id;
+  const p = await (await send(`/api/chronicle/${set}/correct?preview=1`, "POST")).json();
+  expect(p.shift).toBe(4900);
+  expect(p.count).toBe(2);
+  // A preview changes nothing.
+  expect((await (await ask("/api/chats/ch/chronicle")).json()).entries.find((e: any) => e.title === "The joust").day).toBe(100);
+  await send(`/api/chronicle/${set}/correct`, "POST");
+  const back = await (await send(`/api/chronicle/${set}/correct?undo=1`, "POST")).json();
+  expect(back.entries.find((e: any) => e.title === "The joust").day).toBe(100);
+  // And it can be made again.
+  expect((await send(`/api/chronicle/${set}/correct`, "POST")).status).toBe(200);
+});

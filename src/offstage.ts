@@ -23,7 +23,7 @@
  *
  * Pure: storing all of this, and asking a model, is index.ts's business.
  */
-import { fielded } from "./fields";
+import { fielded, hasName, nameWords } from "./fields";
 
 export const LEVELS = ["off", "balanced", "dynamic"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -200,7 +200,8 @@ export type PlanMark = { n: number; relation: "supports" | "complicates" | "conf
 export type ThreadMove = { move: "open" | "advance" | "complicate" | "settle"; name: string; note: string };
 
 const unquote = (s: string) => String(s ?? "").replace(/^["'“”‘’*_\s]+|["'“”‘’*_\s]+$/g, "").trim();
-const words = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+// Letters of any alphabet: "Anaïs" and "Oğuz" are names too (see nameWords).
+const words = (s: string) => nameWords(s).map((w) => w.replace(/'/g, ""));
 
 /** A model's answer, read. Untidy answers are read as far as they go; nothing here is believed yet. */
 export function readDecision(raw: string): Decision {
@@ -302,8 +303,8 @@ function namesOf(who: string): string[] {
 
 /** Does this text give away who did it — by name, or by any of the other words that mark them out? */
 export function names(text: string, who: string, identity: string[] = []): boolean {
-  const said = new Set(words(text));
-  return [...namesOf(who), ...identity].some((n) => said.has(n) || said.has(`${n}s`));
+  const plain = text.replace(/'/g, "");
+  return [...namesOf(who), ...identity].some((n) => hasName(plain, n));
 }
 
 /**
@@ -334,9 +335,8 @@ export function identityOf(who: string, card: string, factions: string[] = []): 
  * Hightower riders are not Yvenna, and Emeric Hightower is her brother, not her.
  */
 export function byOwnName(text: string, who: string): boolean {
-  const said = new Set(words(text));
-  const own = words(who).find((w) => w.length > 2 && !["the", "lord", "lady", "ser", "king", "queen", "prince", "princess", "of", "maester", "septa", "septon"].includes(w));
-  return !!own && (said.has(own) || said.has(`${own}s`));
+  const own = words(who).find((w) => (w.length > 2 || /[^\x00-\x7f]/.test(w)) && !["the", "lord", "lady", "ser", "king", "queen", "prince", "princess", "of", "maester", "septa", "septon"].includes(w));
+  return !!own && hasName(text.replace(/'/g, ""), own);
 }
 
 export function rule(d: Decision, o: { who: string; player: string; protection: Protection; goals: Agenda[]; identity?: string[];

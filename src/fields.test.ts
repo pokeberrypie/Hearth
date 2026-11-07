@@ -48,3 +48,17 @@ describe("the line format, however it was written", () => {
     expect(fieldLine("|---|---|---|")).toBe("");
   });
 });
+
+describe("names in any alphabet", () => {
+  test("accents, other scripts, and a script without spaces are names like any other", async () => {
+    const { hasName } = await import("./fields");
+    const { byOwnName } = await import("./offstage");
+    expect(hasName("Jöran rides to the ford", "jöran")).toBe(true);
+    expect(hasName("Björn waits", "jöran")).toBe(false);
+    expect(byOwnName("Ana drinks the wine", "Anaïs Durand")).toBe(false);
+    expect(byOwnName("Anaïs drinks the wine", "Anaïs Durand")).toBe(true);
+    expect(byOwnName("ジェイミーは剣を抜いた", "ジェイミー")).toBe(true);
+    expect(byOwnName("ブライエニーは待っていた", "ジェイミー")).toBe(false);
+    expect(byOwnName("Ser Oğuz looks away", "Oğuz Kaya")).toBe(true);
+  });
+});

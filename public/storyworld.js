@@ -372,7 +372,9 @@ function timelineHtml(s, who) {
     if (e.kind === "set") {
       let d = {}; try { d = JSON.parse(e.data || "{}"); } catch {}
       // A date that was wrong all along, put right: what came before moves with it (see /chronicle/:id/correct).
-      const fix = host && !d.corrected ? ` <button type="button" class="linkish" data-correct="${e.id}" title="Move everything recorded before this by as much as the date moved, so the story runs on unbroken">It was a correction</button>` : "";
+      const fix = !host ? "" : !d.corrected
+        ? ` <button type="button" class="linkish" data-correct="${e.id}" title="Move everything recorded before this by as much as the date moved, so the story runs on unbroken">It was a correction</button>`
+        : ` <button type="button" class="linkish" data-uncorrect="${e.id}" title="Put everything before this back on the dates it had">Undo the correction</button>`;
       return `<li class="wdpassed"><span>The date is set${d.corrected ? " · what came before moved with it" : ""}</span>${fix}${host ? undoBtn(e) : ""}</li>`;
     }
     if (e.kind !== undefined && e.kind !== "event") return "";
@@ -842,8 +844,14 @@ async function factionEditor(f) {
 function wireBody(who) {
   const body = $("#wdBody");
   for (const b of body.querySelectorAll("[data-undo]")) b.onclick = () => act(`/chronicle/${b.dataset.undo}/undo`);
-  for (const b of body.querySelectorAll("[data-correct]")) b.onclick = () => {
-    if (confirm("Was the story's date wrong before this, rather than time jumping ahead?\n\nEverything recorded before it will be moved by the same amount, so it all happened on the right dates.")) act(`/chronicle/${b.dataset.correct}/correct`);
+  for (const b of body.querySelectorAll("[data-correct]")) b.onclick = async () => {
+    const p = await api(`/chronicle/${b.dataset.correct}/correct?preview=1`, { method: "POST" }).catch((e) => ({ error: e?.message }));
+    if (!p || p.error) return fail(p?.error ?? "That did not work.");
+    const days = Math.abs(p.shift).toLocaleString();
+    if (confirm(`Was the story's date wrong before this, rather than time jumping ahead?\n\nThis moves ${p.count} ${p.count === 1 ? "entry" : "entries"} ${p.shift > 0 ? "forward" : "back"} by ${days} days: ${p.from} becomes ${p.to}, and everything before it moves the same. It can be undone.`)) act(`/chronicle/${b.dataset.correct}/correct`);
+  };
+  for (const b of body.querySelectorAll("[data-uncorrect]")) b.onclick = () => {
+    if (confirm("Put everything recorded before this back on the dates it had?")) act(`/chronicle/${b.dataset.uncorrect}/correct?undo=1`);
   };
   for (const b of body.querySelectorAll("[data-reveal]")) b.onclick = () => act(`/chronicle/${b.dataset.reveal}/reveal`);
   for (const b of body.querySelectorAll("[data-hide]")) b.onclick = () => act(`/chronicle/${b.dataset.hide}/hide`);
