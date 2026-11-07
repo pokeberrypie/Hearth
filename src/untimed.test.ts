@@ -23,3 +23,24 @@ test("a model on this machine or network is waited for as long as it takes: no f
 test("a provider on the internet keeps the runtime's own limit", async () => {
   expect((await ask("https://api.example.com/v1", "sk-test")).timeout).toBeUndefined();
 });
+
+test("GLM on NanoGPT is told not to think in the words it hears: reasoning_effort low (none and /nothink are not)", async () => {
+  const { thinkingOffRequest } = await import("./providers");
+  expect(thinkingOffRequest("nanogpt", "https://nano-gpt.com/api/v1", "z-ai/glm-5.3-flash").extra).toEqual({ reasoning_effort: "low" });
+  // Not sent to other NanoGPT models, where it has not been tried.
+  expect(thinkingOffRequest("nanogpt", "https://nano-gpt.com/api/v1", "deepseek/deepseek-v3").extra).toEqual({});
+});
+
+test("refused for asking more room to answer than the provider gives: asked once more at 2,048, and remembered", async () => {
+  const asked: number[] = [];
+  globalThis.fetch = (async (_u: any, init: any) => {
+    const b = JSON.parse(init.body); asked.push(b.max_tokens);
+    return b.max_tokens > 2048 ? new Response("upstream request failed", { status: 502 }) : Response.json({ choices: [{ message: { content: "ok" } }] });
+  }) as any;
+  const go = async () => { let out = ""; for await (const c of generate({ provider: "nanogpt", apiKey: "sk", model: "z-ai/glm-test-cap", system: "", messages: [{ role: "user", content: "hi" }],
+    sampling: { temperature: 1, maxTokens: 4000, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false } } as any)) if (c.kind === "text") out += c.text; return out; };
+  expect(await go()).toBe("ok");
+  expect(asked).toEqual([4000, 2048]);
+  expect(await go()).toBe("ok");
+  expect(asked).toEqual([4000, 2048, 2048]);
+});

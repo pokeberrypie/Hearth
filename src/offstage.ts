@@ -164,7 +164,7 @@ export function offstagePrompt(v: View): string {
     v.plan?.length ? `For you, not for them — the author's plan for scenes ahead, which ${v.who} knows nothing of. Do not steer them toward it; their own wants come first. Only say, with a PLAN line, if what they do bears on one:\n${v.plan.map((p) => `${p.n}. ${p.title}${p.about ? ` — ${p.about}` : ""}`).join("\n")}` : "",
     v.discretion && v.discretion !== "ordinary" && `By nature they are ${v.discretion}${v.discretion === "careless" ? " — they leave traces and talk too much" : v.discretion === "masterful" ? " — they plan for being watched and rarely leave a trace" : " — they cover themselves"}.`,
     `The player's character is ${v.player || "the player"}${v.playerAt ? `, now ${/^(?:at|in|on|by|near|inside|outside|with|seated|standing|sitting|lying|kept|held|riding|walking|on|aboard|beside|before|under)\b/i.test(v.playerAt) ? "" : "at "}${v.playerAt}` : ""}: someone ${v.who} may act toward, never someone they decide for.`,
-    v.newsWrong ? "If you write a REACHES line, word travels badly this time: let what they would hear be partly wrong — exaggerated, a detail mistaken, or laid at the wrong door (never the player's character's)." : "",
+    v.newsWrong ? "If you write a REACHES line, make what they would hear partly wrong: exaggerated, a detail mistaken, or laid at the wrong door (never the player's character's)." : "",
     "Write the lines now.",
   ].filter(Boolean).join("\n\n");
 }

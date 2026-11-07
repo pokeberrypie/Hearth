@@ -53,6 +53,8 @@ export type GenerateArgs = {
    * that itself first.
    */
   fitReply?: boolean;
+  /** Already asked again with the provider's smaller room for an answer (see send). */
+  capped?: boolean;
 };
 
 /**
@@ -245,6 +247,10 @@ async function untimed(base: string): Promise<Record<string, unknown>> {
   return patient ? { dispatcher: patient } : {};
 }
 
+/** The most a provider has been seen to allow for an answer, by server and model (see send). */
+const CAPPED = 2048;
+const outputCap = new Map<string, number>();
+
 export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
   const t = resolveTarget(a);
   const key = (a.apiKey ?? "").trim();
@@ -257,6 +263,8 @@ export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
     throw new Error(`No API key saved for ${t.label}. Add one in Connection.`);
   }
   a = { ...a, apiKey: key };
+  const known = outputCap.get(`${t.base}|${a.model}`);
+  if (known && Number(a.sampling.maxTokens) > known) a = { ...a, capped: true, sampling: { ...a.sampling, maxTokens: known } };
   /*
    * A request nobody is waiting on — the Steward, the Offstage, anything asked in the background — is never left to
    * wait forever. A connection that dies quietly (a phone asleep, wifi handed to mobile data, a provider that never
@@ -306,6 +314,17 @@ async function* send(a: GenerateArgs, t: ReturnType<typeof resolveTarget>, key: 
 
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
+    // Asked for more room to answer than the provider gives this model: NanoGPT's GLM 5.3 Flash answers 502
+    // "upstream request failed" to anything over 2,048, and every background reading (4,000) failed so. Once, at
+    // 2,048, and remembered for that model, rather than every reading failing.
+    const room = Number(a.sampling.maxTokens) || 0;
+    const contextFull = /exceed_context_size|exceeds the available context size|context.{0,20}(length|window|size).{0,40}exceed/i.test(detail);
+    if (room > CAPPED && [400, 413, 422, 502].includes(res.status) && !a.capped && !contextFull) {
+      outputCap.set(`${t.base}|${a.model}`, CAPPED);
+      console.log(`[cap] ${t.label} refused ${room} tokens of answer for ${a.model} (${res.status}); asking again with ${CAPPED}.`);
+      yield* generate({ ...a, capped: true, sampling: { ...a.sampling, maxTokens: CAPPED } });
+      return;
+    }
     const path = WIRES.find((w) => w.id === t.wire)?.path ?? "/chat/completions";
     console.error(
       `\n--- ${t.label} request failed -------------------------\n` +
@@ -489,6 +508,11 @@ export function thinkingOffRequest(provider: string, base: string, model: string
     extra.chat_template_kwargs = { enable_thinking: false, thinking: false };
   } else if (/(^|\.)z\.ai|bigmodel\.cn/.test(host) && /glm/.test(m)) {
     extra.thinking = { type: "disabled" };
+  } else if ((provider === "nanogpt" || host.includes("nano-gpt.com")) && /glm/.test(m)) {
+    // NanoGPT's GLM: "/nothink" is not heard, and "none", enabled:false and Zhipu's thinking:disabled are refused
+    // (400). "low" is heard — a token of thinking, then the answer. Measured on GLM 5.3 Flash: unasked, it thought
+    // through all 2,048 tokens of a Steward's reading and never answered.
+    extra.reasoning_effort = "low";
   } else if (provider === "google" && /gemini/.test(m)) {
     // Flash can be switched off; Pro and Gemini 3 only turned down.
     extra.reasoning_effort = /2\.5-flash/.test(m) ? "none" : /2\.5-pro|gemini-3/.test(m) ? "low" : undefined;

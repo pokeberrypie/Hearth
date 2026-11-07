@@ -3920,7 +3920,8 @@ function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEnt
   return recall({
     entries: liveEntries(entries),
     bonds: bondsOf(entries),
-    present: people.filter((p) => p.present).map((p) => p.name),
+    // Who is there to remember with: those in the scene (see inScene), not every member of the chat.
+    present: people.filter((p) => p.present && inScene(chat, entries)(p.name)).map((p) => p.name),
     everyone: [...new Set([...people.map((p) => p.name), ...peopleOfChat(chat.id)])],
     // The scene now: the newest six, newest first.
     recent: rows.slice(-6).reverse().map((r: any) => r.content).join("\n"),
@@ -4853,6 +4854,7 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
   const player = whoAmI(chat.persona_id)?.name ?? "";
   const dead = deadIn(entries);
   const status = statusOf(entries);
+  const isHere = inScene(chat, entries);
   const members = (membersOf(chat) as any[]).filter((m) => m.name && m.name !== player && !dead.has(m.name));
   if (!members.length) return { goals: 0, ended: 0 };
   const active = agendasOf(entries).filter((g) => g.status === "active" && g.who);
@@ -4868,7 +4870,9 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
     const theirs = active.filter((g) => g.who === m.name);
     const where = (status[m.name] as any)?.location?.title;
     const card = String(m.description ?? "").replace(/\s+/g, " ").slice(0, 240);
-    return `- ${m.name} — ${m.muted ? "away from the scene" : `in the scene with ${player || "the player"}`}${where ? `, at ${where}` : ""}${card ? `. ${card}` : ""}\n  Wants now: ${theirs.length ? theirs.map((g) => g.goal).join("; ") : "nothing yet"}`;
+    // In the scene as Story World tells it (see inScene): "in the scene with her" for Emeric at the Eyrie shaped
+    // what he was given to want around a room he was not in.
+    return `- ${m.name} — ${m.muted || !isHere(m.name) ? "away from the scene" : `in the scene with ${player || "the player"}`}${where ? `, at ${where}` : ""}${card ? `. ${card}` : ""}\n  Wants now: ${theirs.length ? theirs.map((g) => g.goal).join("; ") : "nothing yet"}`;
   };
   const system = "You read a story and say what each of its people wants: the aims they are working toward over days, from who they are and where they stand. You never continue the story and never explain yourself.";
   const prompt = [
@@ -4968,8 +4972,12 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
     .sort((a, b) => b.created_at - a.created_at).slice(0, 10).reverse();
   if (!plots.length) return { landed: 0, looked: 0 };
   const status = statusOf(entries);
-  const here = (membersOf(chat) as any[]).filter((m) => !m.muted && m.name !== player).map((m) => m.name);
+  // Who is with her: those in the scene (see inScene), not every member of the chat — told that Emeric at the Eyrie
+  // was with her, a model had him cross the hall to her the same morning.
+  const isHere = inScene(chat, entries);
+  const here = (membersOf(chat) as any[]).filter((m) => !m.muted && m.name !== player && isHere(m.name)).map((m) => m.name);
   const where = (status[player] as any)?.location?.title ?? "";
+  const whereOf = (who: string) => (status[who] as any)?.location?.title ?? "";
   const asOf = storyMark();
   const recent = (db.query("SELECT id, name, content FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 6").all(chatId) as any[]).reverse();
   const recap = latestRecap(chat);
@@ -4978,10 +4986,10 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
     recap ? `How things stood, from the story's latest recap:\n${recap.content.replace(/\s+/g, " ").slice(0, 1500)}` : "",
     `The player's character: ${player || "the player"}${where ? `, at ${where}` : ""}${here.length ? `, with ${here.join(", ")}` : ""}.`,
     `Where the story is now:\n\n${recent.map((r) => `${r.name ? `${r.name}: ` : ""}${trimmed(storyOnly(r.content), 500)}`).join("\n\n")}`,
-    `What was done out of sight:\n${plots.map((e, i) => `${i + 1}. ${e.subject}: ${e.title}${dataOf(e).outcome === "failed" ? " (it failed)" : ""}${dataOf(e).fact ? ` — so now: ${dataOf(e).fact}` : ""}`).join("\n")}`,
+    `What was done out of sight:\n${plots.map((e, i) => `${i + 1}. ${e.subject}${e.subject && whereOf(e.subject) && !here.includes(e.subject) ? ` (at ${whereOf(e.subject)})` : ""}: ${e.title}${dataOf(e).outcome === "failed" ? " (it failed)" : ""}${dataOf(e).fact ? ` — so now: ${dataOf(e).fact}` : ""}`).join("\n")}`,
     `For each of these whose effects would truly reach ${player || "the player's character"} where she is — an order that changes how she is kept, a visitor, a letter, money or men that arrive or stop, someone near her who now acts differently because of it, a decree read out, a debt called in — one line:`,
     "LANDS | its number | how it is first felt where she is, as it would begin in a scene: what happens, who does it, what changes — never who was secretly behind it | in how many days",
-    `Follow real routes: who carries it, how far, how long. Leave out what could not reach her, or would not yet. At most ${most + 2}. Nothing else.`,
+    `Follow real routes: who carries it, how far, how long. Someone far from her does not appear at her side: what they did reaches her by a rider, a letter, a rumour, or someone already near her — and only as fast as that could travel. Leave out what could not reach her, or would not yet. At most ${most + 2}. Nothing else.`,
   ].filter(Boolean).join("\n\n");
   const conn = offstageConnection(s);
   const fold = needsFoldedSystem(conn.model);
@@ -5633,7 +5641,9 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
   const s = getSettings();
   if (gossipOf(s.gossip_level) !== "off") {
     const chat = db.query("SELECT * FROM chats WHERE id = ?").get(chatId) as any;
-    const here = new Set(chat ? peopleOf(chat).filter((p) => p.present && p.note !== "the player").map((p) => p.name) : []);
+    // The people in the scene, as Story World tells it (see inScene) — not every member of the chat.
+    const isHereNow = chat ? inScene(chat, entries) : () => false;
+    const here = new Set(chat ? peopleOf(chat).filter((p) => p.present && p.note !== "the player" && isHereNow(p.name)).map((p) => p.name) : []);
     const decay = Number(s.gossip_decay) > 0 ? Number(s.gossip_decay) : 10;
     const rumours = knowingsOf(entries).filter((k) => here.has(k.holder) && !k.by.includes(k.holder) && stillGoing(k, day, decay * 2)).slice(-4);
     if (rumours.length) {

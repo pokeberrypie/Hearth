@@ -1569,6 +1569,18 @@ describe("everyone at the table wants something", () => {
     expect((await ledger()).goals.find((g: any) => g.who === "Locke").status).toBe("achieved");
   });
 
+  test("someone of the cast tracked elsewhere is told to the cast reading as away, not as in the scene with her", async () => {
+    table();
+    const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+    st("l1", "Yvenna Hightower", "on the bench by the fire in the inn");
+    st("l2", "Locke", "in the dungeons beneath the Dreadfort");
+    castAnswer = "NONE";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const read = JSON.stringify(sent.filter((b) => JSON.stringify(b.messages).includes("say what each of its people wants")));
+    expect(read).toContain("Locke — away from the scene");
+    expect(read).not.toContain("Locke — in the scene");
+  });
+
   test("the story plays the aims of those in the scene, as motive; those away stay in the ledger", async () => {
     table();
     castAnswer = "GOAL | Locke | deliver both captives to Lord Bolton for the best price | the gold\nGOAL | Lancel Lannister | win back his aunt's favour | he is out of it";
@@ -1707,6 +1719,23 @@ describe("the ripple: what is done offstage is felt where the player's character
     const asked = JSON.stringify(sent.filter((b) => JSON.stringify(b.messages).includes("You trace what people did out of sight")).at(-1));
     expect(asked).toContain("withhold Jaime's horses");
     expect(asked).toContain("with Jaime Lannister");
+  });
+
+  test("told who is really with her, and where the one who did it is: not every member of the chat at her side", async () => {
+    court();
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('x2', 'ch', 'c', 1)").run();
+    const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+    st("l1", "Yvenna Hightower", "on the bench by the fire in the inn");
+    st("l2", "Jaime Lannister", "on the bench beside Yvenna");
+    st("l3", "Cersei Lannister", "the Red Keep, in her solar");
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "NONE";
+    await send("/api/chats/ch/offstage/run", "POST");
+    const asked = JSON.stringify(sent.filter((b) => JSON.stringify(b.messages).includes("You trace what people did out of sight")).at(-1));
+    expect(asked).toContain("with Jaime Lannister");
+    expect(asked).not.toMatch(/with Jaime Lannister, Cersei Lannister|with Cersei Lannister/);
+    expect(asked).toContain("Cersei Lannister (at the Red Keep, in her solar)");
   });
 
   test("when it is due, the narrator plays out the effect — and is never told whose doing it was", async () => {
