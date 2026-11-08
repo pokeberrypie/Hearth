@@ -106,6 +106,21 @@ describe("a night passes, and the world offstage hears the day turn", () => {
   });
 });
 
+describe("who it is told is here", () => {
+  test("someone of the cast the record has elsewhere is told as last known there, not as here", async () => {
+    seed(3);
+    const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+    st("l1", "Yvenna Hightower", "the Great Hall, at the high table");
+    st("l2", "Loras Tyrell", "the Great Hall, beside Yvenna");
+    st("l3", "Jaime Lannister", "the Tower of the Hand, at his desk");
+    answers = [GOOD];
+    await stewardTurn("ch");
+    const asked = sent.find((b) => JSON.stringify(b.messages).includes("You keep the records")).messages.map((m: any) => m.content).join("\n");
+    expect(asked).toContain("Jaime Lannister (last known elsewhere: the Tower of the Hand, at his desk)");
+    expect(asked).toContain("Loras Tyrell (here)");
+  });
+});
+
 describe("whom it asks, and how", () => {
   test("the story's model when it has none of its own", async () => {
     seed(3);

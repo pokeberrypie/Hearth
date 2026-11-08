@@ -1,3 +1,4 @@
+import { held_ } from "./memory";
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
 export type Sampling = {
@@ -67,7 +68,7 @@ export class YieldedToReply extends Error {
 }
 
 /** Background askings in flight to each local server, so a story reply can set them aside. */
-const background = new Map<string, Set<AbortController>>();
+const background = held_(new Map<string, Set<AbortController>>(), (m) => { for (const s of m.values()) for (const c of s) c.abort(); });
 
 /** The server's context is smaller than what was asked: how big each part was, so the asker can make it fit. */
 export class ContextFull extends Error {
@@ -249,7 +250,7 @@ async function untimed(base: string): Promise<Record<string, unknown>> {
 
 /** The most a provider has been seen to allow for an answer, by server and model (see send). */
 const CAPPED = 2048;
-const outputCap = new Map<string, number>();
+const outputCap = held_(new Map<string, number>());
 
 export async function* generate(a: GenerateArgs): AsyncGenerator<Chunk> {
   const t = resolveTarget(a);

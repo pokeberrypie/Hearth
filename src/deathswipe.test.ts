@@ -88,3 +88,24 @@ test("a death taken back by hand takes back what followed it; restored, it follo
   const goals = (await (await ask("/api/chats/ch/offstage")).json()).goals as any[];
   expect(goals.find((g) => g.who === "Eddard Stark").status).toBe("active");
 });
+
+test("a typo fixed in the reply he died in: still dead, nothing that followed is taken back, and nobody is asked again", async () => {
+  await send("/api/chats/ch/offstage/goal", "POST", { who: "Eddard Stark", goal: "find out who killed Jon Arryn", why: "" });
+  await send("/api/chats/ch/offstage/goal", "POST", { who: "Cersei Lannister", goal: "rule through Joffrey", why: "" });
+  await stewardTurn("ch");
+  const asked = db.query("SELECT id FROM chronicle WHERE chat_id = 'ch' AND kind = 'status' AND title = 'dead' AND proposed = 1 AND undone_at IS NULL").get() as any;
+  await send(`/api/chronicle/${asked.id}/accept`, "POST");
+  await stirred;
+  await new Promise((ok) => setTimeout(ok, 20));
+  const followed = live("kind = 'agenda' AND title = '' AND data LIKE '%died%'").length;
+  expect(followed).toBe(1);
+  await send("/api/messages/m1", "PUT", { content: "Eddard Stark fell on the steps of Baelor, and did not rise again. Eddard Stark was dead." });
+  await stewardTurn("ch");
+  expect(live("kind = 'status' AND title = 'dead'")).toHaveLength(1);
+  expect(live("kind = 'agenda' AND title = '' AND data LIKE '%died%'")).toHaveLength(followed);
+  expect(db.query("SELECT id FROM chronicle WHERE chat_id = 'ch' AND kind = 'status' AND title = 'dead' AND proposed = 1 AND undone_at IS NULL").all()).toEqual([]);
+  // One word, and not the same story: the death goes, and what followed it.
+  await send("/api/messages/m1", "PUT", { content: "Eddard Stark fell on the steps of Baelor, and did not rise again. Eddard Stark was alive." });
+  expect(live("kind = 'status' AND title = 'dead'")).toEqual([]);
+  expect(live("kind = 'agenda' AND title = '' AND data LIKE '%died%'")).toEqual([]);
+});

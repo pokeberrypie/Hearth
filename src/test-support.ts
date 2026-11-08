@@ -17,6 +17,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { forgetAll } from "./memory";
 
 export const TEST_DIR = join(tmpdir(), "hearth-test-data");
 
@@ -45,4 +46,7 @@ export function wipe() {
   ]) {
     db.query(`DELETE FROM ${t}`).run();
   }
+  // And what the server holds in memory by chat: tests reuse chat and message ids, and a reading or a lock kept
+  // from the last one would answer for this one.
+  forgetAll();
 }

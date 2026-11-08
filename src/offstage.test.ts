@@ -300,6 +300,17 @@ describe("a day offstage", () => {
     expect(JSON.parse((db.query("SELECT data FROM chronicle WHERE id = 'n1'").get() as any).data).tries).toBe(1);
   });
 
+  test("a typo fixed in the take that played a threat: it has come, and the next take is not handed it again", async () => {
+    seed();
+    db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
+    story = "A knife flashed in the drak.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We walk the walls." })).text();
+    const reply = (db.query("SELECT id FROM messages WHERE chat_id = 'ch' AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any).id;
+    await send(`/api/messages/${reply}`, "PUT", { content: "A knife flashed in the dark." });
+    expect(await narrator()).not.toContain("Someone sends a knife");
+    story = "The court is quiet.";
+  });
+
   test("two threats waiting: the reply plays the first, and the second waits for the next — neither is lost", async () => {
     seed();
     db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
@@ -486,6 +497,19 @@ describe("a day offstage", () => {
       const id = await dayTurnsOnAReply();
       await send(`/api/messages/${id}`, "PUT", { content: "Morning came, and nothing else." });
       await allGone();
+    });
+
+    test("a typo fixed in it: nothing is taken back — it is the same take, and the day is not decided again", async () => {
+      const id = await dayTurnsOnAReply();
+      const runs = (db.query("SELECT COUNT(*) AS n FROM offstage_runs WHERE chat_id = 'ch'").get() as any).n;
+      await send(`/api/messages/${id}`, "PUT", { content: "Morning came gray over the city." });
+      const l = await ledger();
+      expect(l.goals.map((g: any) => g.goal)).toContain("turn the High Septon against the match");
+      expect(l.threads.map((t: any) => t.title)).toEqual(["Whispers at Court"]);
+      expect((await (await ask("/api/chats/ch/chronicle")).json()).proposals.some((p: any) => p.kind === "threat")).toBe(true);
+      expect(await narrator()).toContain("High Septon has heard a rumour");
+      await new Promise((r) => setTimeout(r, 100));
+      expect((db.query("SELECT COUNT(*) AS n FROM offstage_runs WHERE chat_id = 'ch'").get() as any).n).toBe(runs);
     });
 
     test("deleted: gone", async () => {
@@ -1389,6 +1413,46 @@ describe("what is done offstage reaches the story", () => {
     story = "Dust on the road: three riders, hard-faced, came into the yard. The captain asked loudly after the Hightower woman, and named the price someone had set on her.";
     await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We rest." })).text();
     expect((await coming())[0].state).toBe("arrived");
+    story = "The court is quiet.";
+  });
+
+  test("brought in, it stays brought in when a typo in that reply is fixed — and goes back on the road if it is written out", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(2);
+    story = "Three hard men ride into the yard, asking after a Hightower girl, and the price on her head is the frist thing they say.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We rest." })).text();
+    expect((await coming())[0].state).toBe("arrived");
+    const reply = db.query("SELECT id, content FROM messages WHERE role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as any;
+    await send(`/api/messages/${reply.id}`, "PUT", { content: reply.content.replace("frist", "first") });
+    expect((await coming())[0].state).toBe("arrived");
+    // Written over, and still bringing them in: still brought in.
+    await send(`/api/messages/${reply.id}`, "PUT", { content: "Dust on the road, and then three hard men in the yard, asking loudly after a Hightower girl — the price on her head was the first thing they said, and the last." });
+    expect((await coming())[0].state).toBe("arrived");
+    await send(`/api/messages/${reply.id}`, "PUT", { content: "The fire burned low and nobody spoke of anything much." });
+    expect((await coming())[0].state).toBe("travelling");
+    story = "The court is quiet.";
+  });
+
+  test("and a reply that let it go by, a typo fixed, has still let it go by", async () => {
+    court();
+    await plotting();
+    answers = [BOUNTY];
+    await send("/api/chats/ch/offstage/run", "POST");
+    later(2);
+    story = "The fire burned low and nobody spoke of anythign much.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We wait." })).text();
+    const tries = async () => (db.query("SELECT data FROM chronicle WHERE kind = 'news' AND undone_at IS NULL").get() as any) && JSON.parse((db.query("SELECT data FROM chronicle WHERE kind = 'news' AND undone_at IS NULL").get() as any).data).tries;
+    expect(await tries()).toBe(1);
+    const reply = db.query("SELECT id, content FROM messages WHERE role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as any;
+    await send(`/api/messages/${reply.id}`, "PUT", { content: reply.content.replace("anythign", "anything") });
+    expect(await tries()).toBe(1);
+    // Written over, and still not bringing it in: still a chance let go by.
+    await send(`/api/messages/${reply.id}`, "PUT", { content: "Rain all evening. Brienne mended a strap by the fire and said nothing about anything." });
+    expect(await tries()).toBe(1);
+    expect((await coming())[0].state).toBe("travelling");
     story = "The court is quiet.";
   });
 

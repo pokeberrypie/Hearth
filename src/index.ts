@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { held_ } from "./memory";
 import { bareName, fielded, hasName } from "./fields";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
@@ -63,7 +64,7 @@ import { armsFromName, chargeFor, drawArms, normaliseBlazon, uploadProblem, UPLO
 import { BOND_START, STATUS_FIELDS, bondsOf, clockOf, factionsOf, threadsOf, live as liveEntries, forBranch, forCarryOn, messageRefs, normaliseEntry as normaliseChronicleEntry, pending, statusOf, view as chronicleView, type Entry as ChronicleEntry } from "./chronicle";
 import { ACTORS_PER_RUN, OFFSTAGE_SYSTEM, identityOf, levelOf, names as namesIn, offstagePrompt, pressureOf, protectionOf, readDecision,
          resolve as resolveAttempt, saysNothing, daysIn, rule as ruleOn, traceOf, discretionOf, type Discretion, type Agenda, type View } from "./offstage";
-import { DEFAULT_LIMITS, checkAnswer, fieldOf, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutSheets, withoutThinking, type Claim, type Passage, type Person } from "./steward";
+import { DEFAULT_LIMITS, checkAnswer, fieldOf, findEvidence, groupKey, needsFoldedSystem, storyOnly, stewardRequest, wayOf, withoutSheets, withoutThinking, type Claim, type Passage, type Person } from "./steward";
 import { unzipSync } from "fflate";
 import { readCard, writeCardPng, toCard } from "./cards";
 import { packIsUsable, readPackManifest, slugId } from "./avatar";
@@ -835,21 +836,63 @@ export function editsLocked(): boolean {
 
 const LOCKED = { error: "This table does not rewrite what happened." } as const;
 
+/**
+ * Whether an edit leaves the words as they were but for a typo: one word put right, or two put in or taken out —
+ * never more, however long the reply, for a sentence is a few words and can be the whole of what changed. Counted by
+ * words, not letters, so a long reply is cheap to compare on a phone; a script written without spaces, by letters.
+ */
+export function sameWords(a: string, b: string): boolean {
+  const words = (t: string) => String(t ?? "").toLowerCase().match(/[a-z0-9']+|[^\s\x00-\x7f]/g) ?? [];
+  const x = words(a), y = words(b);
+  const left = new Map<string, number>();
+  for (const w of x) left.set(w, (left.get(w) ?? 0) + 1);
+  let common = 0;
+  for (const w of y) { const n = left.get(w) ?? 0; if (n > 0) { common++; left.set(w, n - 1); } }
+  return x.length + y.length - 2 * common <= 2;
+}
+
+/** The reply straight after a player's message, if the next message is one. */
+function replyAfter(id: string): { id: string; chat_id: string; content: string } | null {
+  const me = db.query("SELECT role FROM messages WHERE id = ?").get(id) as any;
+  if (me?.role !== "user") return null;
+  const next = db.query("SELECT n.id, n.chat_id, n.role, n.content FROM messages n, messages me WHERE me.id = ? AND n.chat_id = me.chat_id AND (n.created_at > me.created_at OR (n.created_at = me.created_at AND n.rowid > me.rowid)) ORDER BY n.created_at, n.rowid LIMIT 1").get(id) as any;
+  return next?.role === "assistant" ? next : null;
+}
+
+/**
+ * The time a reply opens on, read again after the player's message before it changed or went. Its "The next
+ * morning," was not counted for being her own skip said again: take the skip out of her message, or the message,
+ * and it is the reply's to count; put one in that the reply already counted, and it is said twice. Only the time
+ * it opens on: what the narrator marked ([[rest: long]]) is the reply's, whatever her message says — the rest has
+ * healed the party.
+ */
+function rereadOpening(chatId: string, reply: { id: string; content: string } | null) {
+  const opens = reply ? openingClause(String(reply.content ?? "")) : "";
+  if (!reply || !opens) return;
+  db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND kind = 'time' AND source = 'narrator' AND title = ? AND undone_at IS NULL").run(now(), reply.id, opens);
+  openingTime(chatId, reply.id, String(reply.content ?? ""));
+}
+
 /** Messages have no bin — they are cheap and numerous, so removal is direct. */
 api.post("/messages/delete", async (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
   const { ids } = await c.req.json();
   if (!Array.isArray(ids) || !ids.length) return c.json({ error: "Nothing selected." }, 400);
-  forgetSteward(ids.map(String), false);
+  const gone = new Set(ids.map(String));
+  const after = [...gone].map(replyAfter).filter((r): r is NonNullable<typeof r> => !!r && !gone.has(r.id));
+  forgetSteward([...gone], false);
   const stmt = db.query("DELETE FROM messages WHERE id = ?");
   db.transaction((list: string[]) => { for (const id of list) stmt.run(id); })(ids);
+  for (const r of after) rereadOpening(r.chat_id, r);
   return c.json({ deleted: ids.length });
 });
 
 api.delete("/messages/:id", (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
+  const after = replyAfter(c.req.param("id"));
   forgetSteward([c.req.param("id")], false);
   db.query("DELETE FROM messages WHERE id = ?").run(c.req.param("id"));
+  if (after) rereadOpening(after.chat_id, after);
   return c.json({ ok: true });
 });
 
@@ -893,6 +936,10 @@ export function nextSpeaker(chat: any, wanted?: string, roll: () => number = Mat
     // Named, and in the scene: "I write to my brother Emeric at the Eyrie" named him, and he answered — from the
     // Eyrie, a whole scene of reading a letter not yet sent. Someone the record has elsewhere is spoken of, not to.
     const reachable = getSettings().story_world === "0" ? cast : (() => { const h = inScene(chat, chronicleOf(chat.id)); return cast.filter((m) => h(m.name)); })();
+    // Spoken to by name, they answer, wherever the record last had them: the record is a reply behind the story
+    // more often than the player is wrong about who is in front of her.
+    const spokenTo = latest[0]?.role === "user" ? addressed(latest[0].content, cast) : undefined;
+    if (spokenTo) return spokenTo;
     for (const [i, msg] of latest.entries()) {
       if (i > 0 && msg.role === "user") break;
       const named = calledOn(msg.content, reachable.length ? reachable : cast, msg.role === "user" ? null : (msg.character_id ?? ""));
@@ -901,8 +948,8 @@ export function nextSpeaker(chat: any, wanted?: string, roll: () => number = Mat
     }
   }
   // Nobody named: the next is someone in the scene. Left to the list or to whoever has spoken least, Tywin at his
-  // desk across the city answered a feast he was not at. Named, they answer wherever the record has them — the
-  // record may be behind the story, and the author asked. With nobody known to be here, the whole cast as before.
+  // desk across the city answered a feast he was not at. Named, they answer if they are in the scene, or spoken to
+  // (see addressed). With nobody known to be here, the whole cast as before.
   if (getSettings().story_world !== "0") {
     const isHere = inScene(chat, chronicleOf(chat.id));
     const here = cast.filter((m) => isHere(m.name));
@@ -1067,9 +1114,39 @@ export function calledOn(text: string, cast: any[], speaker: string | null = nul
   return undefined;
 }
 
+const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "bronze", "the", "old", "young", "little", "grand", "high", "sir", "dame"]);
+/** The word a person is called by: the first of their name that is not a title — "Jaime" of "Ser Jaime Lannister". */
+const ownWordOf = (person: string) => person.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase())) ?? "";
+
+/**
+ * Spoken to by name, aloud: "Jaime, what do you make of it?", "What do you think, Ser Jaime?" — in what the player's
+ * character says, not what she thinks or writes. Not a list ("Tywin, Jaime and Roose rode out") and not a letter
+ * ("Dear Emeric,"). Whoever is spoken to is there to hear it, whatever the record says of where they were last.
+ */
+export function addressed(text: string, cast: any[]): any | undefined {
+  const quotes = String(text ?? "").match(/"[^"]*"|“[^”]*”/g) ?? [];
+  const words = cast.map((m) => ({ m, own: ownWordOf(m.name).toLowerCase().replace(/[^a-z']/g, "") })).filter((x) => x.own);
+  const anyOwn = words.map((x) => x.own).join("|");
+  const title = "(?:(?:ser|sir|lord|lady|my lord|my lady|prince|princess|maester|king|queen)\\s+)?";
+  let best: { m: any; at: number } | undefined;
+  let offset = 0;
+  for (const q of quotes) {
+    const inner = q.slice(1, -1).toLowerCase();
+    for (const { m, own } of words) {
+      // Opening a sentence and set off by its mark — not when the next word is another of them, or "and": a list.
+      const opening = new RegExp(`(^|[.!?…]\\s+)${title}${own}(?:\\s+[a-z']+)?\\s*[,!?](?!\\s*(?:and\\b|${anyOwn}\\b))`).exec(inner);
+      // Closing a sentence after a comma: "…, Jaime?", "Thank you, Ser Jaime."
+      const closing = new RegExp(`,\\s*${title}${own}(?:\\s+[a-z']+)?\\s*(?:[.!?…]|$)`).exec(inner);
+      const at = Math.min(opening ? opening.index : Infinity, closing ? closing.index : Infinity);
+      if (at < Infinity && (!best || offset + at < best.at)) best = { m, at: offset + at };
+    }
+    offset += q.length + 1;
+  }
+  return best?.m;
+}
+
 export function firstMention(text: string, person: string): number {
-  const TITLES = new Set(["ser", "lord", "lady", "king", "queen", "prince", "princess", "maester", "septa", "septon", "bronze", "the", "old", "young", "little", "grand", "high", "sir", "dame"]);
-  const own = person.split(/\s+/).find((w) => w.length > 2 && !TITLES.has(w.toLowerCase()));
+  const own = ownWordOf(person);
   if (!own) return -1;
   const m = new RegExp(`(^|[^a-z])${own.toLowerCase().replace(/[^a-z']/g, "")}(?=[^a-z]|$)`).exec(String(text).toLowerCase());
   return m ? m.index + m[1].length : -1;
@@ -1102,7 +1179,7 @@ function sampling(s: Record<string, string>) {
  * call, not just the browser's fetch, or the completion is paid for in full and
  * saved after you thought you had cancelled it.
  */
-const running = new Map<string, AbortController>();
+const running = held_(new Map<string, AbortController>(), (m) => { for (const c of m.values()) c.abort(); });
 /** Replies stopped because a newer one began: dropped, not saved, so the newer one is the only one the chat gets. */
 const superseded = new WeakSet<AbortController>();
 
@@ -1134,12 +1211,12 @@ api.get("/chats/:id/running", (c) =>
  * real prompt is worse than no inspector at all.
  */
 /** Where each chat's window of the conversation begins (see windowOf). Kept while the server runs; lost, it is chosen again. */
-const windows = new Map<string, string | null>();
+const windows = held_(new Map<string, string | null>());
 /**
  * A smaller budget for a chat whose server proved to hold less than Hearth's settings send: learnt once, kept — for
  * that server only. Moved to a bigger model, the chat has its whole budget back.
  */
-const fitBudgets = new Map<string, { server: string; tokens: number }>();
+const fitBudgets = held_(new Map<string, { server: string; tokens: number }>());
 const serverOf = (s: Record<string, string>) => `${s.provider}|${s.provider === "custom" ? s.custom_base ?? "" : ""}|${s.model}`;
 /**
  * Whether the conversation's window is held steady (see windowOf): for a model on this device or this network, which
@@ -1723,8 +1800,40 @@ api.post("/import/settings", async (c) => {
 api.put("/messages/:id", async (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
   const { content } = await c.req.json();
-  const m = db.query("SELECT chat_id, role, swipes, swipe_index FROM messages WHERE id = ?").get(c.req.param("id")) as any;
-  forgetSteward([c.req.param("id")]);
+  const m = db.query("SELECT chat_id, role, content, swipes, swipe_index FROM messages WHERE id = ?").get(c.req.param("id")) as any;
+  // What the narrator marked in a reply ([[passed: 2 days]], [[event: …]]) stays while the marks do: a typo fixed
+  // in the words around them took the two days, and the event, with it — and a mark is not run again, or a rest
+  // would heal twice. The time it opens on is read again below, from the new words.
+  const marks = (t: unknown) => (String(t ?? "").match(/\[\[[^\]]*\]\]/g) ?? []).join("\n");
+  const kept = m?.role === "assistant" && marks(m.content) && marks(m.content) === marks(content)
+    ? (db.query("SELECT id, title FROM chronicle WHERE message_id = ? AND source = 'narrator' AND undone_at IS NULL").all(c.req.param("id")) as any[])
+      .filter((e) => !(e.title && e.title === openingClause(String(m.content ?? "")))).map((e) => e.id)
+    : [];
+  const settled = m?.role === "assistant" ? newsSettledBy(c.req.param("id")) : [];
+  // A typo fixed, a word or two changed, is the same take in better words — not another take: only the Steward's
+  // reading of it is taken back, to be read again, and the time it opens on if that is what changed. Taken as a
+  // new take, a typo fixed in the reply that played the riders had them handed to the next reply to play again,
+  // its day decided over with other rolls, and a death already accepted asked about all over again.
+  if (sameWords(String(m?.content ?? ""), String(content ?? ""))) {
+    forgetSteward([c.req.param("id")], true, false);
+    // What was read from these words and said yes to stands while its words do: one word, "died" made "lived", is
+    // a small edit and not the same story. Only what was quoted from them: a death's follow-ups say "has died" in
+    // their own words, never in the story's.
+    const id = c.req.param("id");
+    const before: Passage[] = [{ id, who: "", text: String(m?.content ?? "") }], after: Passage[] = [{ id, who: "", text: String(content ?? "") }];
+    for (const e of liveEntries(chronicleOf(m.chat_id))) {
+      if (e.message_id !== id || e.source !== "narrator" || !e.evidence) continue;
+      if (findEvidence(e.evidence, before) && !findEvidence(e.evidence, after)) undoEntry(e.id, now());
+    }
+    const was = openingClause(String(m?.content ?? ""));
+    if (was && was !== openingClause(String(content ?? ""))) {
+      db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND kind = 'time' AND source = 'narrator' AND title = ? AND undone_at IS NULL").run(now(), c.req.param("id"), was);
+    }
+  } else {
+    forgetSteward([c.req.param("id")]);
+    for (const id of kept) db.query("UPDATE chronicle SET undone_at = NULL WHERE id = ?").run(id);
+    resettleNews(c.req.param("id"), settled, String(content ?? ""));
+  }
   // The take on screen is the one changed: kept in its place among the swipes too, or moving away from it and back
   // would bring the old words back — and the Story World, which read the new ones, would disagree with the story.
   let swipes = m?.swipes ?? null;
@@ -1738,6 +1847,7 @@ api.put("/messages/:id", async (c) => {
   db.query("UPDATE messages SET content = ?, swipes = ? WHERE id = ?").run(content, swipes, c.req.param("id"));
   // The time it opens on was taken back with the old words; read again from the new ones, as a new reply's is.
   if (m?.role === "assistant" || m?.role === "user") openingTime(m.chat_id, c.req.param("id"), String(content ?? ""));
+  if (m?.role === "user") rereadOpening(m.chat_id, replyAfter(c.req.param("id")));
   return c.json({ ok: true });
 });
 
@@ -4249,9 +4359,16 @@ api.post("/chats/:id/chronicle", async (c) => {
 
 /** Taking an entry back, and changing your mind about that. Nothing is ever deleted. */
 function markUndone(c: any, undone: number | null) {
-  const row = db.query("SELECT chat_id, kind, title, subject, proposed, evidence, message_id, undone_at FROM chronicle WHERE id = ?").get(c.req.param("id")) as any;
-  if (!row) return c.json({ error: "That entry is not in the chronicle." }, 404);
-  db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?").run(undone, c.req.param("id"));
+  const chat = undoEntry(c.req.param("id"), undone);
+  if (!chat) return c.json({ error: "That entry is not in the chronicle." }, 404);
+  return c.json(chronicleState(chat));
+}
+
+/** An entry taken back (or put back, with null), and what followed from it with it. The chat it is in, if it is. */
+function undoEntry(id: string, undone: number | null): string | null {
+  const row = db.query("SELECT chat_id, kind, title, subject, proposed, evidence, message_id, undone_at FROM chronicle WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  db.query("UPDATE chronicle SET undone_at = ? WHERE id = ?").run(undone, id);
   // A death that was said yes to, taken back: what followed it goes with it — the goals it ended, and what the world
   // came to want because of it. Put back, it follows again. A question still waiting has had nothing follow it.
   if (row.kind === "status" && row.title === "dead" && row.subject && !row.proposed) {
@@ -4273,7 +4390,7 @@ function markUndone(c: any, undone: number | null) {
     }
   }
   worldChanged(row.chat_id);
-  return c.json(chronicleState(row.chat_id));
+  return row.chat_id;
 }
 /**
  * A date set by hand that was a correction, not a leap: the story had been told on the wrong date, and setting the
@@ -4773,7 +4890,7 @@ function threadMoves(r: ReturnType<typeof ruleOn>, outcome: "succeeded" | "faile
  */
 /** Chats whose world is moving right now: one turn at a time, or two replies close together give two people the same day's turn. */
 /** Runs under way, by chat, and when each began. */
-const offstageBusy = new Map<string, number>();
+const offstageBusy = held_(new Map<string, number>());
 /** Longer than any run could honestly take, every request in it timed out: a run claiming more is gone, not going. */
 const OFFSTAGE_STALE_MS = 30 * 60_000;
 
@@ -5456,7 +5573,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
 }
 
 /** The Offstage's last failure in each chat, until a run goes through: shown in the ledger, so a still world says why. */
-const offstageProblems = new Map<string, string>();
+const offstageProblems = held_(new Map<string, string>());
 
 /** Whether a decision says anything at all: a want, a choice or an act. An empty answer reads as none of them. */
 const readable = (d: ReturnType<typeof readDecision>) => !!(d.choice || d.act || d.want);
@@ -5542,7 +5659,7 @@ function notesFor(lore: { content: string; recap: boolean }[], cap: number) {
 }
 
 /** Who was read as in the scene, for the message it was read at: asked once per turn of the story, not per run. */
-const presence = new Map<string, { at: string; here: string[]; away?: string[] }>();
+const presence = held_(new Map<string, { at: string; here: string[]; away?: string[] }>());
 /** For tests, whose chats reuse the same ids from one to the next. */
 export const forgetPresence = () => presence.clear();
 
@@ -5833,15 +5950,50 @@ function shownIn(told: string, story: string): boolean {
   return keys.length > 0 && hits >= Math.max(3, Math.ceil(keys.length * 0.6));
 }
 
+/** Whether a reply brought this news in: enough of its rarer words, in the reply's story, not its asides. */
+function broughtIn(told: string, reply: string): boolean {
+  const said = stems(storyOnly(reply));
+  const keys = [...stems(told)];
+  const hits = keys.filter((k) => said.has(k)).length;
+  return keys.length > 0 && hits >= Math.min(3, Math.max(2, Math.ceil(keys.length / 4)));
+}
+
+/**
+ * News a reply settled — brought in, or let go by — read again from its words as edited. The edit takes back what
+ * the reply did (see forgetSteward), as a swipe does; but the reply is still the same turn of the story: a typo
+ * fixed in the one that brought the riders in had them sent back out, to be brought in a second time. Only the
+ * news it settled, not whatever is due now: an old reply edited is not a new chance for word it was never offered.
+ */
+function newsSettledBy(messageId: string): { id: string; brought: boolean }[] {
+  return (db.query("SELECT id, data FROM chronicle WHERE kind = 'news' AND undone_at IS NULL AND data LIKE ?").all(`%${messageId}%`) as any[])
+    .map((n) => ({ id: n.id, d: dataOf(n) }))
+    .filter(({ d }) => (d.by === messageId && d.state === "arrived") || (Array.isArray(d.tried) && d.tried.map(String).includes(messageId)))
+    .map(({ id, d }) => ({ id, brought: d.by === messageId && d.state === "arrived" }));
+}
+
+function resettleNews(messageId: string, settled: { id: string; brought: boolean }[], reply: string) {
+  for (const { id, brought } of settled) {
+    const n = db.query("SELECT id, title, data FROM chronicle WHERE id = ?").get(id) as any;
+    if (!n) continue;
+    const d = dataOf(n);
+    if (broughtIn(n.title, reply)) {
+      db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "arrived", by: messageId }), id);
+    } else if (!brought) {
+      // Let go by before the edit, and still: the chance it missed is still missed.
+      const tried = Array.isArray(d.tried) ? d.tried.map(String) : [];
+      const nowTried = tried.includes(messageId) ? tried : [...tried, messageId].slice(-NEWS_PATIENCE * 2);
+      const tries = Math.max(nowTried.length, Number(d.tries ?? 0));
+      db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tried: nowTried, tries, state: tries >= NEWS_PATIENCE ? "lost" : d.state }), id);
+    }
+  }
+}
+
 function settleNews(chatId: string, reply: string, by = "") {
   const entries = chronicleOf(chatId);
   const news = dueNews(entries, clockOf(calendarOf(chatId), entries).day, chatId)[0];
   if (!news) return;
-  const said = stems(storyOnly(reply));
-  const keys = [...stems(news.title)];
-  const hits = keys.filter((k) => said.has(k)).length;
   const d = dataOf(news);
-  const arrived = keys.length > 0 && hits >= Math.min(3, Math.max(2, Math.ceil(keys.length / 4)));
+  const arrived = broughtIn(news.title, reply);
   // A try is a turn of the story that let it go by — counted once for each message, however many times that
   // message is swiped: ten takes of one reply are one chance missed, not ten, and a take swiped away gives its
   // chance back (see forgetSteward). Before, eight swipes of a single reply could lose news nobody had seen.
@@ -6114,7 +6266,7 @@ function repairBranchReading() {
  * had already undone everything from the old take, it was the one thing the swipe could never take back.
  */
 let storyChanges = 0;
-const changedAt = new Map<string, number>();
+const changedAt = held_(new Map<string, number>());
 const storyMark = () => storyChanges;
 function movedOn(ids: (string | null | undefined)[], mark: number): boolean {
   return ids.some((id) => !!id && ((changedAt.get(id) ?? 0) > mark || !db.query("SELECT 1 FROM messages WHERE id = ?").get(id)));

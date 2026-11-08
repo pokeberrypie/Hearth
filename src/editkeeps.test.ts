@@ -184,6 +184,25 @@ test("named, but the record has them across the city: spoken of, not to — some
   expect(nextSpeaker(db.query("SELECT * FROM chats WHERE id = 'ch'").get()).name).toBe("Jaime Lannister");
 });
 
+test("but spoken to aloud, they answer, wherever the record last had them: it is a reply behind the story", async () => {
+  db.query("INSERT INTO personas (id, name, created_at) VALUES ('y', 'Yvenna Hightower', 1)").run();
+  db.query("UPDATE chats SET persona_id = 'y', turn_order = 'named' WHERE id = 'ch'").run();
+  db.query("INSERT INTO characters (id, name, created_at) VALUES ('t', 'Tywin Lannister', 1)").run();
+  db.query("INSERT INTO chat_members (id, chat_id, character_id, position, muted) VALUES ('a', 'ch', 'j', 0, 0), ('b', 'ch', 't', 1, 0)").run();
+  const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 5)`).run(id, who, where);
+  st("l1", "Yvenna Hightower", "seated on the bench by the fire");
+  st("l2", "Jaime Lannister", "on the bench beside Yvenna");
+  st("l3", "Tywin Lannister", "the Tower of the Hand, at his desk");
+  const { nextSpeaker } = await import("./index");
+  const chat = () => db.query("SELECT * FROM chats WHERE id = 'ch'").get();
+  // He came in with the last reply; the record still has him at his desk.
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('u1', 'ch', 'user', 'Yvenna Hightower', 'I rise as he comes in. \"Lord Tywin, a word.\"', 3)").run();
+  expect(nextSpeaker(chat()).name).toBe("Tywin Lannister");
+  // A letter to him is not speaking to him.
+  db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('u2', 'ch', 'user', 'Yvenna Hightower', 'I write: \"Dear Tywin, the hall is cold.\"', 4)").run();
+  expect(nextSpeaker(chat()).name).toBe("Jaime Lannister");
+});
+
 const replyWith = async (reply: string, mine: string) => {
   db.query("DELETE FROM chronicle").run();
   setSettings({ provider: "openrouter", key_openrouter: "sk", model: "m" });
@@ -217,6 +236,74 @@ test("nor 'The next morning' after the player's 'The next morning', read again f
   expect(await clock()).toEqual(once);
 });
 
+test("the player's skip edited out of her message, the reply's own 'Three days later' is counted after all", async () => {
+  await replyWith("Three days later, the road was dry.", "Three days later, I ride out with Brienne.");
+  expect(await day()).toBe(3);
+  const mine = (db.query("SELECT id FROM messages WHERE role = 'user'").get() as any).id;
+  await send(`/api/messages/${mine}`, "PUT", { content: "I ride out with Brienne." });
+  expect(await day()).toBe(3);
+});
+
+test("and a skip put into her message that the reply already counted is not counted twice", async () => {
+  await replyWith("Three days later, the road was dry.", "I ride out with Brienne.");
+  expect(await day()).toBe(3);
+  const mine = (db.query("SELECT id FROM messages WHERE role = 'user'").get() as any).id;
+  await send(`/api/messages/${mine}`, "PUT", { content: "Three days later, I ride out with Brienne." });
+  expect(await day()).toBe(3);
+});
+
+test("her message taken out, the reply's own 'Three days later' is counted after all — one at a time or several", async () => {
+  await replyWith("Three days later, the road was dry.", "Three days later, I ride out with Brienne.");
+  const mine = (db.query("SELECT id FROM messages WHERE role = 'user'").get() as any).id;
+  await send(`/api/messages/${mine}`, "DELETE");
+  expect(await day()).toBe(3);
+  await replyWith("Three days later, the road was dry.", "Three days later, I ride out with Brienne.");
+  const again = (db.query("SELECT id FROM messages WHERE role = 'user'").get() as any).id;
+  await send("/api/messages/delete", "POST", { ids: [again] });
+  expect(await day()).toBe(3);
+});
+
+test("and the time a reply marked stays the reply's, whatever her message is edited to", async () => {
+  // At the table the narrator marks time itself, and its mark is the reply's time: the opening clause is not read
+  // over it. Her message edited, the mark is not taken back for the clause to be read in its place — it may have
+  // been a rest, and the rest has healed the party.
+  setSettings({ mode: "tabletop", tabletop_edits: "1" });
+  await replyWith("Three days later, they made camp. [[time: 2 days]] The road was dry.", "I ride out with Brienne.");
+  expect(await day()).toBe(2);
+  const mine = (db.query("SELECT id FROM messages WHERE role = 'user'").get() as any).id;
+  expect((await send(`/api/messages/${mine}`, "PUT", { content: "I ride out with Brienne at dawn." })).status).toBe(200);
+  expect(await day()).toBe(2);
+});
+
+test("a typo fixed in a reply the narrator marked time in keeps the time — and the event it marked", async () => {
+  setSettings({ mode: "tabletop", tabletop_edits: "1" });
+  await replyWith("They made camp. [[time: 2 days]] The road was dyr. [[event: The bridge at Oxcross burned]]", "I ride out.");
+  expect(await day()).toBe(2);
+  const reply = db.query("SELECT id, content FROM messages WHERE role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as any;
+  const events = () => db.query("SELECT title FROM chronicle WHERE kind = 'event' AND undone_at IS NULL").all();
+  expect(events()).toEqual([{ title: "The bridge at Oxcross burned" }]);
+  expect((await send(`/api/messages/${reply.id}`, "PUT", { content: reply.content.replace("dyr", "dry") })).status).toBe(200);
+  expect(await day()).toBe(2);
+  expect(events()).toEqual([{ title: "The bridge at Oxcross burned" }]);
+  // More than a typo — a sentence written over — and the marks as they were: what they marked stays.
+  const now = (db.query("SELECT content FROM messages WHERE id = ?").get(reply.id) as any).content;
+  expect((await send(`/api/messages/${reply.id}`, "PUT", { content: now.replace("They made camp.", "They made a cold camp under the hill, and nobody slept.") })).status).toBe(200);
+  expect(await day()).toBe(2);
+  expect(events()).toEqual([{ title: "The bridge at Oxcross burned" }]);
+  // The mark itself taken out: then what it marked goes with it.
+  await send(`/api/messages/${reply.id}`, "PUT", { content: "They made camp. The road was dry." });
+  expect(await day()).toBe(0);
+  expect(events()).toEqual([]);
+});
+
+test("a word put right in the time a reply opens on is read again: 'Two days later' made 'Three'", async () => {
+  await replyWith("Two days later, the road was dry.", "I ride out with Brienne.");
+  expect(await day()).toBe(2);
+  const reply = db.query("SELECT id, content FROM messages WHERE role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as any;
+  await send(`/api/messages/${reply.id}`, "PUT", { content: "Three days later, the road was dry." });
+  expect(await day()).toBe(3);
+});
+
 test("a reply that is all thinking and no story is asked for again, once, before any error", async () => {
   setSettings({ provider: "openrouter", key_openrouter: "sk", model: "m" });
   let calls = 0;
@@ -235,4 +322,27 @@ test("a reply that is all thinking and no story is asked for again, once, before
   expect(calls).toBe(2);
   expect(out).not.toContain('"error"');
   expect((db.query("SELECT content FROM messages WHERE role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any).content).toBe("He drew his sword.");
+});
+
+test("who is spoken to, aloud, by name — and what only names them", async () => {
+  const { addressed } = await import("./index");
+  const cast = [{ id: "j", name: "Ser Jaime Lannister" }, { id: "t", name: "Tywin Lannister" }, { id: "r", name: "Roose Bolton" }, { id: "e", name: "Emeric Hightower" }];
+  const cases: [string, string | undefined][] = [
+    ['"Jaime, what do you make of it?"', "j"],
+    ['I turn. "What do you think, Ser Jaime?"', "j"],
+    ['"Thank you, Roose."', "r"],
+    ['"Ser Jaime! Wait."', "j"],
+    ['“Roose, sit.”', "r"],
+    ['"Well, Jaime?"', "j"],
+    ['"Lord Tywin, a word."', "t"],
+    // A list, not a call.
+    ['"Tywin, Jaime and Roose rode out at dawn."', undefined],
+    ['"Tywin, Jaime, Roose — all of them lied."', undefined],
+    // A letter, a thought, a message to be carried, a mention.
+    ['I write to my brother Emeric at the Eyrie: "Dear Emeric, the hall is cold."', undefined],
+    ['Jaime, I think, would know. I say nothing.', undefined],
+    ['"Tell Jaime I said no," I tell Roose.', undefined],
+    ['"I saw Tywin yesterday."', undefined],
+  ];
+  for (const [t, want] of cases) expect([t, addressed(t, cast)?.id]).toEqual([t, want]);
 });
