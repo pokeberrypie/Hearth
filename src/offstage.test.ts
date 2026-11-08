@@ -311,6 +311,17 @@ describe("a day offstage", () => {
     story = "The court is quiet.";
   });
 
+  test("and the take that played it rewritten from top to bottom: still played — only a swipe is another take", async () => {
+    seed();
+    db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
+    story = "A knife flashed in the dark.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We walk the walls." })).text();
+    const reply = (db.query("SELECT id FROM messages WHERE chat_id = 'ch' AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any).id;
+    await send(`/api/messages/${reply}`, "PUT", { content: "On the walls a man in grey came out of the dark with a blade, and Jaime caught his wrist an inch from her ribs." });
+    expect(await narrator()).not.toContain("Someone sends a knife");
+    story = "The court is quiet.";
+  });
+
   test("two threats waiting: the reply plays the first, and the second waits for the next — neither is lost", async () => {
     seed();
     db.query("INSERT INTO chronicle (id, chat_id, message_id, kind, title, source, visibility, created_at) VALUES ('t1', 'ch', 'm1', 'threat', 'Someone sends a knife', 'offstage', 'private', 10)").run();
@@ -329,9 +340,11 @@ describe("a day offstage", () => {
     story = "A knife flashed in the dark.";
     await (await send("/api/chats/ch/generate", "POST", { mode: "reply", content: "We walk the walls." })).text();
     expect(await narrator()).not.toContain("Someone sends a knife");
-    const reply = (db.query("SELECT id FROM messages WHERE chat_id = 'ch' AND role = 'assistant' ORDER BY created_at DESC LIMIT 1").get() as any).id;
-    await send(`/api/messages/${reply}`, "PUT", { content: "The night passed quietly." });
-    expect(await narrator()).toContain("Someone sends a knife");
+    story = "The night passed quietly.";
+    // The swipe is handed it, and plays it; so asked before the swipe is saved, the narrator is told it again.
+    const told = await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
+    expect(told).toContain("night passed quietly");
+    expect(sent.filter((b) => b.stream).at(-1).messages.map((m: any) => m.content).join("\n")).toContain("Someone sends a knife");
   });
 
   test("one already waiting from when asking was on comes in too, once asking is turned off — and is gone after its reply", async () => {
@@ -493,10 +506,13 @@ describe("a day offstage", () => {
       await allGone();
     });
 
-    test("edited: gone", async () => {
+    test("rewritten, not swiped: it is the same take, and what that day made stands", async () => {
       const id = await dayTurnsOnAReply();
       await send(`/api/messages/${id}`, "PUT", { content: "Morning came, and nothing else." });
-      await allGone();
+      const l = await ledger();
+      expect(l.goals.map((g: any) => g.goal)).toContain("turn the High Septon against the match");
+      expect(l.threads.map((t: any) => t.title)).toEqual(["Whispers at Court"]);
+      expect(await narrator()).toContain("High Septon has heard a rumour");
     });
 
     test("a typo fixed in it: nothing is taken back — it is the same take, and the day is not decided again", async () => {
@@ -1449,10 +1465,13 @@ describe("what is done offstage reaches the story", () => {
     const reply = db.query("SELECT id, content FROM messages WHERE role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as any;
     await send(`/api/messages/${reply.id}`, "PUT", { content: reply.content.replace("anythign", "anything") });
     expect(await tries()).toBe(1);
+    expect((await coming())[0].state).toBe("travelling");
     // Written over, and still not bringing it in: still a chance let go by.
     await send(`/api/messages/${reply.id}`, "PUT", { content: "Rain all evening. Brienne mended a strap by the fire and said nothing about anything." });
     expect(await tries()).toBe(1);
-    expect((await coming())[0].state).toBe("travelling");
+    // And written in: the reply has brought it after all.
+    await send(`/api/messages/${reply.id}`, "PUT", { content: "Three hard men ride into the yard, asking after a Hightower girl, and the price on her head is the first thing they say." });
+    expect((await coming())[0].state).toBe("arrived");
     story = "The court is quiet.";
   });
 
@@ -1618,7 +1637,8 @@ describe("everyone at the table wants something", () => {
     castAnswer = "GOAL | Locke | deliver both captives to Lord Bolton for the best price | the gold";
     await send("/api/chats/ch/offstage/run", "POST");
     expect(await wants()).toEqual([["Locke", "deliver both captives to Lord Bolton for the best price"]]);
-    await send("/api/messages/m1", "PUT", { content: "The court gathered, and Locke was not among them." });
+    story = "The court gathered, and Locke was not among them.";
+    await (await send("/api/chats/ch/generate", "POST", { mode: "swipe" })).text();
     expect(await wants()).toEqual([]);
   });
 

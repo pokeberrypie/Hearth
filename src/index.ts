@@ -836,21 +836,6 @@ export function editsLocked(): boolean {
 
 const LOCKED = { error: "This table does not rewrite what happened." } as const;
 
-/**
- * Whether an edit leaves the words as they were but for a typo: one word put right, or two put in or taken out —
- * never more, however long the reply, for a sentence is a few words and can be the whole of what changed. Counted by
- * words, not letters, so a long reply is cheap to compare on a phone; a script written without spaces, by letters.
- */
-export function sameWords(a: string, b: string): boolean {
-  const words = (t: string) => String(t ?? "").toLowerCase().match(/[a-z0-9']+|[^\s\x00-\x7f]/g) ?? [];
-  const x = words(a), y = words(b);
-  const left = new Map<string, number>();
-  for (const w of x) left.set(w, (left.get(w) ?? 0) + 1);
-  let common = 0;
-  for (const w of y) { const n = left.get(w) ?? 0; if (n > 0) { common++; left.set(w, n - 1); } }
-  return x.length + y.length - 2 * common <= 2;
-}
-
 /** The reply straight after a player's message, if the next message is one. */
 function replyAfter(id: string): { id: string; chat_id: string; content: string } | null {
   const me = db.query("SELECT role FROM messages WHERE id = ?").get(id) as any;
@@ -1801,39 +1786,35 @@ api.put("/messages/:id", async (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
   const { content } = await c.req.json();
   const m = db.query("SELECT chat_id, role, content, swipes, swipe_index FROM messages WHERE id = ?").get(c.req.param("id")) as any;
-  // What the narrator marked in a reply ([[passed: 2 days]], [[event: …]]) stays while the marks do: a typo fixed
-  // in the words around them took the two days, and the event, with it — and a mark is not run again, or a rest
-  // would heal twice. The time it opens on is read again below, from the new words.
-  const marks = (t: unknown) => (String(t ?? "").match(/\[\[[^\]]*\]\]/g) ?? []).join("\n");
-  const kept = m?.role === "assistant" && marks(m.content) && marks(m.content) === marks(content)
-    ? (db.query("SELECT id, title FROM chronicle WHERE message_id = ? AND source = 'narrator' AND undone_at IS NULL").all(c.req.param("id")) as any[])
-      .filter((e) => !(e.title && e.title === openingClause(String(m.content ?? "")))).map((e) => e.id)
-    : [];
-  const settled = m?.role === "assistant" ? newsSettledBy(c.req.param("id")) : [];
-  // A typo fixed, a word or two changed, is the same take in better words — not another take: only the Steward's
-  // reading of it is taken back, to be read again, and the time it opens on if that is what changed. Taken as a
-  // new take, a typo fixed in the reply that played the riders had them handed to the next reply to play again,
-  // its day decided over with other rolls, and a death already accepted asked about all over again.
-  if (sameWords(String(m?.content ?? ""), String(content ?? ""))) {
-    forgetSteward([c.req.param("id")], true, false);
-    // What was read from these words and said yes to stands while its words do: one word, "died" made "lived", is
-    // a small edit and not the same story. Only what was quoted from them: a death's follow-ups say "has died" in
-    // their own words, never in the story's.
-    const id = c.req.param("id");
-    const before: Passage[] = [{ id, who: "", text: String(m?.content ?? "") }], after: Passage[] = [{ id, who: "", text: String(content ?? "") }];
+  // An edit is the same take in the author's own words, not another take: that is what a swipe is for. So what
+  // happened stays — the threat the reply played is not handed to the next to play again, the day it set off is not
+  // decided over with other dice, a death said yes to is not asked about again — and only what the new words no
+  // longer say goes. Before, any edit counted as a new take, and a typo fixed did all of that.
+  const id = c.req.param("id");
+  const was = String(m?.content ?? ""), is = String(content ?? "");
+  const settled = m?.role === "assistant" ? newsSettledBy(id) : [];
+  // The Steward's reading of the words is taken back, and read again from the new ones.
+  forgetSteward([id], true, false);
+  // The words changed: a reading of the old ones still under way is not kept, and who is here is read again.
+  if (m) { changedAt.set(id, ++storyChanges); worldChanged(m.chat_id); }
+  if (m) {
+    const before: Passage[] = [{ id, who: "", text: was }], after: Passage[] = [{ id, who: "", text: is }];
+    const marks = (t: string) => (t.match(/\[\[[^\]]*\]\]/g) ?? []).join("\n");
+    const opening = openingClause(was);
     for (const e of liveEntries(chronicleOf(m.chat_id))) {
-      if (e.message_id !== id || e.source !== "narrator" || !e.evidence) continue;
-      if (findEvidence(e.evidence, before) && !findEvidence(e.evidence, after)) undoEntry(e.id, now());
+      if (e.message_id !== id || e.source !== "narrator") continue;
+      // What was quoted from the old words and is not in the new: "Eddard Stark was dead" made "was alive" — gone,
+      // with what followed it. Only the story's own quotes: a death's follow-ups say "has died" in their own words.
+      if (e.evidence) { if (findEvidence(e.evidence, before) && !findEvidence(e.evidence, after)) undoEntry(e.id, now()); continue; }
+      // The time it opens on, when that is what changed: read again below.
+      if (e.kind === "time" && opening && e.title === opening) { if (openingClause(is) !== opening) undoEntry(e.id, now()); continue; }
+      // What the narrator marked ([[passed: 2 days]], [[event: …]]), when the marks changed: it goes with them, as
+      // it always has. A mark is not run again — a rest would heal twice.
+      if (marks(was) !== marks(is)) undoEntry(e.id, now());
     }
-    const was = openingClause(String(m?.content ?? ""));
-    if (was && was !== openingClause(String(content ?? ""))) {
-      db.query("UPDATE chronicle SET undone_at = ? WHERE message_id = ? AND kind = 'time' AND source = 'narrator' AND title = ? AND undone_at IS NULL").run(now(), c.req.param("id"), was);
-    }
-  } else {
-    forgetSteward([c.req.param("id")]);
-    for (const id of kept) db.query("UPDATE chronicle SET undone_at = NULL WHERE id = ?").run(id);
-    resettleNews(c.req.param("id"), settled, String(content ?? ""));
   }
+  // News it brought in, or let go by, read again from the new words.
+  editedNews(id, settled, is);
   // The take on screen is the one changed: kept in its place among the swipes too, or moving away from it and back
   // would bring the old words back — and the Story World, which read the new ones, would disagree with the story.
   let swipes = m?.swipes ?? null;
@@ -5959,10 +5940,10 @@ function broughtIn(told: string, reply: string): boolean {
 }
 
 /**
- * News a reply settled — brought in, or let go by — read again from its words as edited. The edit takes back what
- * the reply did (see forgetSteward), as a swipe does; but the reply is still the same turn of the story: a typo
- * fixed in the one that brought the riders in had them sent back out, to be brought in a second time. Only the
- * news it settled, not whatever is due now: an old reply edited is not a new chance for word it was never offered.
+ * News a reply settled — brought in, or let go by — read again from its words as edited (see editedNews): written
+ * out, it is on the road again; written in, it has arrived. Before, any edit sent arrived news back out, and a typo
+ * fixed in the reply that brought the riders in had them brought in a second time. Only the news it settled, not
+ * whatever is due now: an old reply edited is not a new chance for word it was never offered.
  */
 function newsSettledBy(messageId: string): { id: string; brought: boolean }[] {
   return (db.query("SELECT id, data FROM chronicle WHERE kind = 'news' AND undone_at IS NULL AND data LIKE ?").all(`%${messageId}%`) as any[])
@@ -5971,20 +5952,16 @@ function newsSettledBy(messageId: string): { id: string; brought: boolean }[] {
     .map(({ id, d }) => ({ id, brought: d.by === messageId && d.state === "arrived" }));
 }
 
-function resettleNews(messageId: string, settled: { id: string; brought: boolean }[], reply: string) {
+function editedNews(messageId: string, settled: { id: string; brought: boolean }[], reply: string) {
   for (const { id, brought } of settled) {
     const n = db.query("SELECT id, title, data FROM chronicle WHERE id = ?").get(id) as any;
     if (!n) continue;
     const d = dataOf(n);
-    if (broughtIn(n.title, reply)) {
-      db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "arrived", by: messageId }), id);
-    } else if (!brought) {
-      // Let go by before the edit, and still: the chance it missed is still missed.
-      const tried = Array.isArray(d.tried) ? d.tried.map(String) : [];
-      const nowTried = tried.includes(messageId) ? tried : [...tried, messageId].slice(-NEWS_PATIENCE * 2);
-      const tries = Math.max(nowTried.length, Number(d.tries ?? 0));
-      db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, tried: nowTried, tries, state: tries >= NEWS_PATIENCE ? "lost" : d.state }), id);
-    }
+    const now_ = broughtIn(n.title, reply);
+    // Brought in by the new words, whatever the old did.
+    if (now_ && !brought) db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "arrived", by: messageId }), id);
+    // Written out: it has not arrived after all, and is on the road again with its patience whole.
+    else if (!now_ && brought) db.query("UPDATE chronicle SET data = ? WHERE id = ?").run(JSON.stringify({ ...d, state: "travelling", tries: 0, tried: [], by: "" }), id);
   }
 }
 

@@ -137,7 +137,7 @@ describe("in a game", () => {
   test("the narrator's marks belong to their reply, and go when it is rerolled", async () => {
     // A reply, saved the way the generation route saves one.
     applyVerbs(CHAT, "[[time: two days]] [[event: The bridge falls]]", PLAYER);
-    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('r1', ?, 'assistant', 'x', ?)").run(CHAT, Date.now());
+    db.query("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES ('r1', ?, 'assistant', '[[passed: two days]] [[event: The bridge falls]]', ?)").run(CHAT, Date.now());
     db.query("UPDATE chronicle SET message_id = 'r1' WHERE chat_id = ? AND source = 'narrator' AND message_id IS NULL").run(CHAT);
     expect((await state()).now.day).toBe(2);
     // A table refuses edits unless it has been told it may; this one has.

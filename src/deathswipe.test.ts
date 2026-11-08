@@ -109,3 +109,16 @@ test("a typo fixed in the reply he died in: still dead, nothing that followed is
   expect(live("kind = 'status' AND title = 'dead'")).toEqual([]);
   expect(live("kind = 'agenda' AND title = '' AND data LIKE '%died%'")).toEqual([]);
 });
+
+test("the reply he died in rewritten around the line that says so: still dead, and not asked about again", async () => {
+  await send("/api/chats/ch/offstage/goal", "POST", { who: "Cersei Lannister", goal: "rule through Joffrey", why: "" });
+  await stewardTurn("ch");
+  const asked = db.query("SELECT id FROM chronicle WHERE chat_id = 'ch' AND kind = 'status' AND title = 'dead' AND proposed = 1 AND undone_at IS NULL").get() as any;
+  await send(`/api/chronicle/${asked.id}/accept`, "POST");
+  await stirred;
+  await new Promise((ok) => setTimeout(ok, 20));
+  await send("/api/messages/m1", "PUT", { content: "The crowd roared, and the sword came down on the steps of Baelor; the king smiled. Eddard Stark was dead." });
+  await stewardTurn("ch");
+  expect(live("kind = 'status' AND title = 'dead'")).toHaveLength(1);
+  expect(db.query("SELECT id FROM chronicle WHERE chat_id = 'ch' AND kind = 'status' AND title = 'dead' AND proposed = 1 AND undone_at IS NULL").all()).toEqual([]);
+});
