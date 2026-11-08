@@ -208,6 +208,15 @@ test("and a reply opening on the same skip is saying it again, not three more da
   expect(await day()).toBe(3);
 });
 
+test("nor 'The next morning' after the player's 'The next morning', read again from a clock already moved to morning", async () => {
+  const clock = async () => (await (await ask("/api/chats/ch/chronicle")).json()).now;
+  await replyWith("The road was dry.", "The next morning, I ride out with Brienne.");
+  const once = await clock();
+  db.query("DELETE FROM messages").run();
+  await replyWith("The next morning, the road was dry.", "The next morning, I ride out with Brienne.");
+  expect(await clock()).toEqual(once);
+});
+
 test("a reply that is all thinking and no story is asked for again, once, before any error", async () => {
   setSettings({ provider: "openrouter", key_openrouter: "sk", model: "m" });
   let calls = 0;

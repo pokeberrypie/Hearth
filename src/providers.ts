@@ -320,9 +320,14 @@ async function* send(a: GenerateArgs, t: ReturnType<typeof resolveTarget>, key: 
     const room = Number(a.sampling.maxTokens) || 0;
     const contextFull = /exceed_context_size|exceeds the available context size|context.{0,20}(length|window|size).{0,40}exceed/i.test(detail);
     if (room > CAPPED && [400, 413, 422, 502].includes(res.status) && !a.capped && !contextFull) {
-      outputCap.set(`${t.base}|${a.model}`, CAPPED);
       console.log(`[cap] ${t.label} refused ${room} tokens of answer for ${a.model} (${res.status}); asking again with ${CAPPED}.`);
-      yield* generate({ ...a, capped: true, sampling: { ...a.sampling, maxTokens: CAPPED } });
+      // Remembered only if that was it: refused again with less room, it was something else, and later askings keep
+      // the room they were given — one filtered reply is no reason to shorten every reply after it.
+      let answered = false;
+      for await (const chunk of generate({ ...a, capped: true, sampling: { ...a.sampling, maxTokens: CAPPED } })) {
+        if (!answered) { answered = true; outputCap.set(`${t.base}|${a.model}`, CAPPED); }
+        yield chunk;
+      }
       return;
     }
     const path = WIRES.find((w) => w.id === t.wire)?.path ?? "/chat/completions";

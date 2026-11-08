@@ -44,3 +44,13 @@ test("refused for asking more room to answer than the provider gives: asked once
   expect(await go()).toBe("ok");
   expect(asked).toEqual([4000, 2048, 2048]);
 });
+
+test("refused for some other reason, a retry with less room that is refused too leaves later askings their full room", async () => {
+  const asked: number[] = [];
+  globalThis.fetch = (async (_u: any, init: any) => { asked.push(JSON.parse(init.body).max_tokens); return new Response("content filtered", { status: 400 }); }) as any;
+  const go = async () => { try { for await (const _ of generate({ provider: "nanogpt", apiKey: "sk", model: "z-ai/glm-other", system: "", messages: [{ role: "user", content: "hi" }],
+    sampling: { temperature: 1, maxTokens: 3000, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: false } } as any)) { /* */ } } catch { /* refused */ } };
+  await go();
+  await go();
+  expect(asked).toEqual([3000, 2048, 3000, 2048]);
+});

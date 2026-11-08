@@ -1748,6 +1748,16 @@ describe("the ripple: what is done offstage is felt where the player's character
     expect(await coming()).toEqual([]);
   });
 
+  test("but what only shares the scene's people and places — half its words, not most — is still to come", async () => {
+    court();
+    db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES ('m2', 'ch', 'assistant', 'Jaime Lannister', 'In the yard the grooms turned from Jaime, for no horses or coin had come from the West, and the Lannister rider who said so stood by the gate.', 3)").run();
+    await goal("Cersei Lannister", "bring Jaime to heel");
+    answers = [PLOT];
+    rippleAnswer = "LANDS | 1 | a Lannister rider says Cersei has seized the river fords and the grooms' horses | 1";
+    await send("/api/chats/ch/offstage/run", "POST");
+    expect((await coming()).map((n: any) => n.told)).toEqual(["a Lannister rider says Cersei has seized the river fords and the grooms' horses"]);
+  });
+
   test("a scene meant for where she was goes behind word that can reach her where she is", async () => {
     court();
     const st = (id: string, who: string, where: string) => db.query(`INSERT INTO chronicle (id, chat_id, kind, subject, field, title, source, visibility, created_at) VALUES (?, 'ch', 'status', ?, 'location', ?, 'steward', 'table', 50)`).run(id, who, where);

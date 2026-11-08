@@ -3939,7 +3939,7 @@ function rememberFor(chat: any, s: Record<string, string>, entries: ChronicleEnt
     entries: liveEntries(entries),
     bonds: bondsOf(entries),
     // Who is there to remember with: those in the scene (see inScene), not every member of the chat.
-    present: people.filter((p) => p.present && inScene(chat, entries)(p.name)).map((p) => p.name),
+    present: ((here) => people.filter((p) => p.present && here(p.name)).map((p) => p.name))(inScene(chat, entries)),
     everyone: [...new Set([...people.map((p) => p.name), ...peopleOfChat(chat.id)])],
     // The scene now: the newest six, newest first.
     recent: rows.slice(-6).reverse().map((r: any) => r.content).join("\n"),
@@ -4002,11 +4002,11 @@ function worldBrief(chat: any, s: Record<string, string>, history?: { id: string
  * the player's character is, is elsewhere. Unknown is here: nobody is sent away on no word at all.
  */
 /** Whether the record itself places this person with the player — by where each is, not by having no word at all. */
-function placedWith(chat: any, entries: ChronicleEntry[], name: string): boolean {
+function placedWithAll(chat: any, entries: ChronicleEntry[], byRecord = inSceneByRecord(chat, entries)): (name: string) => boolean {
   const status = statusOf(entries);
   const player = whoAmI(chat.persona_id)?.name ?? "";
-  if (!(status[name] as any)?.location?.title || !(status[player] as any)?.location?.title) return false;
-  return inSceneByRecord(chat, entries)(name);
+  const mine = !!(status[player] as any)?.location?.title;
+  return (name: string) => mine && !!(status[name] as any)?.location?.title && byRecord(name);
 }
 
 function inScene(chat: any, entries: ChronicleEntry[]): (name: string) => boolean {
@@ -4016,7 +4016,8 @@ function inScene(chat: any, entries: ChronicleEntry[]): (name: string) => boolea
   const read = presence.get(chat.id);
   const fresh = read && read.at === `${last}:${changedAt.get(last) ?? 0}` ? new Set(read.here) : null;
   const byRecord = inSceneByRecord(chat, entries);
-  return (name: string) => (name === player ? true : fresh ? fresh.has(name) || placedWith(chat, entries, name) : byRecord(name));
+  const placed = placedWithAll(chat, entries, byRecord);
+  return (name: string) => (name === player ? true : fresh ? fresh.has(name) || placed(name) : byRecord(name));
 }
 
 /** Who is with the player by the record alone: where each is tracked, joined through whoever they are with. */
@@ -5264,7 +5265,8 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
     // A reading that sends away someone the record has with the player — at the same table, beside her — is not
     // taken over the record: a small model's "AWAY | Jaime" had the man beside her deciding his day offstage, in a
     // scene he was sitting in. Only where the record has them placed with her; where it has nothing, it stands.
-    for (const n of cast) if (!onstage.has(n) && placedWith(chat, entries, n)) onstage.add(n);
+    const placed = placedWithAll(chat, entries);
+    for (const n of cast) if (!onstage.has(n) && placed(n)) onstage.add(n);
   } else {
     for (const n of recentRows.map((r) => r.name).filter(Boolean)) onstage.add(n);
     for (const n of namedIn(recentRows.map((r) => r.content).join("\n"), cast)) onstage.add(n);
@@ -5818,12 +5820,17 @@ function playerPlace(chatId: string, entries: ChronicleEntry[]): string {
   return String((statusOf(entries)[player] as any)?.location?.title ?? "");
 }
 
-/** Whether the story text already shows this: the same test that says news has been brought in (see settleNews). */
+/**
+ * Whether the story text already shows this happening: most of its rarer words are in the scene. Most, not half: read
+ * against the author's own chat, half had one offstage line in eighteen "already shown" in scenes from forty messages
+ * before it happened — a surgeon dressing Jaime's stump, every morning in those words — and was dropped unseen; at
+ * three in five, one in fifty, and as many of the lines the scene really did show are still caught.
+ */
 function shownIn(told: string, story: string): boolean {
   const said = stems(storyOnly(story));
   const keys = [...stems(told)];
   const hits = keys.filter((k) => said.has(k)).length;
-  return keys.length > 0 && hits >= Math.max(3, Math.ceil(keys.length / 2));
+  return keys.length > 0 && hits >= Math.max(3, Math.ceil(keys.length * 0.6));
 }
 
 function settleNews(chatId: string, reply: string, by = "") {
@@ -7907,7 +7914,15 @@ function openingTime(chatId: string, messageId: string, text: string) {
   // A reply opening on the very skip the player's message just made ("Three days later," and "Three days later,")
   // is saying it again, not three more days.
   const before = db.query("SELECT m.id, m.role FROM messages m, messages me WHERE me.id = ? AND m.chat_id = me.chat_id AND (m.created_at < me.created_at OR (m.created_at = me.created_at AND m.rowid < me.rowid)) ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1").get(messageId) as any;
-  if (before?.role === "user" && liveEntries(entries).some((e) => e.kind === "time" && e.message_id === before.id && e.span === span)) return;
+  // Read against the clock as it stood before that skip: "The next morning," after the player's "The next morning,"
+  // reads as a whole day from a clock already moved to morning, and the same twelve hours from where the player was.
+  if (before?.role === "user") {
+    const theirs = liveEntries(entries).filter((e) => e.kind === "time" && e.message_id === before.id);
+    for (const e of theirs) {
+      const prior = clockOf(cal, entries.filter((x) => x.id !== e.id));
+      if (e.span === span || readSpan(cal, said, prior) === e.span) return;
+    }
+  }
   const t = now();
   recordNarrated(chatId, { kind: "time", span, title: said, day: null, minute: null });
   tieNarration(chatId, messageId, t);

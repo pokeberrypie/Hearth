@@ -3720,6 +3720,13 @@ async function run(mode, content = "", forcedGuide = "") {
         } else if (evt.delta) {
           queued += evt.delta;
           if (!frame) frame = requestAnimationFrame(pump);
+        } else if (evt.notice) {
+          // Asked again (it thought through the whole reply and wrote nothing): said, and the thinking shown starts
+          // over, as the saved reply will only have the second.
+          toast(evt.notice);
+          think = "";
+          const d = target.querySelector(".think .thinkbody");
+          if (d) d.textContent = "";
         } else if (evt.warning) {
           // Cut off partway, and kept: the reply is saved as far as it got, and the done frame follows.
           toast(evt.warning);
