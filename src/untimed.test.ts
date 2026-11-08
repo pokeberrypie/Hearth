@@ -54,3 +54,33 @@ test("refused for some other reason, a retry with less room that is refused too 
   await go();
   expect(asked).toEqual([3000, 2048, 3000, 2048]);
 });
+
+test("a stream whose last line has no newline still gives its last words — split anywhere, even mid-letter", async () => {
+  const enc = new TextEncoder();
+  const whole = enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "Le cœur " } }] })}\r\n\r\n: keep-alive\n\ndata:${JSON.stringify({ choices: [{ delta: { content: "battait — 🔥" } }] })}`);
+  for (const cut of [1, 7, 13, 50, whole.length - 3, whole.length - 1]) {
+    globalThis.fetch = (async () => new Response(new ReadableStream({ start(c) { c.enqueue(whole.slice(0, cut)); c.enqueue(whole.slice(cut)); c.close(); } }),
+      { headers: { "content-type": "text/event-stream" } })) as any;
+    let got = "";
+    for await (const ch of generate({ provider: "openrouter", apiKey: "sk", model: "m", system: "", messages: [{ role: "user", content: "hi" }],
+      sampling: { temperature: 1, maxTokens: 100, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: true } } as any)) {
+      if (ch.kind === "text") got += ch.text;
+    }
+    if (got !== "Le cœur battait — 🔥") throw new Error(`cut at ${cut}: got ${JSON.stringify(got)}`);
+  }
+});
+
+test("the responses wire's own error event is an error, not a reply that quietly came to nothing", async () => {
+  const enc = new TextEncoder();
+  globalThis.fetch = (async () => new Response(new ReadableStream({ start(c) {
+    c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "The" })}\n\n`));
+    c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "error", code: "server_error", message: "The model is overloaded." })}\n\n`));
+    c.close();
+  } }), { headers: { "content-type": "text/event-stream" } })) as any;
+  let err = "";
+  try {
+    for await (const _ of generate({ provider: "custom", baseUrl: "https://api.example.com/v1", format: "responses", apiKey: "sk", model: "m", system: "", messages: [{ role: "user", content: "hi" }],
+      sampling: { temperature: 1, maxTokens: 100, topP: 1, minP: 0, repetitionPenalty: 1, frequencyPenalty: 0, presencePenalty: 0, stream: true } } as any)) { /* */ }
+  } catch (e: any) { err = e.message; }
+  expect(err).toContain("overloaded");
+});

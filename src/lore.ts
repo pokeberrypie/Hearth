@@ -178,9 +178,16 @@ export function activate(
   const chosen = new Map<string, Activated>();
   let budget = maxChars;
 
+  // Each entry's chance is rolled once a reply: rolled again in each pass that met its keys, an entry set to come up
+  // three times in ten came up most of the time.
+  const rolled = new Set<string>();
   const take = (entry: LoreEntry, via: Activated["via"]) => {
     if (chosen.has(entry.id)) return false;
-    if (entry.probability < 100 && roll() >= entry.probability) return false;
+    if (entry.probability < 100) {
+      if (rolled.has(entry.id)) return false;
+      rolled.add(entry.id);
+      if (roll() >= entry.probability) return false;
+    }
     if (entry.content.length > budget) return false;
     budget -= entry.content.length;
     chosen.set(entry.id, { entry, via });

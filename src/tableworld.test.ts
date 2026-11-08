@@ -140,3 +140,23 @@ test("the table hears the world move on, live, as a summary and nothing more", a
   expect(seen).toContain("The bridge falls");
   expect(seen).not.toContain("SECRET-AMBUSH");
 });
+
+test("a seat whose reader goes is let go of — not kept listening, and beating, for as long as the app runs", async () => {
+  const { listeners } = await import("./share");
+  const shareId = (db.query("SELECT id FROM shares LIMIT 1").get() as any).id;
+  const before = listeners(shareId);
+  // Read with no signal to abort: only the stream itself can say the reader went.
+  const res = await guest("/api/table/live");
+  const reader = res.body!.getReader();
+  await reader.read();
+  expect(listeners(shareId)).toBe(before + 1);
+  await reader.cancel();
+  expect(listeners(shareId)).toBe(before);
+  // The host's own stream, the same.
+  const mine = await host(`/api/shares/${shareId}/live`);
+  const r2 = mine.body!.getReader();
+  await r2.read();
+  expect(listeners(shareId)).toBe(before + 1);
+  await r2.cancel();
+  expect(listeners(shareId)).toBe(before);
+});

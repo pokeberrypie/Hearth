@@ -254,6 +254,10 @@ export function flush() {
   if (pending) { clearTimeout(pending); pending = null; }
   if (!sqldb || !healthy) return;
   const bytes = sqldb.export();
+  // sql.js exports by closing the database and opening it again, and what was set on the connection goes with it:
+  // foreign keys were on until the first save, a few hundred milliseconds in, and off from then on — so emptying
+  // the bin left a chat's messages, members and chronicle behind it, every session but the first moment of it.
+  sqldb.run("PRAGMA foreign_keys = ON;");
   writeAtomic(DB_PATH, bytes);
   // An image straight out of memory is whole by construction, so it can
   // stand as the known-good copy — just not on every flush, which would

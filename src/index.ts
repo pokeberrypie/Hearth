@@ -303,6 +303,29 @@ app.use("/api/*", async (c, next) => {
 });
 
 /**
+ * A body the routes can read, or a plain answer saying it could not be read — before any route sees it. Every
+ * route reads its body as an object: given JSON that is not one (null, a list, a bare word) or not JSON at all,
+ * a hundred of them threw, answered "Something went wrong", and some had already half done their work. The one
+ * route that takes a list as well says so here.
+ */
+const LIST_BODIES = new Set(["/api/kits/import", "/api/regex/import"]);
+app.use("/api/*", async (c, next) => {
+  const m = c.req.method;
+  if ((m === "POST" || m === "PUT" || m === "PATCH") && /application\/json/i.test(c.req.header("content-type") ?? "")) {
+    // No body at all is no body, and the route decides: "Stop" is sent as JSON with nothing in it.
+    const said = await c.req.text();
+    if (!said.trim()) return next();
+    let body: unknown;
+    try { body = JSON.parse(said); } catch { return c.json({ error: "That request could not be read." }, 400); }
+    const list = Array.isArray(body) && LIST_BODIES.has(c.req.path);
+    if (!list && (body === null || typeof body !== "object" || Array.isArray(body))) {
+      return c.json({ error: "That request could not be read." }, 400);
+    }
+  }
+  return next();
+});
+
+/**
  * The pictures, for people who are actually at a table.
  *
  * Avatars have to load for a guest or the chat is a wall of initials, but the
@@ -477,9 +500,15 @@ api.get("/cast/elsewhere", (c) =>
   ).all()),
 );
 
+/** A field that is meant to be words: the words, or the fallback if it is anything else. */
+const text = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
+
 api.post("/characters", async (c) => {
   const b = await c.req.json();
-  if (!b.name?.trim()) return c.json({ error: "A character needs a name." }, 400);
+  b.name = text(b.name);
+  if (!b.name.trim()) return c.json({ error: "A character needs a name." }, 400);
+  for (const f of ["description", "personality", "scenario", "first_message"]) b[f] = text(b[f]);
+  b.avatar = text(b.avatar) || null;
   const id = uid();
   db.query(
     `INSERT INTO characters (id, name, description, personality, scenario, first_message, avatar, created_at, world)
@@ -502,14 +531,17 @@ api.post("/characters", async (c) => {
 
 api.put("/characters/:id", async (c) => {
   const b = await c.req.json();
+  const cur = db.query("SELECT * FROM characters WHERE id = ?").get(c.req.param("id")) as any;
+  if (!cur) return c.json({ error: "Character not found." }, 404);
+  // What was sent is changed, and what was not is kept: a save that left a field out wiped it.
   db.query(
     `UPDATE characters SET name=?, description=?, personality=?, scenario=?, first_message=? WHERE id=?`,
   ).run(
-    b.name,
-    b.description ?? "",
-    b.personality ?? "",
-    b.scenario ?? "",
-    b.first_message ?? "",
+    text(b.name).trim() || cur.name,
+    text(b.description, cur.description ?? ""),
+    text(b.personality, cur.personality ?? ""),
+    text(b.scenario, cur.scenario ?? ""),
+    text(b.first_message, cur.first_message ?? ""),
     c.req.param("id"),
   );
   return c.json({ ok: true });
@@ -603,8 +635,8 @@ api.put("/chats/:id", async (c) => {
     `UPDATE chats SET title = ?, author_note = ?, note_depth = ?, wallpaper = ?,
                       persona_id = ?, scenario = ?, accent = ?, ambience = ? WHERE id = ?`,
   ).run(
-    (b.title ?? cur.title).trim() || cur.title,
-    b.author_note ?? cur.author_note,
+    text(b.title, cur.title).trim() || cur.title,
+    text(b.author_note, cur.author_note ?? ""),
     Number.isFinite(+b.note_depth) ? Math.max(0, Math.min(20, +b.note_depth)) : cur.note_depth,
     b.wallpaper !== undefined ? String(b.wallpaper) : cur.wallpaper,
     b.persona_id !== undefined ? (b.persona_id || null) : cur.persona_id,
@@ -1703,6 +1735,7 @@ api.post("/import/settings", async (c) => {
   } catch {
     return c.json({ error: "That is not readable JSON." }, 400);
   }
+  if (!json || typeof json !== "object" || Array.isArray(json)) return c.json({ error: "That isn't a SillyTavern settings file." }, 400);
 
   const pu = json.power_user ?? {};
   const names: Record<string, string> = pu.personas ?? json.personas ?? {};
@@ -1785,7 +1818,10 @@ api.post("/import/settings", async (c) => {
 api.put("/messages/:id", async (c) => {
   if (editsLocked()) return c.json(LOCKED, 403);
   const { content } = await c.req.json();
+  // Checked before anything is taken back: an edit that cannot be saved changes nothing.
+  if (typeof content !== "string") return c.json({ error: "An edit needs the new words." }, 400);
   const m = db.query("SELECT chat_id, role, content, swipes, swipe_index FROM messages WHERE id = ?").get(c.req.param("id")) as any;
+  if (!m) return c.json({ error: "Message not found." }, 404);
   // An edit is the same take in the author's own words, not another take: that is what a swipe is for. So what
   // happened stays — the threat the reply played is not handed to the next to play again, the day it set off is not
   // decided over with other dice, a death said yes to is not asked about again — and only what the new words no
@@ -2551,7 +2587,32 @@ function softDelete(table: BinTable, ids: string[]) {
  * See src/starter.ts for why it is a narrator and why a deleted one stays
  * deleted.
  */
+/**
+ * Rows whose parent is gone for good — a chat's chronicle after the chat was emptied out of the bin. Deleting the
+ * parent takes them with it, by the database's own rule; on the phone that rule was switched off after the first
+ * save of every session (see flush in mobile/server/db.mobile.ts), and what it should have taken stayed, out of
+ * reach of anything. Parents first, so a chat whose character went takes its own with it.
+ */
+export function dropOrphans(): number {
+  const gone: [string, string, string][] = [
+    ["chats", "character_id", "characters"],
+    ["messages", "chat_id", "chats"], ["npcs", "chat_id", "chats"], ["rolls", "chat_id", "chats"],
+    ["chronicle", "chat_id", "chats"], ["steward_runs", "chat_id", "chats"], ["offstage_runs", "chat_id", "chats"],
+    ["shares", "chat_id", "chats"], ["chat_members", "chat_id", "chats"], ["chat_members", "character_id", "characters"],
+    ["lorebook_links", "book_id", "lorebooks"], ["players", "share_id", "shares"],
+  ];
+  let n = 0;
+  db.transaction(() => {
+    for (const [t, col, parent] of gone) {
+      try { n += db.query(`DELETE FROM ${t} WHERE ${col} IS NOT NULL AND ${col} NOT IN (SELECT id FROM ${parent})`).run().changes; } catch { /* a table this copy does not have */ }
+    }
+  })();
+  if (n) console.log(`[tidy] ${n} row(s) left behind by something deleted for good were cleared.`);
+  return n;
+}
+
 export function ensureStarterCharacter() {
+  dropOrphans();
   repairBranchReading();
   repairBranchLinks();
   if (!libraryIsEmpty(db)) return;
@@ -6636,7 +6697,7 @@ api.post("/chats/:id/steward/now", async (c) => {
 api.get("/chats/:id/steward", (c) => {
   const rows = db.query("SELECT * FROM steward_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 20")
     .all(c.req.param("id")) as any[];
-  return c.json(rows.map((r) => ({ ...r, dropped: JSON.parse(r.dropped || "[]") })));
+  return c.json(rows.map((r) => ({ ...r, dropped: (() => { try { return JSON.parse(r.dropped || "[]"); } catch { return []; } })() })));
 });
 
 /**
@@ -6878,8 +6939,8 @@ api.post("/lorebooks", async (c) => {
   const b = await c.req.json();
   const id = uid();
   db.query("INSERT INTO lorebooks (id, name, entries, created_at, world) VALUES (?,?,?,?,?)")
-    .run(id, (b.name ?? "New lorebook").trim() || "New lorebook",
-         JSON.stringify(normaliseBook(b.entries ?? [])), now(), currentWorld());
+    .run(id, text(b.name, "New lorebook").trim() || "New lorebook",
+         JSON.stringify(normaliseBook(Array.isArray(b.entries) ? b.entries : [])), now(), currentWorld());
   return c.json({ id });
 });
 
@@ -6922,8 +6983,8 @@ api.put("/lorebooks/:id", async (c) => {
   const cur = db.query("SELECT * FROM lorebooks WHERE id = ?").get(c.req.param("id")) as any;
   if (!cur) return c.json({ error: "Lorebook not found." }, 404);
   db.query("UPDATE lorebooks SET name = ?, entries = ? WHERE id = ?").run(
-    (b.name ?? cur.name).trim() || cur.name,
-    b.entries ? JSON.stringify(stampEntries(readEntries(cur), b.entries.map(normaliseEntry), now())) : cur.entries,
+    text(b.name, cur.name).trim() || cur.name,
+    Array.isArray(b.entries) ? JSON.stringify(stampEntries(readEntries(cur), b.entries.map(normaliseEntry), now())) : cur.entries,
     cur.id,
   );
   return c.json({ ok: true });
@@ -8766,7 +8827,8 @@ api.get("/presets", (c) =>
 
 api.post("/presets", async (c) => {
   const b = await c.req.json();
-  if (!b.name?.trim()) return c.json({ error: "A preset needs a name." }, 400);
+  b.name = text(b.name);
+  if (!b.name.trim()) return c.json({ error: "A preset needs a name." }, 400);
   const id = uid();
   const first = (db.query("SELECT COUNT(*) AS n FROM presets WHERE deleted_at IS NULL").get() as any).n === 0;
   db.query("INSERT INTO presets (id, name, data, is_active, created_at) VALUES (?,?,?,?,?)")
@@ -9331,7 +9393,10 @@ api.put("/personas/:id/world", async (c) => {
 
 api.post("/personas", async (c) => {
   const b = await c.req.json();
-  if (!b.name?.trim()) return c.json({ error: "A persona needs a name." }, 400);
+  b.name = text(b.name);
+  if (!b.name.trim()) return c.json({ error: "A persona needs a name." }, 400);
+  b.description = text(b.description);
+  b.avatar = text(b.avatar) || null;
   const id = uid();
   const here = currentWorld();
   // The first persona in this room is the one you are, since there is nothing
@@ -9350,8 +9415,10 @@ api.post("/personas", async (c) => {
 
 api.put("/personas/:id", async (c) => {
   const b = await c.req.json();
+  const cur = db.query("SELECT name, description FROM personas WHERE id = ?").get(c.req.param("id")) as any;
+  if (!cur) return c.json({ error: "Persona not found." }, 404);
   db.query("UPDATE personas SET name = ?, description = ? WHERE id = ?")
-    .run(b.name, b.description ?? "", c.req.param("id"));
+    .run(text(b.name).trim() || cur.name, text(b.description, cur.description ?? ""), c.req.param("id"));
   return c.json({ ok: true });
 });
 
@@ -9667,13 +9734,18 @@ api.get("/shares/:id/live", (c) => {
   const share = shareOf(c.req.param("id"));
   if (!share) return c.json({ error: "No such table." }, 404);
 
+  // Let go of on any of the three ways a reader goes: the request aborted, the stream cancelled, or a write that
+  // fails. Only the first was heard, and not every runtime raises it for a reader whose phone simply went quiet:
+  // each such seat kept its listener and its fifteen-second beat for as long as the app ran.
+  let stop = () => {};
   const stream = new ReadableStream({
+    cancel() { stop(); },
     start(controller) {
       const enc = new TextEncoder();
       let alive = true;
       const push = (s: string) => {
         if (!alive) return;
-        try { controller.enqueue(enc.encode(s)); } catch { alive = false; }
+        try { controller.enqueue(enc.encode(s)); } catch { stop(); }
       };
       const emit = (event: string, data: unknown) =>
         push(`data: ${JSON.stringify({ event, ...(data as object) })}\n\n`);
@@ -9686,7 +9758,8 @@ api.get("/shares/:id/live", (c) => {
         emit(event, data);
       });
       const beat = setInterval(() => push(": keep-alive\n\n"), 15_000);
-      const stop = () => {
+      stop = () => {
+        if (!alive) return;
         alive = false;
         clearInterval(beat);
         off();
@@ -10095,13 +10168,18 @@ api.get("/table/live", (c) => {
   if (!g) return c.json({ error: "Not a seat at this table." }, 403);
   const share = g.share;
 
+  // Let go of on any of the three ways a reader goes: the request aborted, the stream cancelled, or a write that
+  // fails. Only the first was heard, and not every runtime raises it for a reader whose phone simply went quiet:
+  // each such seat kept its listener and its fifteen-second beat for as long as the app ran.
+  let stop = () => {};
   const stream = new ReadableStream({
+    cancel() { stop(); },
     start(controller) {
       const enc = new TextEncoder();
       let alive = true;
       const push = (s: string) => {
         if (!alive) return;
-        try { controller.enqueue(enc.encode(s)); } catch { alive = false; }
+        try { controller.enqueue(enc.encode(s)); } catch { stop(); }
       };
       const emit = (event: string, data: unknown) =>
         push(`data: ${JSON.stringify({ event, ...(data as object) })}\n\n`);
@@ -10129,7 +10207,8 @@ api.get("/table/live", (c) => {
         try { db.query("UPDATE players SET seen_at = ? WHERE id = ?").run(now(), g.player.id); } catch {}
       }, 15_000);
 
-      const stop = () => {
+      stop = () => {
+        if (!alive) return;
         alive = false;
         clearInterval(beat);
         off();
@@ -10289,6 +10368,8 @@ app.route("/api", api);
  */
 const onError = (err: Error, c: any) => {
   if (err instanceof SyntaxError && /JSON/i.test(err.message)) return c.json({ error: "That request could not be read." }, 400);
+  // A file upload sent as something else: nothing to read, and nothing wrong on this side.
+  if (/form ?data|multipart|boundary|MIME type/i.test(String(err?.message ?? ""))) return c.json({ error: "That was not a file upload." }, 400);
   console.error(`[error] ${c.req.method} ${c.req.path}:`, err?.stack || err);
   return c.json({ error: `Something went wrong: ${err?.message || "an unexpected error"}.` }, 500);
 };

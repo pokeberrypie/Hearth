@@ -189,6 +189,19 @@ describe("probability", () => {
     expect(at(40)).toHaveLength(0);   // 50 >= 40
     expect(at(0)).toHaveLength(0);
   });
+
+  test("rolled once a reply, however many passes meet its keys", () => {
+    // The sword is named in the chat and in two other entries that come in: three times its keys are met.
+    const entries = [
+      mk({ id: "sword", keys: ["Oathkeeper"], probability: 30, content: "Oathkeeper is Valyrian steel." }),
+      mk({ id: "jaime", keys: ["Jaime"], content: "Jaime carries Oathkeeper." }),
+      mk({ id: "brienne", keys: ["Brienne"], content: "Brienne was given Oathkeeper." }),
+    ];
+    let rolls = 0;
+    const out = activate(entries, said("Jaime and Brienne talk of Oathkeeper."), { roll: () => { rolls++; return 50; } });
+    expect(out.map((a) => a.entry.id).sort()).toEqual(["brienne", "jaime"]);
+    expect(rolls).toBe(1);
+  });
 });
 
 describe("scan depth", () => {

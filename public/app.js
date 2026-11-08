@@ -682,6 +682,35 @@ const VERBATIM = new Set(["style", "code", "pre"]);
 /** A selector that would reach outside the message it came with. */
 const GLOBAL_SELECTOR = /(^|[},])\s*(\*|html|body|:root)(?![\w-])/i;
 
+/**
+ * A message's stylesheet, made to reach only into messages. Every rule's selector is put under .body, read by the
+ * browser's own CSS parser rather than by pattern: a rule aimed at the app around the message — ".drawer
+ * { display: none }", the settings fields — slipped past the check for html, body and *, and restyled the app for
+ * as long as the message was on screen. What is not a rule for a message (@import, which would fetch from anywhere)
+ * is left out.
+ */
+function scopedSheet(css) {
+  let sheet;
+  try { sheet = new CSSStyleSheet(); sheet.replaceSync(String(css ?? "")); } catch { return ""; }
+  const split = (sel) => {
+    const out = []; let depth = 0, cur = "";
+    for (const ch of sel) {
+      if (ch === "(" || ch === "[") depth++;
+      else if (ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
+      if (ch === "," && !depth) { out.push(cur); cur = ""; } else cur += ch;
+    }
+    return [...out, cur].map((x) => x.trim()).filter(Boolean);
+  };
+  const walk = (rules) => [...rules].map((r) => {
+    if (r instanceof CSSStyleRule) return `${split(r.selectorText).map((x) => `.body ${x}`).join(", ")} { ${r.style.cssText} }`;
+    if (r instanceof CSSMediaRule) return `@media ${r.conditionText} { ${walk(r.cssRules)} }`;
+    if (typeof CSSSupportsRule !== "undefined" && r instanceof CSSSupportsRule) return `@supports ${r.conditionText} { ${walk(r.cssRules)} }`;
+    if (r instanceof CSSKeyframesRule || r instanceof CSSFontFaceRule) return r.cssText;
+    return "";
+  }).join("\n");
+  return walk(sheet.cssRules);
+}
+
 function sanitise(html) {
   const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
   const root = doc.body.firstElementChild;
@@ -713,6 +742,13 @@ function sanitise(html) {
      */
     if (tag === "style" && GLOBAL_SELECTOR.test(node.textContent || "")) {
       node.remove();
+      return;
+    }
+    if (tag === "style") {
+      const css = scopedSheet(node.textContent || "");
+      if (!css.trim()) { node.remove(); return; }
+      node.textContent = css;
+      for (const attr of [...node.attributes]) node.removeAttribute(attr.name);
       return;
     }
     if (!ALLOWED_TAGS.has(tag)) {

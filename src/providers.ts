@@ -441,6 +441,11 @@ async function* send(a: GenerateArgs, t: ReturnType<typeof resolveTarget>, key: 
       const u = evt.usage ?? evt.message?.usage;
       if (u?.output_tokens) yield { kind: "usage", tokens: u.output_tokens };
     } else if (t.wire === "responses") {
+      // Its failures are events of their own, not an error field: passed over, the reply just ended, empty, with no
+      // word of why.
+      if (evt.type === "error" || evt.type === "response.failed") {
+        throw new Error(String(evt.message ?? evt.response?.error?.message ?? evt.error?.message ?? "The provider stopped with an error."));
+      }
       // Typed events rather than deltas on a choice. Only the text and the
       // reasoning summary are wanted; the rest describe structure we rebuilt
       // ourselves on the way in.
@@ -710,6 +715,10 @@ async function* sseLines(body: ReadableStream<Uint8Array>) {
       if (line.startsWith("data:")) yield line.slice(5).trim();
     }
   }
+  // The last line, if the stream ended without a newline after it: some servers close straight after their last
+  // event, and its words — the end of the reply, or what it cost — were left in the buffer and lost.
+  buf += decoder.decode();
+  for (const line of buf.split("\n").map((l) => l.trim())) if (line.startsWith("data:")) yield line.slice(5).trim();
 }
 
 function trimDetail(s: string) {
