@@ -1155,7 +1155,7 @@ async function paintWorldSettings() {
     el.addEventListener(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", () => {
       every();
       paintWorldChips();
-      if (k === "apocrypha_blind" && typeof drawTaleScenes === "function") drawTaleScenes();
+      if (k === "apocrypha_blind") { if (typeof taleBlind !== "undefined") taleBlind = el.checked; if (typeof drawTaleScenes === "function") drawTaleScenes(); }
       if (k === "story_world") { W.enabled = el.checked; parts(); paintWorldLine(); }
       // Redraw the open chat, so the sheets go or come back at once.
       if (k === "show_trackers") { showTrackers = el.checked; if (S.chatId && typeof openChat === "function") openChat(S.chatId); }

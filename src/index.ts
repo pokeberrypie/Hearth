@@ -6940,7 +6940,10 @@ api.post("/lorebooks", async (c) => {
   const id = uid();
   db.query("INSERT INTO lorebooks (id, name, entries, created_at, world) VALUES (?,?,?,?,?)")
     .run(id, text(b.name, "New lorebook").trim() || "New lorebook",
-         JSON.stringify(normaliseBook(Array.isArray(b.entries) ? b.entries : [])), now(), currentWorld());
+         // Whatever shape the book came in — SillyTavern's entries keyed by number, a list, Hearth's own export:
+         // normaliseBook reads them all, and anything else as nothing. Narrowed to lists only, every SillyTavern book
+         // came in empty.
+         JSON.stringify(normaliseBook(b.entries ?? [])), now(), currentWorld());
   return c.json({ id });
 });
 
@@ -9254,7 +9257,11 @@ api.post("/import/backup", async (c) => {
         }
 
         for (const chat of plan.chats) {
-          const charId = charIds.get(chat.character);
+          // Brought in with it, or already in the library: a chat picked on its own, for a character you have,
+          // was skipped for not arriving with its character.
+          const charId = charIds.get(chat.character) ?? (chat.character
+            ? (db.query(`SELECT id FROM characters WHERE name = ? AND deleted_at IS NULL AND ${worldWhere("characters")} ORDER BY created_at DESC LIMIT 1`).get(chat.character) as any)?.id
+            : undefined);
           if (!charId) { step("Chats — skipped, no matching character"); continue; }
           const chatId = uid();
           const t = now();

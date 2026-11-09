@@ -4894,7 +4894,11 @@ $("#loreImport").onchange = async (e) => {
       n++;
     } catch {}
   }
-  $("#loreHint").textContent = n ? `Brought in ${n} lorebook${n > 1 ? "s" : ""}.` : "Nothing readable in those files.";
+  // Said, and the shelf drawn again. The hint this wrote to is gone from the page, and writing to it threw before
+  // the shelf was redrawn: the books came in, and did not show until something else drew it.
+  const said = n ? `Brought in ${n} lorebook${n > 1 ? "s" : ""}.` : "Nothing readable in those files.";
+  const hint = $("#loreHint");
+  if (hint) hint.textContent = said; else toast(said);
   refreshLore();
 };
 
@@ -8425,8 +8429,9 @@ $("#personaFiles").onchange = async (e) => {
   files.forEach((f) => fd.append("files", f));
   const r = await fetch("/api/import/persona-files", { method: "POST", body: fd })
     .then((x) => x.json()).catch(() => ({ error: "Import failed." }));
-  $("#personaFilesHint").textContent = r.imported
-    ? `Brought in ${r.imported.length}: ${r.imported.join(", ")}.` : r.error;
+  const said = r.imported ? `Brought in ${r.imported.length}: ${r.imported.join(", ")}.` : r.error;
+  const hint = $("#personaFilesHint") ?? $("#personaImportHint");
+  if (hint) hint.textContent = said ?? ""; else if (said) toast(said);
   refreshPersonas();
 };
 
@@ -9824,6 +9829,7 @@ let recoveryNotice = "";
 
 async function loadSettings() {
   const s = await api("/settings");
+  taleBlind = s.apocrypha_blind === "1";
   recoveryNotice = s.recovery_notice || "";
   showTrackers = s.show_trackers === "1";
   providerMeta = s.providers;
@@ -11828,6 +11834,13 @@ async function renderTale() {
   drawTaleScenes();
 }
 
+/** Whether stories are played blind: the switch while it is on the page, the saved setting when it is not. */
+let taleBlind = false;
+function playingBlind() {
+  const box = $("#apocrypha_blind");
+  return box ? box.checked : taleBlind;
+}
+
 function drawTaleScenes() {
   const box = $("#sceneTaleScenes");
   const { book, mark } = sceneTale;
@@ -11838,7 +11851,9 @@ function drawTaleScenes() {
   const WORD = { now: "Now", done: "Done", skipped: "Skipped", ahead: "" };
   // Played blind, what is ahead stays shut: a chapter not yet reached is not
   // named, and a scene not yet reached is only a place in the list.
-  const blind = !!$("#apocrypha_blind")?.checked;
+  // The setting, not the switch: the switch is only on the page while Story World's settings are open, and with
+  // them shut a book played blind showed every chapter ahead.
+  const blind = playingBlind();
   box.innerHTML = book.chapters.map((ch) => {
     const reached = ch.scenes.some((sc) => status(sc.id) !== "ahead");
     if (blind && !reached) return "";
@@ -11908,7 +11923,7 @@ async function openScenePicker() {
   const WORD = { now: "Now", done: "Played", skipped: "Skipped", "": "" };
   d.innerHTML = `<div class="sphead"><h2>Where is the story?</h2>
       <button type="button" class="ico" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-    <p class="hint">Tap the scene the story is in. A later one counts the scenes before it as played; an earlier one is opened again.${$("#apocrypha_blind")?.checked ? " This shows the whole plan, even though you are playing blind." : ""}</p>
+    <p class="hint">Tap the scene the story is in. A later one counts the scenes before it as played; an earlier one is opened again.${playingBlind() ? " This shows the whole plan, even though you are playing blind." : ""}</p>
     <div class="splist">${book.chapters.map((ch, ci) =>
       `<div class="talechapter">${esc(ch.title || `Chapter ${ci + 1}`)}</div>` +
       ch.scenes.map((sc) => { const st = state(sc.id); return `<button type="button" class="talescene ${st || "ahead"}" data-pick="${sc.id}" data-title="${esc(sc.title)}">` +

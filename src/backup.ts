@@ -103,6 +103,45 @@ const seg = (p: string) => p.split("/").filter(Boolean);
 const inFolder = (p: string, name: string) =>
   seg(p).slice(0, -1).some((s) => s.toLowerCase() === name.toLowerCase());
 
+type Loose =
+  | { kind: "lorebook"; entries: unknown[] }
+  | { kind: "character"; card: ReturnType<typeof normalise> }
+  | { kind: "preset"; json: any }
+  | { kind: "chat"; character: string; lines: any[] }
+  | { kind: "picture" };
+
+/** What a file on its own is, by what is in it; null when it is none of the things this import brings in. */
+export function looseKind(name: string, read: () => Uint8Array): Loose | null {
+  const lower = name.toLowerCase();
+  if (/\.(png|jpe?g|webp)$/.test(lower)) {
+    if (lower.endsWith(".png")) { try { return { kind: "character", card: readCard(read(), name) }; } catch { /* a picture, not a card */ } }
+    return { kind: "picture" };
+  }
+  if (lower.endsWith(".jsonl")) {
+    const lines = text(read()).split("\n").map((l) => l.trim()).filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    const head = lines[0];
+    if (lines.length < 2 || !head || typeof head !== "object" || !("character_name" in head || "user_name" in head)) return null;
+    return { kind: "chat", character: String(head.character_name ?? ""), lines };
+  }
+  if (!lower.endsWith(".json")) return null;
+  let j: any;
+  try { j = JSON.parse(text(read())); } catch { return null; }
+  if (!j || typeof j !== "object") return null;
+  const isEntry = (x: any) => x && typeof x === "object" && typeof x.content === "string" && ("key" in x || "keys" in x);
+  const entries = Array.isArray(j) ? j : Array.isArray(j.entries) ? j.entries : j.entries && typeof j.entries === "object" ? Object.values(j.entries) : null;
+  if (entries && entries.length && entries.some(isEntry)) return { kind: "lorebook", entries };
+  if (Array.isArray(j)) return null;
+  const d = j.data && typeof j.data === "object" ? j.data : j;
+  if (String(j.spec ?? "").startsWith("chara_card") || (typeof d.name === "string" && ("first_mes" in d || "char_greeting" in d))) {
+    return { kind: "character", card: normalise(j) };
+  }
+  if (Array.isArray(j.prompts) || Array.isArray(j.prompt_order) || ("temperature" in j && ("top_p" in j || "openai_max_tokens" in j || "max_length" in j))) {
+    return { kind: "preset", json: j };
+  }
+  return null;
+}
+
 export type Plan = {
   characters: { file: string; card: ReturnType<typeof normalise>; png: (() => Uint8Array) | null }[];
   personas: { name: string; description: string; avatarFile: string | null; active: boolean }[];
@@ -214,6 +253,23 @@ export function planBackup(entries: Entry[]): Plan {
           .filter(Boolean);
         if (lines.length) plan.chats.push({ character, file: name, lines });
         continue;
+      }
+
+      // A file picked by hand comes with no folder around it, so none of the above knows it: a lorebook, a card, a
+      // preset or a chat chosen one at a time was passed over without a word — "loose files", the button says.
+      // Known by what is in it instead. Only a file with no folder at all: a whole backup holds a great deal of
+      // other JSON, which is left alone as it always was.
+      if (seg(e.path).length === 1) {
+        const loose = looseKind(name, e.read);
+        if (loose) {
+          if (loose.kind === "lorebook") plan.lorebooks.push({ name: name.replace(/\.json$/i, ""), entries: loose.entries });
+          else if (loose.kind === "character") plan.characters.push({ file: name, card: loose.card, png: /\.png$/i.test(name) ? e.read : null });
+          else if (loose.kind === "preset") plan.presets.push({ name: name.replace(/\.json$/i, ""), json: loose.json });
+          else if (loose.kind === "chat") plan.chats.push({ character: loose.character, file: name, lines: loose.lines });
+          else if (loose.kind === "picture") plan.avatars.set(name, e.read);
+          continue;
+        }
+        if (/\.(json|jsonl|png)$/i.test(name)) plan.notes.push(`${name}: not something Hearth knows how to bring in here`);
       }
     } catch (err: any) {
       plan.notes.push(`${e.path}: ${err?.message ?? "unreadable"}`);
