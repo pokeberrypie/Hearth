@@ -329,6 +329,10 @@
         <button type="button" class="hc-plus hc-stop" id="stopBtn" title="Stop" aria-label="Stop" hidden>
           <svg viewBox="0 0 22 22"><rect x="6.5" y="6.5" width="9" height="9" rx="2"/></svg>
         </button>
+        <!-- A call: Hearth, hands free (public/call.js). -->
+        <button type="button" class="hc-die hc-call" id="callBtn" title="Call — talk, and hear the reply" aria-label="Start a call">
+          <svg viewBox="0 0 22 22"><path d="M6.2 3.5h2.6l1.3 3.6-1.8 1.2a9.5 9.5 0 0 0 5.4 5.4l1.2-1.8 3.6 1.3v2.6a2 2 0 0 1-2.1 2A14.6 14.6 0 0 1 4.2 5.6a2 2 0 0 1 2-2.1z"/></svg>
+        </button>
         <!-- A roll is never guided, so the die lives on the main row. -->
         <button type="button" class="hc-die" id="diceBtn" title="Roll dice" aria-label="Roll dice">
           <svg viewBox="0 0 22 22"><path d="M11 2.5 19 7v8l-8 4.5L3 15V7z"/><path d="M11 2.5V7M11 7 3 7M11 7l8 0"/></svg>
@@ -1086,6 +1090,24 @@
           <button class="ghost wide" id="saveSettings">Save settings</button>
           <p class="hint" id="saveHint"></p>
 
+          <!-- A call: speaking and listening through ElevenLabs (public/call.js, src/voice.ts). Saved as it changes. -->
+          <div id="voiceSet" class="voiceset">
+            <h3>Voice &mdash; calls</h3>
+            <p class="hint">Tap the phone by the message box to talk to a character hands free: you speak, they answer aloud.</p>
+            <label>ElevenLabs key<input id="key_elevenlabs" type="password" autocomplete="off" spellcheck="false"></label>
+            <label>Voice<select id="voice_default"></select></label>
+            <label>Narrator's voice<select id="voice_narrator"></select></label>
+            <label>Reads<select id="voice_reads">
+              <option value="speech">What they say aloud</option>
+              <option value="all">Everything &mdash; the telling too</option>
+            </select></label>
+            <label>A pause this long ends what you say <em id="voice_pause_v"></em>
+              <input id="voice_pause" type="range" min="0.6" max="3" step="0.1"></label>
+            <label class="check"><input type="checkbox" id="voice_interrupt"> Speaking over a reply stops it &mdash; best with headphones</label>
+            <button type="button" class="ghost wide" id="voiceTest">Hear the voice</button>
+            <p class="hint" id="voiceHint"></p>
+          </div>
+
           <!--
             Everything above is outbound: where Hearth goes to find a model.
             This is the other direction — how a device of yours reaches Hearth.
@@ -1593,6 +1615,7 @@
     <label>Personality<textarea id="c_personality" rows="3"></textarea></label>
     <label>Scene<textarea id="c_scenario" rows="3"></textarea></label>
     <label>Opening message<textarea id="c_first" rows="4"></textarea></label>
+    <label id="c_voiceRow" hidden>Voice on a call<select id="c_voice"></select></label>
     <div class="actions">
       <button value="cancel" class="ghost" formnovalidate>Cancel</button>
       <button value="save" class="solid">Save</button>
@@ -2094,6 +2117,26 @@
 <script src="/avatar-ui.js"></script>
 <script src="/app.js"></script>
 <script src="/storyworld.js"></script>
+<!-- A call. Its own screen, over everything; see public/call.js. -->
+<dialog id="callDialog" class="calld" data-state="idle" aria-label="Call">
+  <div class="callface"><span class="callring" aria-hidden="true"></span><img id="callFace" alt="" hidden><span id="callInitial" class="callinitial" aria-hidden="true"></span></div>
+  <h2 id="callName"></h2>
+  <p class="callstate" id="callState" aria-live="polite"></p>
+  <p class="callcap" id="callCaption" aria-live="polite"></p>
+  <div class="callbar">
+    <button type="button" class="callbtn" id="callMute" aria-label="Mute" title="Mute">
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/><path class="callslash" d="M4 4l16 16"/></svg>
+    </button>
+    <button type="button" class="callbtn callgo" id="callTalk" aria-label="Done talking" title="Send what you said now" data-does="send">
+      <svg class="callsend" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+      <svg class="callskip" viewBox="0 0 24 24"><path d="M6 5l9 7-9 7zM17 5v14"/></svg>
+    </button>
+    <button type="button" class="callbtn callend" id="callEnd" aria-label="End call" title="End call">
+      <svg viewBox="0 0 24 24"><path d="M3.5 14.2c4.7-4 12.3-4 17 0l-1.8 2.6-3.4-1.2-.4-2.4a12 12 0 0 0-5.8 0l-.4 2.4-3.4 1.2z"/></svg>
+    </button>
+  </div>
+</dialog>
+<script src="/call.js"></script>
 
 <!-- A Victorian corner spandrel: the rule turning the corner, a volute
      scrolling in at the elbow, and acanthus leaves breaking off it. Drawn for

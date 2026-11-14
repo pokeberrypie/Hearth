@@ -274,6 +274,8 @@ export const ALTER_TABLES: string[] = [
    * They come over one at a time, when asked. See worldWhere() in index.ts.
    */
   "ALTER TABLE characters ADD COLUMN world TEXT NOT NULL DEFAULT 'story'",
+  // The ElevenLabs voice a character speaks in on a call (src/voice.ts); empty for the default.
+  "ALTER TABLE characters ADD COLUMN voice TEXT NOT NULL DEFAULT ''",
   // And the same for personas: who you are at the table is not necessarily
   // who you are in your stories, and a mode that arrived already wearing one
   // of your personas has decided something personal on your behalf.
@@ -481,6 +483,7 @@ export const DEFAULTS: Record<string, string> = {
   model: "anthropic/claude-sonnet-4.5",
   key_openrouter: "",
   key_nanogpt: "",
+  key_elevenlabs: "",
   key_google: "",
   key_anthropic: "",
   /*
@@ -605,6 +608,18 @@ export const DEFAULTS: Record<string, string> = {
    */
   heraldry_contrast: "1",
   heraldry_style: "auto",
+  /*
+   * A call (src/voice.ts): ElevenLabs speaking and listening. The voice used when a character has none of its own,
+   * and the narrator's, when the telling is read too; what is read ("speech": what is said aloud, "all": the
+   * telling as well); how long a pause ends what you are saying; and whether speaking over a reply stops it.
+   */
+  voice_default: "",
+  voice_narrator: "",
+  voice_reads: "speech",
+  voice_tts_model: "eleven_flash_v2_5",
+  voice_stt_model: "scribe_v3",
+  voice_pause: "1.2",
+  voice_interrupt: "0",
   // The Apocrypha played blind: a chat shows only the scenes already reached.
   apocrypha_blind: "0",
   // Story World as a whole. Off, and a chat is a plain story: no Steward, no
@@ -666,4 +681,4 @@ export const DEFAULTS: Record<string, string> = {
 };
 
 export const KEY_FIELDS = ["key_openrouter", "key_nanogpt", "key_google", "key_anthropic",
-  "key_custom"];
+  "key_custom", "key_elevenlabs"];

@@ -5,6 +5,9 @@
     <!-- Loopback only — the server never listens on anything but 127.0.0.1,
          so this is for the WebView to reach it, not for reaching the network. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- A call: what you say, heard. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- To read a SillyTavern folder wherever it happens to live on the device.
          Scoped storage gives an app its own sandbox and the media collections,

@@ -8524,3 +8524,63 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 }
 @keyframes newstime { to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .newscard, .newscard.out { animation: none; } }
+
+/* ---- a call (public/call.js) ----------------------------------------------------------------------------------- */
+.voiceset { margin-top: 1.6rem; }
+.voiceset label em { font-style: normal; color: var(--lumiverse-text-dim); margin-left: 0.4rem; }
+/* The call: on the right, beside send — not on the die's spot on the left, where it sat under the die. */
+.hc-call { left: auto; right: calc(15px + var(--hc-side) + 8px); }
+.hc-box:has(#callBtn:not([hidden])) { padding-right: calc(74px + var(--hc-ctl) + 8px); }
+.hc-call svg path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+@media (min-width: 900px) {
+  .hc-call { right: calc(16px + var(--hc-side) + 8px); }
+  .hc-box:has(#callBtn:not([hidden])) { padding-right: calc(78px + var(--hc-ctl) + 8px); }
+}
+
+dialog.calld {
+  width: min(94vw, 26rem);
+  min-height: min(80dvh, 34rem);
+  display: none;
+  text-align: center;
+  padding: 2rem 1.4rem 1.6rem;
+  background: radial-gradient(120% 80% at 50% 0%, var(--lumiverse-bg-hover), var(--lumiverse-bg-deep));
+  --lvl: 0;
+}
+dialog.calld[open] { display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 0.8rem; }
+dialog.calld::backdrop { background: rgba(4, 3, 2, 0.86); }
+.callface { position: relative; width: 9.5rem; height: 9.5rem; margin-top: 1rem; }
+.callface img, .callinitial {
+  position: relative; z-index: 1; width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+  border: 2px solid var(--lumiverse-border-hover); background: var(--lumiverse-bg-elevated);
+}
+.callinitial { display: grid; place-items: center; font: 600 3.2rem var(--lumiverse-font-heading); color: var(--lumiverse-primary); }
+.callinitial[hidden], .callface img[hidden] { display: none; }
+.callring {
+  position: absolute; inset: -0.6rem; border-radius: 50%;
+  border: 2px solid var(--lumiverse-primary); opacity: calc(0.25 + var(--lvl) * 0.75);
+  transform: scale(calc(1 + var(--lvl) * 0.22)); transition: transform 90ms linear, opacity 90ms linear;
+}
+.calld[data-state="thinking"] .callring, .calld[data-state="writing"] .callring { animation: callbreathe 1.6s ease-in-out infinite; }
+.calld[data-state="speaking"] .callring { border-color: var(--lumiverse-prose-dialogue, var(--lumiverse-primary)); }
+@keyframes callbreathe { 50% { transform: scale(1.12); opacity: 0.85; } }
+@media (prefers-reduced-motion: reduce) { .callring { transition: none; animation: none !important; } }
+.calld h2 { margin: 0.6rem 0 0; }
+.callstate { margin: 0; color: var(--lumiverse-text-muted); min-height: 1.4em; }
+.callcap {
+  margin: 0; min-height: 4.5em; max-height: 9em; overflow: auto; color: var(--lumiverse-text);
+  font-family: var(--lumiverse-font-family); line-height: 1.45; padding: 0 0.4rem;
+}
+.callbar { display: flex; gap: 1.4rem; justify-content: center; align-items: center; margin-top: 0.4rem; }
+.callbtn {
+  width: 3.6rem; height: 3.6rem; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  background: var(--lumiverse-bg-elevated); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border-hover);
+}
+.callbtn svg { width: 1.6rem; height: 1.6rem; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.callbtn .callslash { display: none; }
+.callbtn.off { color: var(--lumiverse-danger); border-color: var(--lumiverse-danger); }
+.callbtn.off .callslash { display: inline; }
+.callgo { width: 4.4rem; height: 4.4rem; background: var(--lumiverse-primary); color: var(--lumiverse-bg-deep); border-color: transparent; }
+.callgo[data-does="send"] .callskip, .callgo[data-does="skip"] .callsend { display: none; }
+.callend { background: var(--lumiverse-danger); color: #fff; border-color: transparent; }
+.callend svg { fill: currentColor; stroke: none; }
+.callbtn:focus-visible { outline: 2px solid var(--lumiverse-primary); outline-offset: 3px; }

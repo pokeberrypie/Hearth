@@ -93,6 +93,8 @@ public class MainActivity extends AppCompatActivity {
     // not in the WebView — this only covers small per-viewer conveniences the
     // frontend itself may keep in localStorage.
     settings.setDatabaseEnabled(true);
+    // A call speaks a reply seconds after the last tap; a WebView will not play sound no tap started.
+    settings.setMediaPlaybackRequiresUserGesture(false);
     settings.setAllowFileAccess(true);
     settings.setAllowContentAccess(true);
 
@@ -169,6 +171,17 @@ public class MainActivity extends AppCompatActivity {
           toast("No app on this phone can pick a file.");
           return false;
         }
+      }
+
+      // A call: the microphone, only for Hearth's own page, once Android has asked. A plain WebChromeClient refuses.
+      @Override
+      public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+        runOnUiThread(() -> answerMic(request));
+      }
+
+      @Override
+      public void onPermissionRequestCanceled(android.webkit.PermissionRequest request) {
+        if (waitingMic == request) waitingMic = null;
       }
     });
 
@@ -316,6 +329,35 @@ public class MainActivity extends AppCompatActivity {
   }
 
   // ---- uploads --------------------------------------------------------------
+
+  private static final int MIC_REQUEST = 77;
+  private android.webkit.PermissionRequest waitingMic;
+
+  private void answerMic(android.webkit.PermissionRequest request) {
+    boolean wantsMic = false;
+    for (String r : request.getResources()) if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) wantsMic = true;
+    Uri from = request.getOrigin();
+    boolean ours = from != null && ("127.0.0.1".equals(from.getHost()) || "localhost".equals(from.getHost()));
+    if (!wantsMic || !ours) { request.deny(); return; }
+    if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+      request.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+      return;
+    }
+    if (waitingMic != null) waitingMic.deny();
+    waitingMic = request;
+    requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC_REQUEST);
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+    if (requestCode != MIC_REQUEST) { super.onRequestPermissionsResult(requestCode, permissions, results); return; }
+    android.webkit.PermissionRequest request = waitingMic;
+    waitingMic = null;
+    if (request == null) return;
+    if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+      request.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+    } else request.deny();
+  }
 
   @Override
   protected void onActivityResult(int requestCode, int resultCode, Intent data) {

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { held_ } from "./memory";
+import { elevenTrouble, linesOf, voiceBase } from "./voice";
 import { bareName, fielded, hasName } from "./fields";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
@@ -393,6 +394,104 @@ api.put("/settings", async (c) => {
   return c.json({ ok: true });
 });
 
+// ---- a call: speaking and listening (src/voice.ts) -----------------------
+
+const elevenKey = () => String(getSettings().key_elevenlabs ?? "");
+const NO_VOICE_KEY = { error: "Add an ElevenLabs key under Connection → Voice to make a call." } as const;
+
+api.get("/voice/status", (c) => {
+  const s = getSettings();
+  return c.json({ ready: !!elevenKey(), default: s.voice_default, narrator: s.voice_narrator, reads: s.voice_reads,
+    pause: Number(s.voice_pause) || 1.2, interrupt: s.voice_interrupt === "1", tts: s.voice_tts_model, stt: s.voice_stt_model });
+});
+
+/** The voices on the account, every page of them. */
+api.get("/voice/voices", async (c) => {
+  if (!elevenKey()) return c.json(NO_VOICE_KEY, 400);
+  const voices: { id: string; name: string; category: string; preview: string | null }[] = [];
+  let next = "";
+  try {
+    for (let page = 0; page < 10; page++) {
+      const res = await fetch(`${voiceBase()}/v2/voices?page_size=100${next ? `&next_page_token=${encodeURIComponent(next)}` : ""}`,
+        { headers: { "xi-api-key": elevenKey() } });
+      if (!res.ok) return c.json({ error: elevenTrouble(res.status, await res.text()) }, 502);
+      const j: any = await res.json();
+      for (const v of Array.isArray(j?.voices) ? j.voices : []) {
+        if (v?.voice_id) voices.push({ id: String(v.voice_id), name: String(v.name ?? v.voice_id), category: String(v.category ?? ""), preview: v.preview_url ?? null });
+      }
+      if (!j?.has_more || !j?.next_page_token) break;
+      next = String(j.next_page_token);
+    }
+  } catch (e: any) {
+    return c.json({ error: `ElevenLabs could not be reached (${e?.message ?? "no connection"}).` }, 502);
+  }
+  return c.json({ voices });
+});
+
+/** A reply, as the lines a call says: see linesOf. */
+api.post("/voice/lines", async (c) => {
+  const { text, mode } = await c.req.json().catch(() => ({}));
+  const reads = mode === "all" || mode === "speech" ? mode : getSettings().voice_reads === "all" ? "all" : "speech";
+  return c.json({ lines: linesOf(typeof text === "string" ? text.slice(0, 60_000) : "", reads) });
+});
+
+/**
+ * One line, spoken: ElevenLabs' audio passed straight through as it is made, so it plays from the first bytes. The
+ * voice is the one asked for; else, for the telling, the narrator's; else the character's own; else the default.
+ */
+api.post("/voice/speak", async (c) => {
+  if (!elevenKey()) return c.json(NO_VOICE_KEY, 400);
+  const b = await c.req.json().catch(() => ({}));
+  const s = getSettings();
+  const said = text(b.text).trim().slice(0, 2000);
+  if (!said) return c.json({ error: "Nothing to say." }, 400);
+  const own = typeof b.character_id === "string" && b.character_id
+    ? String((db.query("SELECT voice FROM characters WHERE id = ?").get(b.character_id) as any)?.voice ?? "") : "";
+  const voice = text(b.voice) || (b.who === "narrator" ? s.voice_narrator : "") || own || s.voice_default;
+  if (!voice) return c.json({ error: "Choose a voice under Connection → Voice, or one for this character." }, 400);
+  const model = s.voice_tts_model || "eleven_flash_v2_5";
+  let res: Response;
+  try {
+    res = await fetch(`${voiceBase()}/v1/text-to-speech/${encodeURIComponent(voice)}/stream?output_format=mp3_44100_64`, {
+      method: "POST",
+      headers: { "xi-api-key": elevenKey(), "content-type": "application/json", accept: "audio/mpeg" },
+      // Flash reads numbers well only with normalisation on (ElevenLabs' models page).
+      body: JSON.stringify({ text: said, model_id: model, apply_text_normalization: model.startsWith("eleven_flash") ? "on" : "auto",
+        ...(typeof b.previous === "string" && b.previous ? { previous_text: b.previous.slice(-600) } : {}) }),
+      signal: c.req.raw.signal,
+    });
+  } catch (e: any) {
+    return c.json({ error: `ElevenLabs could not be reached (${e?.message ?? "no connection"}).` }, 502);
+  }
+  if (!res.ok || !res.body) return c.json({ error: elevenTrouble(res.status, await res.text().catch(() => "")) }, 502);
+  return new Response(res.body, { headers: { "content-type": res.headers.get("content-type") || "audio/mpeg", "cache-control": "no-store" } });
+});
+
+/** What was said into the microphone, as words: the recording goes to ElevenLabs and its transcript comes back. */
+api.post("/voice/hear", async (c) => {
+  if (!elevenKey()) return c.json(NO_VOICE_KEY, 400);
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size < 800) return c.json({ text: "" });
+  const out = new FormData();
+  out.set("model_id", getSettings().voice_stt_model || "scribe_v3");
+  // No "(laughs)" or "(door slams)" in what you said: those are for subtitles, not for a message.
+  out.set("tag_audio_events", "false");
+  out.set("file", file, file.name || "speech.webm");
+  let res: Response;
+  try {
+    res = await fetch(`${voiceBase()}/v1/speech-to-text`, { method: "POST", headers: { "xi-api-key": elevenKey() }, body: out });
+  } catch (e: any) {
+    return c.json({ error: `ElevenLabs could not be reached (${e?.message ?? "no connection"}).` }, 502);
+  }
+  const body = await res.text();
+  if (!res.ok) return c.json({ error: elevenTrouble(res.status, body) }, 502);
+  let j: any = {};
+  try { j = JSON.parse(body); } catch { /* answered with something else: nothing heard */ }
+  const heard = String(j?.text ?? (Array.isArray(j?.transcripts) ? j.transcripts.map((t: any) => t?.text ?? "").join(" ") : "")).trim();
+  return c.json({ text: heard, language: j?.language_code ?? null });
+});
+
 /** Fires one tiny generation so key and model problems surface before a roleplay does. */
 api.post("/test", async (c) => {
   const s = getSettings();
@@ -526,6 +625,7 @@ api.post("/characters", async (c) => {
     // table's, and does not turn up in a library of seven hundred others.
     currentWorld(),
   );
+  if (typeof b.voice === "string" && b.voice.trim()) db.query("UPDATE characters SET voice = ? WHERE id = ?").run(b.voice.trim().slice(0, 100), id);
   return c.json(db.query("SELECT * FROM characters WHERE id = ?").get(id));
 });
 
@@ -544,6 +644,7 @@ api.put("/characters/:id", async (c) => {
     text(b.first_message, cur.first_message ?? ""),
     c.req.param("id"),
   );
+  if (typeof b.voice === "string") db.query("UPDATE characters SET voice = ? WHERE id = ?").run(b.voice.trim().slice(0, 100), c.req.param("id"));
   return c.json({ ok: true });
 });
 

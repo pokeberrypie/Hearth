@@ -5657,6 +5657,8 @@ async function editChar(ch) {
   $("#c_personality").value = ch?.personality ?? "";
   $("#c_scenario").value = ch?.scenario ?? "";
   $("#c_first").value = ch?.first_message ?? "";
+  // The voice it speaks in on a call (public/call.js): offered only once there is a key to speak with.
+  if (typeof window.hearthCharacterVoice === "function") window.hearthCharacterVoice(ch).catch?.(() => {});
   charFace.reset(ch?.avatar ?? "");
   $("#charDialog").showModal();
 }
@@ -6098,6 +6100,8 @@ $("#charForm").addEventListener("submit", async (e) => {
     scenario: $("#c_scenario").value,
     first_message: $("#c_first").value,
   };
+  // Only when the picker is shown: hidden, it has no list to choose from, and sending its empty value would wipe one.
+  if ($("#c_voiceRow") && !$("#c_voiceRow").hidden) p.voice = $("#c_voice").value;
   if (!p.name.trim()) return;
   const r = await api(S.editing ? "/characters/" + S.editing : "/characters", {
     method: S.editing ? "PUT" : "POST",
