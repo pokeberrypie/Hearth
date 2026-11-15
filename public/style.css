@@ -8531,7 +8531,8 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 /* The call: on the right, beside send — not on the die's spot on the left, where it sat under the die. */
 .hc-call { left: auto; right: calc(15px + var(--hc-side) + 8px); }
 .hc-box:has(#callBtn:not([hidden])) { padding-right: calc(74px + var(--hc-ctl) + 8px); }
-.hc-call svg path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+/* No colour of its own: the die's gold, line and fill, from .hc-die svg — `currentColor` here was the button's
+   dark text colour, and the phone all but vanished against the box. */
 @media (min-width: 900px) {
   .hc-call { right: calc(16px + var(--hc-side) + 8px); }
   .hc-box:has(#callBtn:not([hidden])) { padding-right: calc(78px + var(--hc-ctl) + 8px); }
