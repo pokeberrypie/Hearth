@@ -2321,10 +2321,16 @@ api.post("/chats/delete", async (c) => {
 
 /** Chats grouped under the character they belong to. */
 api.get("/cast", (c) => {
-  const cast = db.query(
-    `SELECT id, name, avatar, description, world FROM characters
-     WHERE deleted_at IS NULL AND ${worldWhere()} ORDER BY name COLLATE NOCASE`,
-  ).all() as any[];
+  // One character by id, whichever room it belongs to: the chat list of the chat you have open. Filtered by the
+  // room, a story chat left open after switching to the table listed "No chats yet" for its own character, and
+  // read as every chat gone.
+  const only = c.req.query("character");
+  const cast = (only
+    ? db.query("SELECT id, name, avatar, description, world FROM characters WHERE id = ? AND deleted_at IS NULL").all(only)
+    : db.query(
+      `SELECT id, name, avatar, description, world FROM characters
+       WHERE deleted_at IS NULL AND ${worldWhere()} ORDER BY name COLLATE NOCASE`,
+    ).all()) as any[];
   const chats = db
     .query(`SELECT id, character_id, title, updated_at,
                    (SELECT COUNT(*) FROM messages WHERE messages.chat_id = chats.id) AS turns,

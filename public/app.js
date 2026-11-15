@@ -5108,7 +5108,8 @@ async function openFiles() {
 }
 
 async function renderFiles() {
-  const cast = await api("/cast");
+  // The open chat's own character, wherever it lives — not the room's cast, which leaves it out at the table.
+  const cast = await api(chatMeta?.character_id ? `/cast?character=${encodeURIComponent(chatMeta.character_id)}` : "/cast");
   const me = Array.isArray(cast) ? cast.find((c) => c.id === chatMeta?.character_id) : null;
   const list = $("#filesList");
   const chats = me?.chats ?? [];

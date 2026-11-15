@@ -87,3 +87,17 @@ describe("files picked by hand, on their own, are known by what is in them", () 
     expect((db.query("SELECT entries FROM lorebooks").all() as any[]).map((b) => JSON.parse(b.entries).length)).toEqual([3]);
   });
 });
+
+test("the open chat's own character lists its chats whichever room you are in — not 'No chats yet' at the table", async () => {
+  const { setSettings } = await import("./test-support");
+  db.query("INSERT INTO characters (id, name, created_at, world) VALUES ('j', 'Jaime Lannister', 1, 'story')").run();
+  db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at) VALUES ('c1', 'j', 'One', 1, 1), ('c2', 'j', 'Two', 2, 2)").run();
+  setSettings({ mode: "tabletop" });
+  const ask = async (u: string) => (await app.fetch(new Request(`http://home.test/api${u}`), HOME)).json();
+  // The room's cast at the table does not hold a story character...
+  expect((await ask("/cast")).find((c: any) => c.id === "j")).toBeUndefined();
+  // ...but asked for by name, it is there with every chat.
+  const [jaime] = await ask("/cast?character=j");
+  expect(jaime.chats.map((c: any) => c.title)).toEqual(["Two", "One"]);
+  setSettings({ mode: "story" });
+});
