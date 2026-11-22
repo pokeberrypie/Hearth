@@ -330,3 +330,19 @@ describe("POST /chats/:id/inspect", () => {
     expect(character.content).not.toContain("# Alpha\nFirst to arrive.");
   });
 });
+
+test("a finished reply says which character wrote it, so the page reads it in their voice, not the founder's", async () => {
+  const chat = seedGroup();
+  const t = 3000;
+  say("user", "", "u1", t, null);
+  // Alpha founded the chat and has spoken lately; somebody else will answer.
+  say("assistant", "Alpha", "r1", t + 1, "A");
+  setSettings({ provider: "openrouter", key_openrouter: "sk-test", model: "test/model" });
+  stubProvider();
+  const events = await drain(await post(`/api/chats/${chat.id}/generate`, { mode: "reply", content: "Who speaks?" }));
+  const done = events.find((e) => e.done && e.id);
+  const row = db.query("SELECT name, character_id FROM messages WHERE id = ?").get(done.id) as any;
+  expect(row.character_id).not.toBe("A");
+  expect(done.character_id).toBe(row.character_id);
+  expect(done.name).toBe(row.name);
+});

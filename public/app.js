@@ -3884,6 +3884,9 @@ async function run(mode, content = "", forcedGuide = "") {
             // reliable — always resync instead. `medallion()` is the same
             // markup a fresh page load produces, so there is nothing to drift.
             if (evt.name) setSpeaker(target, evt.avatar, evt.name);
+            // And whose voice reads it aloud: the bubble was drawn before the server chose who answers, so it had the
+            // chat's first character's voice, and every new reply in a group was read in it until the page reloaded.
+            if (evt.character_id || evt.name) target.dataset.voiceOf = evt.character_id || S.cast.find((c) => c.name === evt.name)?.id || target.dataset.voiceOf;
             const bar = target.querySelector(".swipes");
             if (bar && evt.swipes) {
               bar.dataset.count = evt.swipes;

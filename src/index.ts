@@ -1803,7 +1803,7 @@ api.post("/chats/:id/generate", async (c) => {
           savedId = id;
           tieNarration(chatId, id, t0);
           openingTime(chatId, id, full);
-          send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", thrown, ...stats });
+          send({ done: true, id, text: full, swipes: 1, index: 0, name: who.name, avatar: who.avatar ?? "", character_id: who.id ?? null, thrown, ...stats });
         }
       } finally {
         clearInterval(beat);
