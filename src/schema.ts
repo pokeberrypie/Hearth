@@ -276,6 +276,7 @@ export const ALTER_TABLES: string[] = [
   "ALTER TABLE characters ADD COLUMN world TEXT NOT NULL DEFAULT 'story'",
   // The ElevenLabs voice a character speaks in on a call (src/voice.ts); empty for the default.
   "ALTER TABLE characters ADD COLUMN voice TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE personas ADD COLUMN voice TEXT NOT NULL DEFAULT ''",
   // And the same for personas: who you are at the table is not necessarily
   // who you are in your stories, and a mode that arrived already wearing one
   // of your personas has decided something personal on your behalf.
@@ -618,6 +619,7 @@ export const DEFAULTS: Record<string, string> = {
   voice_reads: "speech",
   voice_tts_model: "eleven_flash_v2_5",
   voice_stability: "",
+  voice_user: "",
   voice_stt_model: "scribe_v3",
   voice_pause: "1.2",
   voice_interrupt: "0",

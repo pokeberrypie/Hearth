@@ -464,6 +464,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 6.5l3 3"/></svg>
           </button>
           <div id="sceneMembers" class="list"></div>
+          <button type="button" class="linkish wide voiceonly" data-cast-voices>Voices &rsaquo;</button>
           <label>Add someone
             <input id="scene_search" type="text" placeholder="Search characters…" autocomplete="off">
           </label>
@@ -1098,8 +1099,10 @@
           <div id="voiceSet" class="voiceset foldbody">
             <p class="hint">Tap the phone by the message box to talk to a character hands free: you speak, they answer aloud. Tap ▶ on any message to hear just that one.</p>
             <label>ElevenLabs key<input id="key_elevenlabs" type="password" autocomplete="off" spellcheck="false"></label>
-            <label>Voice<select id="voice_default"></select></label>
+            <label>Characters' voice<select id="voice_default"></select></label>
             <label>Narrator's voice<select id="voice_narrator"></select></label>
+            <label>Your voice<select id="voice_user"></select></label>
+            <p class="hint">These are the defaults. Give anyone in a chat a voice of their own under <b>Voices</b> in the cast list.</p>
             <label>Model<select id="voice_tts_model"></select></label>
             <p class="hint" id="voiceModelHint"></p>
             <label>Steadiness<select id="voice_stability">
@@ -1465,6 +1468,16 @@
 </dialog>
 
 <!-- Pick one of several: which preset a spell belongs to, and the like. -->
+<!-- Who sounds like whom in this chat: each of the cast, you, and the narrator (public/call.js). Saved as it changes;
+     a character's voice is theirs in every chat. -->
+<dialog id="voicesDialog" class="voicesd">
+  <h2>Voices</h2>
+  <p class="hint">Left on the default, they use the one under Connection &rarr; Voice. A character's own voice goes with them into every chat.</p>
+  <div id="voicesList" class="voiceslist"></div>
+  <p class="hint" id="voicesHint"></p>
+  <div class="askrow"><button type="button" class="solid" id="voicesDone">Done</button></div>
+</dialog>
+
 <dialog id="chooseDialog">
   <h2 id="chooseTitle">Choose</h2>
   <div id="chooseList" class="chooselist"></div>
@@ -1633,7 +1646,7 @@
     <label>Personality<textarea id="c_personality" rows="3"></textarea></label>
     <label>Scene<textarea id="c_scenario" rows="3"></textarea></label>
     <label>Opening message<textarea id="c_first" rows="4"></textarea></label>
-    <label id="c_voiceRow" hidden>Voice on a call<select id="c_voice"></select></label>
+    <label id="c_voiceRow" hidden>Voice<select id="c_voice"></select></label>
     <div class="actions">
       <button value="cancel" class="ghost" formnovalidate>Cancel</button>
       <button value="save" class="solid">Save</button>
@@ -1821,6 +1834,7 @@
     <h2>Actors</h2>
     <p class="hint">Tap a face above the chat to hand them the next turn.</p>
     <div id="memberList"></div>
+    <button type="button" class="linkish wide voiceonly" data-cast-voices>Voices &rsaquo;</button>
     <label>Add someone
       <input id="room_search" type="text" placeholder="Search characters…" autocomplete="off">
     </label>

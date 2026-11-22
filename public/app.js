@@ -4300,7 +4300,7 @@ $("#thread").addEventListener("click", async (e) => {
   }
 
   if (e.target.closest("[data-say]")) {
-    window.hearthReadAloud?.(e.target.closest("[data-say]"), msg.dataset.raw || "", msg.dataset.voiceOf || "", msg.dataset.id || "");
+    window.hearthReadAloud?.(e.target.closest("[data-say]"), msg.dataset.raw || "", msg.dataset.voiceOf || "", msg.classList.contains("mine"));
     return;
   }
 

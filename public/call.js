@@ -61,6 +61,7 @@
     if (!st.ready) {
       fillVoices(el("voice_default"), "", "Add a key to choose");
       fillVoices(el("voice_narrator"), "", "Add a key to choose");
+      fillVoices(el("voice_user"), "", "Add a key to choose");
       hint.textContent = "Calls speak and listen through ElevenLabs. Paste an API key from elevenlabs.io (Profile → API keys).";
       return;
     }
@@ -69,6 +70,7 @@
     await Promise.all([voices(true), paintModels(st.tts)]);
     fillVoices(el("voice_default"), st.default, "Choose a voice");
     fillVoices(el("voice_narrator"), st.narrator, "The speaker's own voice");
+    fillVoices(el("voice_user"), st.user, "The characters' voice");
     hint.textContent = voiceList.error ? voiceList.error
       : `${voiceList.length} voice${voiceList.length === 1 ? "" : "s"} on the account. Give a character its own in its editor.`;
   }
@@ -117,7 +119,7 @@
       paintVoiceSettings();
     });
     el("voice_tts_model").addEventListener("change", (e) => { noteModel(); save({ voice_tts_model: e.target.value }); });
-    for (const id of ["voice_default", "voice_narrator", "voice_reads", "voice_stability"]) {
+    for (const id of ["voice_default", "voice_narrator", "voice_user", "voice_reads", "voice_stability"]) {
       el(id).addEventListener("change", (e) => save({ [id]: e.target.value }));
     }
     el("voice_pause").addEventListener("input", (e) => { el("voice_pause_v").textContent = `${Number(e.target.value).toFixed(1)} s`; });
@@ -156,7 +158,7 @@
     el("c_voiceRow").hidden = !C.status.ready;
     if (!C.status.ready) return;
     await voices();
-    fillVoices(select, character?.voice ?? "", "The default voice");
+    fillVoices(select, character?.voice ?? "", "The characters' voice");
   }
   window.hearthCharacterVoice = paintCharacterVoice;
 
@@ -476,7 +478,7 @@
       a.play().catch(() => end("error"));
     });
   }
-  async function readAloud(btn, text, characterId) {
+  async function readAloud(btn, text, characterId, mine = false) {
     if (R.btn === btn) { readingStopped(); return; }
     readingStopped();
     if (C.on) { toast("A call is on: it is already reading the replies."); return; }
@@ -486,7 +488,9 @@
     R.btn = btn;
     btn.innerHTML = ICON.hush; btn.classList.add("on"); btn.title = "Stop reading"; btn.setAttribute("aria-label", "Stop reading");
     const r = await api("/voice/lines", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) }).catch(() => null);
-    const lines = (r?.lines ?? []).map((l, i, all) => ({ text: l.text, who: l.who, character_id: characterId || "", previous: i ? all[i - 1].text : "" }));
+    // Your own message is all yours, telling and all: in your voice, not the narrator's.
+    const lines = (r?.lines ?? []).map((l, i, all) => ({ text: l.text, who: mine ? "user" : l.who, character_id: characterId || "",
+      chat_id: S.chatId || "", previous: i ? all[i - 1].text : "" }));
     if (run !== R.run) return;
     if (!lines.length) { readingStopped(); toast("Nothing in that message to read aloud."); return; }
     let next = fetchLine(lines[0]);
@@ -502,12 +506,67 @@
     if (run === R.run) readingStopped();
   }
 
+  // ---- voices for this chat's cast --------------------------------------------------------------------------------
+
+  async function openCastVoices() {
+    if (!S.chatId) { toast("Open a chat first."); return; }
+    const st = C.status ?? (C.status = await api("/voice/status").catch(() => null));
+    if (!st?.ready) { toast("Add an ElevenLabs key under Connection → Voice first."); return; }
+    const [who, list] = await Promise.all([api(`/voice/cast?chat=${encodeURIComponent(S.chatId)}`), voices()]);
+    const named = (id) => list.find((v) => v.id === id)?.name;
+    const chars = named(who.defaults.characters);
+    const rows = [
+      ...who.cast.map((c) => ({ kind: "character", id: c.id, name: c.name, avatar: c.avatar, voice: c.voice,
+        blank: `The characters' voice${chars ? ` (${chars})` : ""}` })),
+      ...(who.you ? [{ kind: "persona", id: who.you.id, name: `${who.you.name} (you)`, avatar: who.you.avatar, voice: who.you.voice,
+        blank: `Your voice${named(who.defaults.user || who.defaults.characters) ? ` (${named(who.defaults.user || who.defaults.characters)})` : ""}` }] : []),
+      { kind: "narrator", id: "", name: "The narrator", avatar: "", voice: who.defaults.narrator, blank: "The speaker's own voice", note: "Reads the telling, when Reads is set to everything" },
+    ];
+    const box = el("voicesList");
+    box.innerHTML = "";
+    for (const r of rows) {
+      const row = document.createElement("div");
+      row.className = "voicerow";
+      row.innerHTML = `${typeof medallion === "function" && r.kind !== "narrator" ? medallion(r.avatar, r.name) : ""}` +
+        `<label><span class="vname">${esc(r.name)}</span>${r.note ? `<small class="hint">${esc(r.note)}</small>` : ""}<select></select></label>` +
+        `<button type="button" class="bico" title="Hear ${esc(r.name)}" aria-label="Hear ${esc(r.name)}">${ICON.say}</button>`;
+      const select = row.querySelector("select");
+      fillVoices(select, r.voice, r.blank);
+      select.addEventListener("change", async () => {
+        const v = select.value;
+        const res = r.kind === "character" ? await api(`/characters/${r.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice: v }) })
+          : r.kind === "persona" ? await api(`/personas/${r.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice: v }) })
+          : await save({ voice_narrator: v });
+        el("voicesHint").textContent = res?.error ? res.error : `Saved: ${r.name.replace(/ \(you\)$/, "")} ${v ? `now sounds like ${named(v) ?? "that voice"}` : "uses the default"}.`;
+        if (r.kind === "narrator" && C.status) C.status.narrator = v;
+      });
+      row.querySelector("button").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        readingStopped();
+        const run = R.run;
+        btn.classList.add("on");
+        const line = { text: "The fire is lit, and I am listening.", voice: select.value,
+          who: r.kind === "persona" ? "user" : r.kind === "narrator" ? "narrator" : "speaker",
+          character_id: r.kind === "character" ? r.id : "", chat_id: S.chatId || "" };
+        const got = await fetchLine(line);
+        if (got.error) el("voicesHint").textContent = got.error;
+        else await playOnce(got.blob, run);
+        btn.classList.remove("on");
+      });
+      box.appendChild(row);
+    }
+    el("voicesHint").textContent = "";
+    el("voicesDialog").showModal();
+  }
+
   function boot() {
+    document.addEventListener("click", (e) => { if (e.target.closest("[data-cast-voices]")) { e.preventDefault(); openCastVoices(); } });
+    el("voicesDone")?.addEventListener("click", () => { readingStopped(); el("voicesDialog").close(); });
     wireSettings();
     wireCall();
     paintVoiceSettings().catch(() => {});
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
   window.hearthCall = { start: startCall, end: endCall, state: () => C.state };
-  window.hearthReadAloud = (btn, text, characterId) => readAloud(btn, text, characterId).catch(() => readingStopped());
+  window.hearthReadAloud = (btn, text, characterId, mine) => readAloud(btn, text, characterId, mine).catch(() => readingStopped());
 })();

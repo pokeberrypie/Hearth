@@ -401,9 +401,45 @@ const NO_VOICE_KEY = { error: "Add an ElevenLabs key under Connection → Voice 
 
 api.get("/voice/status", (c) => {
   const s = getSettings();
-  return c.json({ ready: !!elevenKey(), default: s.voice_default, narrator: s.voice_narrator, reads: s.voice_reads,
+  return c.json({ ready: !!elevenKey(), default: s.voice_default, narrator: s.voice_narrator, user: s.voice_user ?? "", reads: s.voice_reads,
     pause: Number(s.voice_pause) || 1.2, interrupt: s.voice_interrupt === "1", tts: s.voice_tts_model, stt: s.voice_stt_model,
     stability: s.voice_stability ?? "" });
+});
+
+/**
+ * Whose voice a line is said in. The telling: the narrator's, else the speaker's. Yours: your persona's own, else
+ * "Your voice", else the characters' default. A character's: their own, else the characters' default.
+ */
+function voiceFor(who: unknown, characterId: unknown, chatId: unknown): string {
+  const s = getSettings();
+  if (who === "user") {
+    const chat = typeof chatId === "string" && chatId ? db.query("SELECT persona_id FROM chats WHERE id = ?").get(chatId) as any : null;
+    const me = whoAmI(chat?.persona_id) as any;
+    const mine = me?.id ? String((db.query("SELECT voice FROM personas WHERE id = ?").get(me.id) as any)?.voice ?? "") : "";
+    return mine || s.voice_user || s.voice_default;
+  }
+  const own = typeof characterId === "string" && characterId
+    ? String((db.query("SELECT voice FROM characters WHERE id = ?").get(characterId) as any)?.voice ?? "") : "";
+  return (who === "narrator" ? s.voice_narrator : "") || own || s.voice_default;
+}
+
+/** Everyone a chat's lines are said by, and the voice each has: the cast, you, and the narrator. */
+api.get("/voice/cast", (c) => {
+  const s = getSettings();
+  const chat = db.query("SELECT * FROM chats WHERE id = ?").get(c.req.query("chat") ?? "") as any;
+  const cast = chat ? (membersOf(chat) as any[]).map((m) => {
+    const id = m.character_id ?? m.id;
+    const row = db.query("SELECT id, name, avatar, voice FROM characters WHERE id = ?").get(id) as any;
+    return row ? { id: row.id, name: row.name, avatar: row.avatar ?? "", voice: row.voice ?? "" } : null;
+  }).filter(Boolean) : [];
+  if (chat && !cast.length) {
+    const row = db.query("SELECT id, name, avatar, voice FROM characters WHERE id = ?").get(chat.character_id) as any;
+    if (row) cast.push({ id: row.id, name: row.name, avatar: row.avatar ?? "", voice: row.voice ?? "" });
+  }
+  const me = whoAmI(chat?.persona_id) as any;
+  const mine = me?.id ? db.query("SELECT id, name, avatar, voice FROM personas WHERE id = ?").get(me.id) as any : null;
+  return c.json({ cast, you: mine ? { id: mine.id, name: mine.name, avatar: mine.avatar ?? "", voice: mine.voice ?? "" } : null,
+    defaults: { characters: s.voice_default, narrator: s.voice_narrator, user: s.voice_user } });
 });
 
 /** The speaking models the account can use, newest ElevenLabs lists first. */
@@ -461,9 +497,7 @@ api.post("/voice/speak", async (c) => {
   const s = getSettings();
   const said = text(b.text).trim().slice(0, 2000);
   if (!said) return c.json({ error: "Nothing to say." }, 400);
-  const own = typeof b.character_id === "string" && b.character_id
-    ? String((db.query("SELECT voice FROM characters WHERE id = ?").get(b.character_id) as any)?.voice ?? "") : "";
-  const voice = text(b.voice) || (b.who === "narrator" ? s.voice_narrator : "") || own || s.voice_default;
+  const voice = text(b.voice) || voiceFor(b.who, b.character_id, b.chat_id);
   if (!voice) return c.json({ error: "Choose a voice under Connection → Voice, or one for this character." }, 400);
   const model = text(b.model) || s.voice_tts_model || "eleven_flash_v2_5";
   // How steady the voice is, when chosen: lower varies more from line to line, higher keeps it even. Left unchosen,
@@ -9625,6 +9659,7 @@ api.put("/personas/:id", async (c) => {
   if (!cur) return c.json({ error: "Persona not found." }, 404);
   db.query("UPDATE personas SET name = ?, description = ? WHERE id = ?")
     .run(text(b.name).trim() || cur.name, text(b.description, cur.description ?? ""), c.req.param("id"));
+  if (typeof b.voice === "string") db.query("UPDATE personas SET voice = ? WHERE id = ?").run(b.voice.slice(0, 80), c.req.param("id"));
   return c.json({ ok: true });
 });
 

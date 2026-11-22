@@ -145,6 +145,37 @@ describe("speaking and listening, through ElevenLabs", () => {
     expect(voiceSteadiness("eleven_v4_turbo", "0.3")).toBe(0.3);
   });
 
+  test("your lines: your persona's own voice, else Your voice, else the characters' voice", async () => {
+    setSettings({ key_elevenlabs: "sk-el", voice_default: "everyone", voice_narrator: "teller", voice_user: "" });
+    db.query("INSERT INTO personas (id, name, created_at) VALUES ('y', 'Yvenna', 1)").run();
+    db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at, persona_id) VALUES ('ch', 'j', 'A', 1, 1, 'y')").run();
+    reply = () => new Response(new Uint8Array([1]), { headers: { "content-type": "audio/mpeg" } });
+    const said = async () => { await post("/voice/speak", { text: "I draw.", who: "user", chat_id: "ch" }); return sent.at(-1)!.url.split("/")[5]; };
+    expect(await said()).toBe("everyone");
+    setSettings({ voice_user: "me-default" });
+    expect(await said()).toBe("me-default");
+    await ask("/personas/y", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice: "yvenna-voice" }) });
+    expect(await said()).toBe("yvenna-voice");
+    // Saving a voice leaves the rest of the persona as it was.
+    expect(db.query("SELECT name, voice FROM personas WHERE id = 'y'").get()).toEqual({ name: "Yvenna", voice: "yvenna-voice" });
+    // Never the narrator's, even for the telling in your own message.
+    expect(sent.every((x) => !x.url.includes("/teller/"))).toBe(true);
+  });
+
+  test("the cast's voices for a chat: each of them, you, the narrator, and the defaults", async () => {
+    setSettings({ key_elevenlabs: "sk-el", voice_default: "everyone", voice_narrator: "teller", voice_user: "me" });
+    db.query("INSERT INTO personas (id, name, voice, created_at) VALUES ('y', 'Yvenna', 'yv', 1)").run();
+    db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at, persona_id) VALUES ('g', 'j', 'Court', 1, 1, 'y')").run();
+    db.query("INSERT INTO chat_members (id, chat_id, character_id, position) VALUES ('m1', 'g', 'j', 0), ('m2', 'g', 't', 1)").run();
+    const r = await (await ask("/voice/cast?chat=g")).json();
+    expect(r.cast.map((c: any) => [c.name, c.voice])).toEqual([["Jaime", "jaime-voice"], ["Tywin", ""]]);
+    expect(r.you).toMatchObject({ id: "y", name: "Yvenna", voice: "yv" });
+    expect(r.defaults).toEqual({ characters: "everyone", narrator: "teller", user: "me" });
+    // A solo chat: its one character.
+    db.query("INSERT INTO chats (id, character_id, title, created_at, updated_at) VALUES ('solo', 't', 'Alone', 1, 1)").run();
+    expect((await (await ask("/voice/cast?chat=solo")).json()).cast.map((c: any) => c.name)).toEqual(["Tywin"]);
+  });
+
   test("the speaking models on the account, and only those", async () => {
     setSettings({ key_elevenlabs: "sk-el" });
     reply = () => Response.json([
