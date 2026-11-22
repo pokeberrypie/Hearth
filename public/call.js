@@ -50,6 +50,7 @@
     if (!box) return;
     const st = await api("/voice/status");
     C.status = st;
+    document.body.classList.toggle("voice-ready", !!st?.ready);
     const key = el("key_elevenlabs");
     if (key && document.activeElement !== key) key.value = st.ready ? "__saved__" : "";
     el("voice_reads").value = st.reads === "all" ? "all" : "speech";
@@ -335,6 +336,7 @@
     // Guests at a shared table do not call: the voice, the key and the story's turn are all the host's. Known only
     // once the page has asked who it is for, so asked here, not when the script loads.
     if (typeof GUEST !== "undefined" && GUEST.on) { el("callBtn").hidden = true; return; }
+    readingStopped();
     C.status = await api("/voice/status");
     if (!C.status?.ready) {
       toast("Add an ElevenLabs key under Connection → Voice to make a call.");
@@ -401,6 +403,60 @@
     });
   }
 
+  // ---- reading one message aloud -------------------------------------------------------------------------------
+
+  /**
+   * The play button on a message: that message, said in its speaker's voice, line by line, the next line fetched
+   * while this one plays. Tapped again, or another message's button tapped, it stops. Not while a call is on: the
+   * call is already speaking.
+   */
+  const R = { btn: null, audio: null, run: 0 };
+  function readingStopped() {
+    R.run++;
+    try { R.audio?.pause(); } catch {}
+    R.audio = null;
+    if (R.btn) { R.btn.innerHTML = ICON.say; R.btn.classList.remove("on"); R.btn.title = "Read aloud"; R.btn.setAttribute("aria-label", "Read aloud"); }
+    R.btn = null;
+  }
+  function playOnce(blob, run) {
+    return new Promise((resolve) => {
+      if (run !== R.run) return resolve("cut");
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      R.audio = a;
+      const end = (why) => { URL.revokeObjectURL(url); clearInterval(watch); resolve(why); };
+      const watch = setInterval(() => { if (run !== R.run) { try { a.pause(); } catch {} end("cut"); } }, 100);
+      a.onended = () => end("ended");
+      a.onerror = () => end("error");
+      a.play().catch(() => end("error"));
+    });
+  }
+  async function readAloud(btn, text, characterId) {
+    if (R.btn === btn) { readingStopped(); return; }
+    readingStopped();
+    if (C.on) { toast("A call is on: it is already reading the replies."); return; }
+    if (!C.status?.ready) C.status = await api("/voice/status").catch(() => null);
+    if (!C.status?.ready) { toast("Add an ElevenLabs key under Connection → Voice to hear messages read aloud."); return; }
+    const run = R.run;
+    R.btn = btn;
+    btn.innerHTML = ICON.hush; btn.classList.add("on"); btn.title = "Stop reading"; btn.setAttribute("aria-label", "Stop reading");
+    const r = await api("/voice/lines", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) }).catch(() => null);
+    const lines = (r?.lines ?? []).map((l, i, all) => ({ text: l.text, who: l.who, character_id: characterId || "", previous: i ? all[i - 1].text : "" }));
+    if (run !== R.run) return;
+    if (!lines.length) { readingStopped(); toast("Nothing in that message to read aloud."); return; }
+    let next = fetchLine(lines[0]);
+    for (let i = 0; i < lines.length; i++) {
+      const got = await next;
+      if (run !== R.run) return;
+      next = i + 1 < lines.length ? fetchLine(lines[i + 1]) : null;
+      if (got.error) { readingStopped(); toast(got.error); return; }
+      const why = await playOnce(got.blob, run);
+      if (why === "cut") return;
+      if (why === "error") { readingStopped(); toast("That could not be played here."); return; }
+    }
+    if (run === R.run) readingStopped();
+  }
+
   function boot() {
     wireSettings();
     wireCall();
@@ -408,4 +464,5 @@
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
   window.hearthCall = { start: startCall, end: endCall, state: () => C.state };
+  window.hearthReadAloud = (btn, text, characterId) => readAloud(btn, text, characterId).catch(() => readingStopped());
 })();

@@ -887,6 +887,8 @@ function messageEl(m, depth = 0) {
   el.className = "msg" + (m.role === "user" ? " mine" : "");
   el.dataset.id = m.id ?? "";
   el.dataset.raw = m.content ?? "";
+  // Whose voice reads it aloud: the character who said it; yours is read in the default voice.
+  el.dataset.voiceOf = m.role === "user" ? "" : m.character_id || S.cast.find((c) => c.name === m.name)?.id || chatMeta?.character_id || "";
   const { name: who, avatar: face } = speakerOf(m);
   el.innerHTML =
     `<div class="who">${medallion(face, who)}<span class="nametext">${esc(who)}</span></div>` +
@@ -952,6 +954,8 @@ function swipeBar(m) {
 const ICON = {
   copy: `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>`,
   tick: `<svg viewBox="0 0 24 24"><path d="M5 13l4.5 4.5L19 7"/></svg>`,
+  say: `<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>`,
+  hush: `<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>`,
   edit: `<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 6.5l3 3"/></svg>`,
   up:   `<svg viewBox="0 0 24 24"><path d="M12 19V6"/><path d="M6 12l6-6 6 6"/></svg>`,
   downArrow: `<svg viewBox="0 0 24 24"><path d="M12 5v13"/><path d="M6 12l6 6 6-6"/></svg>`,
@@ -971,6 +975,7 @@ const ICON = {
 
 const tools = () =>
   `<div class="tools">` +
+  `<button data-say title="Read aloud" aria-label="Read aloud">${ICON.say}</button>` +
   `<button data-copy title="Copy" aria-label="Copy">${ICON.copy}</button>` +
   `<button data-edit title="Edit" aria-label="Edit">${ICON.edit}</button>` +
   `<button data-branch title="Branch from here" aria-label="Branch from here">${ICON.branch}</button>` +
@@ -4291,6 +4296,11 @@ $("#thread").addEventListener("click", async (e) => {
       bar.querySelector('[data-swipe="-1"]').disabled = next === 0;
       capSwipes(bar);
     }
+    return;
+  }
+
+  if (e.target.closest("[data-say]")) {
+    window.hearthReadAloud?.(e.target.closest("[data-say]"), msg.dataset.raw || "", msg.dataset.voiceOf || "", msg.dataset.id || "");
     return;
   }
 

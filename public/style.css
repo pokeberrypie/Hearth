@@ -8590,3 +8590,8 @@ dialog.calld::backdrop { background: rgba(4, 3, 2, 0.86); }
 .sw-tableonly { display: none; }
 body[data-mode="tabletop"] .sw-tableonly { display: block; }
 body[data-mode="tabletop"] .sw-storyonly { display: none; }
+
+/* Read aloud: only with an ElevenLabs key saved, and never for a guest, whose voice and key are the host's. */
+.tools [data-say] { display: none; }
+body.voice-ready:not(.guest) .tools [data-say] { display: grid; }
+.tools [data-say].on { color: var(--lumiverse-primary); }
