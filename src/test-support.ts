@@ -42,7 +42,7 @@ export function wipe() {
     "presets", "lorebooks", "lorebook_links", "settings",
     // Extensions run code during generation, so one left behind by an earlier
     // test would quietly rewrite a later test's reply.
-    "extensions", "regex_scripts",
+    "extensions", "regex_scripts", "tracks",
   ]) {
     db.query(`DELETE FROM ${t}`).run();
   }

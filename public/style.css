@@ -8613,3 +8613,27 @@ body.voice-ready:not(.guest) .voiceonly { display: block; }
 .voicerow .vname { display: block; }
 .voicerow .medallion { flex: none; align-self: center; }
 .voicerow .bico.on { color: var(--lumiverse-primary); }
+
+/* Music: the ♪ in the bar, its panel, and the playlist in Chat settings. */
+.bar:has(#musicBtn:not([hidden])) .barside { min-width: calc(3 * var(--bar-icon, 42px) + 8px); }
+#musicBtn.on svg { stroke: var(--lumiverse-primary); }
+.musicpop {
+  position: fixed; z-index: 60; top: calc(var(--bar-h) + env(safe-area-inset-top) + 6px); right: 12px; width: min(300px, calc(100vw - 24px));
+  padding: 0.8rem 0.9rem; display: grid; gap: 0.6rem;
+  background: var(--lumiverse-bg-elevated); border: 1px solid var(--lumiverse-border);
+  border-radius: var(--lumiverse-radius-sm); box-shadow: 0 10px 30px rgb(0 0 0 / 0.45);
+}
+.musicpop[hidden] { display: none; }
+.musicpop .mnow { display: grid; gap: 0.1rem; min-width: 0; }
+.musicpop .mlabel { font-size: 0.72rem; color: var(--lumiverse-text-hint); }
+.musicpop .mnow b { font-weight: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.musicpop .mcontrols { display: flex; justify-content: center; align-items: center; gap: 1rem; }
+.musicpop .bico { display: grid; place-items: center; width: 36px; height: 36px; background: none; border: 0; color: var(--lumiverse-text-muted); cursor: pointer; }
+.musicpop .bico svg { width: 18px; }
+.musicpop .bico.big { width: 46px; height: 46px; border: 1px solid var(--lumiverse-border); border-radius: 50%; color: var(--lumiverse-primary); }
+.musicpop .mvol { display: grid; gap: 0.2rem; font-size: 0.8rem; margin: 0; }
+.musiclist { display: grid; gap: 0.25rem; margin: 0.4rem 0 0.6rem; }
+.musiclist .mrow { display: flex; align-items: center; gap: 0.5rem; }
+.musiclist .mrow > label { flex: 1; min-width: 0; margin: 0; }
+.musiclist .mtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.musiclist .mrow:not(.on) .mtitle { color: var(--lumiverse-text-dim); }

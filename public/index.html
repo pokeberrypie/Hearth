@@ -163,6 +163,9 @@
       </svg>
       </div>
       <div class="barside right">
+        <button class="icon" id="musicBtn" aria-label="Music" title="Music" hidden>
+          <svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+        </button>
         <button class="icon" id="chatMenuBtn" aria-label="Chat options" hidden>
           <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
         </button>
@@ -174,6 +177,17 @@
         </button>
       </div>
     </header>
+    <!-- The music now playing (public/music.js): opened from the ♪ in the bar. -->
+    <div id="musicPop" class="musicpop" hidden>
+      <div class="mnow"><span class="mlabel">Now playing</span><b id="musicNow"></b></div>
+      <div class="mcontrols">
+        <button type="button" class="bico" id="musicPrev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M18 18 9 12l9-6z"/><path d="M6 6v12"/></svg></button>
+        <button type="button" class="bico big" id="musicPlay" aria-label="Play"></button>
+        <button type="button" class="bico" id="musicNext" aria-label="Next"><svg viewBox="0 0 24 24"><path d="m6 6 9 6-9 6z"/><path d="M18 6v12"/></svg></button>
+      </div>
+      <label class="mvol">Volume<input type="range" id="musicVol" min="0" max="100" step="1"></label>
+      <button type="button" class="linkish" id="musicEdit">This chat's music &rsaquo;</button>
+    </div>
 
 
     <div class="castbar" id="castBar" hidden></div>
@@ -1770,6 +1784,15 @@
     weighs nothing. Off unless you pick one, and only ever for this chat.</p>
   <div id="sceneAmbience" class="ambgrid"></div>
 
+  <h3>Music</h3>
+  <p class="hint">Your own songs, played under this chat from the &#9835; at the top. Ticked ones are this chat's playlist,
+    in this order, looping; another chat can have its own. Plays alongside the sound above, and dips while a voice is speaking.</p>
+  <div id="sceneMusic" class="musiclist"></div>
+  <label class="check"><input type="checkbox" id="musicShuffle"> Shuffle</label>
+  <button type="button" class="ghost wide" id="musicAdd">Add music&hellip;</button>
+  <input type="file" id="musicFiles" accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.wav,.flac" multiple hidden>
+  <p class="hint" id="musicHint"></p>
+
   <h3>The tale it follows</h3>
   <p class="hint">A story from the Apocrypha. The model is shown the scene you are in and
     nothing past the next one's name, and the story only moves on when you move it.
@@ -2169,6 +2192,7 @@
   </div>
 </dialog>
 <script src="/call.js"></script>
+<script src="/music.js"></script>
 
 <!-- A Victorian corner spandrel: the rule turning the corner, a volute
      scrolling in at the elbow, and acanthus leaves breaking off it. Drawn for

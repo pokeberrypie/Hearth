@@ -277,6 +277,7 @@ export const ALTER_TABLES: string[] = [
   // The ElevenLabs voice a character speaks in on a call (src/voice.ts); empty for the default.
   "ALTER TABLE characters ADD COLUMN voice TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE personas ADD COLUMN voice TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE chats ADD COLUMN music TEXT NOT NULL DEFAULT ''",
   // And the same for personas: who you are at the table is not necessarily
   // who you are in your stories, and a mode that arrived already wearing one
   // of your personas has decided something personal on your behalf.
@@ -444,6 +445,15 @@ CREATE INDEX IF NOT EXISTS idx_kits_kind ON kits(kind, position, created_at);
 `;
 
 export const CREATE_SHARES = `
+CREATE TABLE IF NOT EXISTS tracks (
+  id         TEXT PRIMARY KEY,
+  title      TEXT NOT NULL,
+  file       TEXT NOT NULL,
+  type       TEXT NOT NULL DEFAULT 'audio/mpeg',
+  size       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS shares (
   id         TEXT PRIMARY KEY,
   chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,

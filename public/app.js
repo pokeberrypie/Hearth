@@ -5096,6 +5096,7 @@ async function openScene() {
 
   renderTale();
   renderNotesPick();
+  window.hearthMusic?.paintPicker(chatMeta);
   $("#sceneDialog").showModal();
 }
 
@@ -11389,6 +11390,7 @@ const ambience = (() => {
  * right not to; opening a chat is not consent to be made to hear rain.
  */
 function applyChatRoom() {
+  window.hearthMusic?.follow(chatMeta);
   const r = document.documentElement.style;
   const accent = chatMeta?.accent || "";
   if (accent) {

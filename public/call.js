@@ -258,9 +258,11 @@
         try { a.pause(); } catch {}
         URL.revokeObjectURL(url);
         C.audio = null;
+        window.hearthMusic?.duck(false);
         resolve(why);
       };
       C.cutSpeech = () => end("cut");
+      window.hearthMusic?.duck(true);
       a.onended = () => end("ended");
       a.onerror = () => end("error");
       let over_ = 0;
@@ -471,7 +473,9 @@
       const url = URL.createObjectURL(blob);
       const a = new Audio(url);
       R.audio = a;
-      const end = (why) => { URL.revokeObjectURL(url); clearInterval(watch); resolve(why); };
+      window.hearthMusic?.duck(true);
+      let over = false;
+      const end = (why) => { if (over) return; over = true; URL.revokeObjectURL(url); clearInterval(watch); window.hearthMusic?.duck(false); resolve(why); };
       const watch = setInterval(() => { if (run !== R.run) { try { a.pause(); } catch {} end("cut"); } }, 100);
       a.onended = () => end("ended");
       a.onerror = () => end("error");

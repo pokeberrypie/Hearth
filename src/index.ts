@@ -32,7 +32,7 @@ function connectionFrom(s: Record<string, string>, provider = s.provider) {
   };
 }
 import { dirname, join } from "node:path";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { buildParts, buildMessages, buildPostHistory, estimateTokens, macros, stripSpeakerLabel, windowOf, type Character } from "./prompt";
 import { namedIn, recall, recallBrief, related } from "./recall";
 import { active as stillGoing, gossipDay, gossipOf, told as knowingTold, willSpread, type Knowing } from "./whispers";
@@ -72,6 +72,7 @@ import { packIsUsable, readPackManifest, slugId } from "./avatar";
 import { listModels } from "./models";
 import { readZip, planBackup, eachZipEntry, type Entry } from "./backup";
 import { listDir, collect, places, isWanted } from "./localfs";
+import { audioKind, playlistOf, rangeOf, titleOf } from "./music";
 import { normaliseBook, normaliseEntry, activate, place, stampEntries, recencyOf, type LoreEntry } from "./lore";
 import {
   PRESET_FIELDS, DEFAULT_BLOCKS, fromHearth, fromSillyTavern, isHearthPreset, keptOnly, normaliseBlocks,
@@ -2163,6 +2164,90 @@ api.delete("/avatar/packs/:id", (c) => {
   if (!id || !existsSync(dir)) return c.json({ error: "No such pack." }, 404);
   rmSync(dir, { recursive: true, force: true });
   return c.json({ ok: true });
+});
+
+// ---- music ----------------------------------------------------------------
+
+// Under uploads, so a full backup carries the music and a restore brings it back, as it does the pictures.
+const MUSIC = join(UPLOADS, "music");
+const MUSIC_MOST = 150 * 1024 * 1024;
+
+/** Every track, by title. */
+api.get("/music", (c) =>
+  c.json(db.query("SELECT id, title, type, size, created_at FROM tracks ORDER BY title COLLATE NOCASE").all()));
+
+/** Files brought in, one or many: each kept, named after its file. What is not audio is said, and left out. */
+api.post("/music", async (c) => {
+  const form = await c.req.formData().catch(() => null);
+  if (!form) return c.json({ error: "No files received." }, 400);
+  mkdirSync(MUSIC, { recursive: true });
+  const added: any[] = [], skipped: string[] = [];
+  for (const f of form.getAll("files")) {
+    if (!(f instanceof File)) continue;
+    const kind = audioKind(f.name);
+    if (!kind) { skipped.push(`${f.name} (not a sound file Hearth can play)`); continue; }
+    if (f.size > MUSIC_MOST) { skipped.push(`${f.name} (over ${MUSIC_MOST / 1024 / 1024} MB)`); continue; }
+    const id = uid();
+    const file = `${id}.${kind.ext}`;
+    writeFileSync(join(MUSIC, file), new Uint8Array(await f.arrayBuffer()));
+    const row = { id, title: titleOf(f.name), file, type: kind.type, size: f.size, created_at: now() };
+    db.query("INSERT INTO tracks (id, title, file, type, size, created_at) VALUES (?,?,?,?,?,?)")
+      .run(row.id, row.title, row.file, row.type, row.size, row.created_at);
+    added.push({ id, title: row.title, type: row.type, size: row.size, created_at: row.created_at });
+  }
+  return c.json({ added, skipped });
+});
+
+api.put("/music/:id", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const title = text(b.title).replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!title) return c.json({ error: "A track needs a title." }, 400);
+  const r = db.query("UPDATE tracks SET title = ? WHERE id = ?").run(title, c.req.param("id"));
+  return r.changes ? c.json({ ok: true }) : c.json({ error: "No such track." }, 404);
+});
+
+/** Gone for good, file and all, and out of every chat's playlist. */
+api.delete("/music/:id", (c) => {
+  const id = c.req.param("id");
+  const row = db.query("SELECT file FROM tracks WHERE id = ?").get(id) as any;
+  if (!row) return c.json({ error: "No such track." }, 404);
+  try { rmSync(join(MUSIC, row.file)); } catch {}
+  db.query("DELETE FROM tracks WHERE id = ?").run(id);
+  for (const ch of db.query("SELECT id, music FROM chats WHERE music LIKE ?").all(`%${id}%`) as any[]) {
+    const p = playlistOf(ch.music);
+    db.query("UPDATE chats SET music = ? WHERE id = ?").run(JSON.stringify({ ...p, tracks: p.tracks.filter((t) => t !== id) }), ch.id);
+  }
+  return c.json({ ok: true });
+});
+
+/** The sound itself: the whole file, or the part a player asks for. */
+api.get("/music/:id/play", (c) => {
+  const row = db.query("SELECT file, type FROM tracks WHERE id = ?").get(c.req.param("id")) as any;
+  const path = row ? join(MUSIC, row.file) : "";
+  let size = 0;
+  try { size = row ? statSync(path).size : 0; } catch {}
+  if (!row || !size) return c.json({ error: "That track is not here any more." }, 404);
+  const want = rangeOf(c.req.header("range"), size);
+  const head = { "content-type": row.type, "accept-ranges": "bytes", "cache-control": "no-store" };
+  if (want === "bad") return new Response(null, { status: 416, headers: { ...head, "content-range": `bytes */${size}` } });
+  const { start, end } = want ?? { start: 0, end: size - 1 };
+  const bytes = new Uint8Array(end - start + 1);
+  const fd = openSync(path, "r");
+  try { readSync(fd, bytes, 0, bytes.length, start); } finally { closeSync(fd); }
+  return new Response(bytes as unknown as BodyInit, {
+    status: want ? 206 : 200,
+    headers: { ...head, "content-length": String(bytes.length), ...(want ? { "content-range": `bytes ${start}-${end}/${size}` } : {}) },
+  });
+});
+
+/** A chat's playlist: which of your tracks play under it, and whether shuffled. Tracks that are not yours are left out. */
+api.put("/chats/:id/music", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const p = playlistOf(b);
+  const known = new Set((db.query("SELECT id FROM tracks").all() as any[]).map((t) => t.id));
+  const kept = { tracks: p.tracks.filter((t) => known.has(t)), shuffle: p.shuffle };
+  const r = db.query("UPDATE chats SET music = ? WHERE id = ?").run(JSON.stringify(kept), c.req.param("id"));
+  return r.changes ? c.json(kept) : c.json({ error: "No such chat." }, 404);
 });
 
 // ---- wallpapers -----------------------------------------------------------
