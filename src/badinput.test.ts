@@ -77,7 +77,10 @@ test("rows whose parent is gone for good are cleared at start, and nothing that 
   db.query("PRAGMA foreign_keys = ON").run();
   // A chat in the bin still has its row: what hangs off it is not orphaned.
   db.query("UPDATE chats SET deleted_at = 5 WHERE id = 'ch'").run();
-  expect(dropOrphans()).toBe(4);
+  // Every orphan gone: counted or not, since a chat's own messages may go with it by the database's rule (a
+  // cascade SQLite does not count in what it says it changed, depending on its version).
+  expect(dropOrphans()).toBeGreaterThanOrEqual(3);
+  expect(db.query("SELECT id FROM messages WHERE id IN ('o2','o4') UNION ALL SELECT id FROM chats WHERE id = 'o3' UNION ALL SELECT id FROM chronicle WHERE id = 'o1'").all()).toEqual([]);
   expect((db.query("SELECT COUNT(*) AS n FROM messages WHERE chat_id = 'ch'").get() as any).n).toBe(1);
   expect((db.query("SELECT COUNT(*) AS n FROM chronicle WHERE chat_id = 'ch'").get() as any).n).toBe(1);
   expect(dropOrphans()).toBe(0);
@@ -88,4 +91,24 @@ test("rows whose parent is gone for good are cleared at start, and nothing that 
   db.query("PRAGMA foreign_keys = ON").run();
   ensureStarterCharacter();
   expect(db.query("SELECT id FROM chronicle WHERE id = 'o5'").get()).toBeNull();
+});
+
+test("a file the page made is handed back by an ordinary address — what the phone can fetch, unlike a blob:", async () => {
+  const make = async (body: unknown) => (await raw("/download", "POST", JSON.stringify(body))).json();
+  const fetchIt = (url: string) => app.fetch(new Request(`http://home.test${url}`), HOME);
+  const t = await make({ name: "The Long Night.json", text: '{"hearth":"apocrypha"}', type: "application/json" });
+  const r = await fetchIt(t.url);
+  expect(r.status).toBe(200);
+  expect(r.headers.get("content-type")).toBe("application/json");
+  expect(r.headers.get("content-disposition")).toContain('filename="The Long Night.json"');
+  expect(await r.text()).toBe('{"hearth":"apocrypha"}');
+  // A picture arrives as itself.
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 255]);
+  const p = await make({ name: "face.png", type: "image/png", base64: Buffer.from(png).toString("base64") });
+  expect(new Uint8Array(await (await fetchIt(p.url)).arrayBuffer())).toEqual(png);
+  // A name that would climb out of the folder is made safe; nothing is nothing; an unknown token is gone.
+  const odd = await make({ name: "../../etc/passwd", text: "x" });
+  expect((await fetchIt(odd.url)).headers.get("content-disposition")).not.toContain("/");
+  expect((await raw("/download", "POST", JSON.stringify({ name: "x" }))).status).toBe(400);
+  expect((await fetchIt("/api/download/nope")).status).toBe(404);
 });

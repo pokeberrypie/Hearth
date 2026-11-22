@@ -3982,6 +3982,41 @@ api.post("/apocrypha/import", async (c) => {
 });
 
 /** One story, as Hearth's own JSON or as the outline text. */
+/**
+ * A file the page made, handed back as a download. The page builds some files itself — a story, a calendar, the
+ * classes and races, the face template — and saved them through a blob: link. A browser saves that; the phone does
+ * not: Android's WebView hands every download to the app (MainActivity.saveDownload), which fetches it over HTTP,
+ * and a blob: address is not something it can fetch — so each of those exports said it would not save. Given here
+ * and taken back by an ordinary address, it is saved the way every other export is. Held a few minutes, then let go.
+ */
+const handed = held_(new Map<string, { name: string; type: string; bytes: Uint8Array; at: number }>());
+const HANDED_MS = 10 * 60_000;
+api.post("/download", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const name = text(b.name, "hearth-export").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").slice(0, 120) || "hearth-export";
+  const type = /^[\w.+-]+\/[\w.+-]+$/.test(text(b.type)) ? text(b.type) : "application/octet-stream";
+  let bytes: Uint8Array;
+  if (typeof b.base64 === "string") bytes = new Uint8Array(Buffer.from(b.base64, "base64"));
+  else if (typeof b.text === "string") bytes = new TextEncoder().encode(b.text);
+  else return c.json({ error: "Nothing to save." }, 400);
+  if (bytes.length > 50 * 1024 * 1024) return c.json({ error: "That is too big to save this way." }, 413);
+  const t = now();
+  for (const [k, v] of handed) if (t - v.at > HANDED_MS) handed.delete(k);
+  const token = uid();
+  handed.set(token, { name, type, bytes, at: t });
+  return c.json({ url: `/api/download/${token}` });
+});
+
+api.get("/download/:token", (c) => {
+  const f = handed.get(c.req.param("token"));
+  if (!f || now() - f.at > HANDED_MS) return c.json({ error: "That download has expired. Export it again." }, 404);
+  return new Response(f.bytes as unknown as BodyInit, { headers: {
+    "content-type": f.type,
+    "content-disposition": `attachment; filename="${f.name.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+    "cache-control": "no-store",
+  } });
+});
+
 api.get("/apocrypha/:id/export", (c) => {
   const book = apocryphon(c.req.param("id"));
   if (!book) return c.json({ error: "That book is not on the shelf any more." }, 404);

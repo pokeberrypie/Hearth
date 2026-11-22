@@ -815,7 +815,9 @@ async function factionEditor(f) {
   };
   $("#wdOwnGone").onclick = async () => {
     const id = form.charge.value;
-    if (!confirm("Remove this emblem of yours? Any faction wearing it is left with a plain shield.")) return;
+    // Hearth's own question, not confirm(): a WebView answers confirm() "no" at once, so on the phone none of these
+    // ever went through.
+    if (!(await ask("Remove this emblem of yours?", "Any faction wearing it is left with a plain shield."))) return;
     const r = await api(`/charges/own/${id}`, { method: "DELETE" });
     if (r?.error) return toast(r.error);
     const next = keep();
@@ -848,10 +850,12 @@ function wireBody(who) {
     const p = await api(`/chronicle/${b.dataset.correct}/correct?preview=1`, { method: "POST" }).catch((e) => ({ error: e?.message }));
     if (!p || p.error) return fail(p?.error ?? "That did not work.");
     const days = Math.abs(p.shift).toLocaleString();
-    if (confirm(`Was the story's date wrong before this, rather than time jumping ahead?\n\nThis moves ${p.count} ${p.count === 1 ? "entry" : "entries"} ${p.shift > 0 ? "forward" : "back"} by ${days} days: ${p.from} becomes ${p.to}, and everything before it moves the same. It can be undone.`)) act(`/chronicle/${b.dataset.correct}/correct`);
+    if (await askDialog({ title: "Was the story's date wrong before this, rather than time jumping ahead?",
+      text: `This moves ${p.count} ${p.count === 1 ? "entry" : "entries"} ${p.shift > 0 ? "forward" : "back"} by ${days} days: ${p.from} becomes ${p.to}, and everything before it moves the same. It can be undone.`,
+      confirmLabel: "Correct the dates" })) act(`/chronicle/${b.dataset.correct}/correct`);
   };
-  for (const b of body.querySelectorAll("[data-uncorrect]")) b.onclick = () => {
-    if (confirm("Put everything recorded before this back on the dates it had?")) act(`/chronicle/${b.dataset.uncorrect}/correct?undo=1`);
+  for (const b of body.querySelectorAll("[data-uncorrect]")) b.onclick = async () => {
+    if (await askDialog({ title: "Put everything recorded before this back on the dates it had?", confirmLabel: "Put them back" })) act(`/chronicle/${b.dataset.uncorrect}/correct?undo=1`);
   };
   for (const b of body.querySelectorAll("[data-reveal]")) b.onclick = () => act(`/chronicle/${b.dataset.reveal}/reveal`);
   for (const b of body.querySelectorAll("[data-hide]")) b.onclick = () => act(`/chronicle/${b.dataset.hide}/hide`);
@@ -898,15 +902,12 @@ function wireBody(who) {
   $("#wdCalExport")?.addEventListener("click", () => {
     const c = W.state?.calendar;
     if (!c) return;
-    const blob = new Blob([JSON.stringify({ hearth: "calendar", v: 1, ...c }, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${(c.name || "calendar").replace(/[^\w -]+/g, "")}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    // Saved through the server, as every export is: a blob: link does not save on the phone (see saveFile).
+    window.saveFile(`${(c.name || "calendar").replace(/[^\w -]+/g, "")}.json`, JSON.stringify({ hearth: "calendar", v: 1, ...c }, null, 2));
   });
   $("#wdHistory")?.addEventListener("click", async () => {
-    if (!confirm("Read this whole chat from the start and write down what happened? On a long chat this is many calls to the Steward's model.")) return;
+    if (!(await askDialog({ title: "Read this whole chat from the start and write down what happened?",
+      text: "On a long chat this is many calls to the Steward's model.", confirmLabel: "Read it" }))) return;
     const b = $("#wdHistory");
     b.disabled = true;
     b.textContent = "Reading the chat…";

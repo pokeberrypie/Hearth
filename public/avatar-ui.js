@@ -260,11 +260,8 @@ async function downloadTemplate() {
   URL.revokeObjectURL(url);
   canvas.toBlob((blob) => {
     if (!blob) return;
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "hearth-avatar-template.png";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    // Saved through the server, as every export is: a blob: link does not save on the phone (see saveFile).
+    window.saveFile("hearth-avatar-template.png", blob, "image/png");
   }, "image/png");
 }
 

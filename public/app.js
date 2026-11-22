@@ -8155,7 +8155,10 @@ $("#wipeBtn").onclick = async () => {
     text: "This cannot be undone. Your API keys and appearance settings are kept.",
     confirmLabel: "Delete everything",
   }))) return;
-  if (prompt('Last check. Type "delete" to wipe everything.')?.trim().toLowerCase() !== "delete") {
+  // Hearth's own box, not prompt(): on the phone a WebView cancels prompt() outright, so the wipe could never be
+  // confirmed there.
+  const typed = await askDialog({ title: 'Last check. Type "delete" to wipe everything.', confirmLabel: "Wipe", value: "" });
+  if (String(typed ?? "").trim().toLowerCase() !== "delete") {
     $("#wipeHint").textContent = "Nothing was deleted.";
     return;
   }
@@ -9089,21 +9092,29 @@ $("#tabletop_difficulty")?.addEventListener("change", showDifficultyHint);
  * clipboard as well — an export you cannot save is still an export you can
  * paste somewhere.
  */
-function download(name, text) {
-  try {
-    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = name;
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  } catch {}
-  navigator.clipboard?.writeText(text).then(
-    () => toast("Saved, and copied to the clipboard."),
-    () => {},
-  );
+/**
+ * A file the page made, saved. Handed to the server, then fetched from it by an ordinary address — the way every
+ * other export is — rather than through a blob: link: on the phone a download is handed to the app, which fetches
+ * it over HTTP and cannot fetch a blob:, so a story, a calendar, the classes and the face template each said it
+ * would not save. `data` is text, or a Blob for something that is not (a picture).
+ */
+async function saveFile(name, data, type = "application/json") {
+  let body;
+  if (data instanceof Blob) {
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    body = { name, type: data.type || type, base64: btoa(bin) };
+  } else {
+    body = { name, type, text: String(data ?? "") };
+  }
+  const r = await api("/download", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!r?.url) { toast(r?.error || "That could not be saved."); return false; }
+  window.location.href = r.url;
+  return true;
 }
+window.saveFile = saveFile;
+const download = (name, text) => saveFile(name, text);
 
 // ---- classes and races ---------------------------------------------------
 
@@ -11805,7 +11816,7 @@ $("#apocImport").onchange = async (e) => {
 async function exportApoc(a, format) {
   const r = await api(`/apocrypha/${a.id}/export${format === "md" ? "?format=md" : ""}`);
   if (r?.error) return toast(r.error);
-  download(r.filename, r.text);
+  saveFile(r.filename, r.text, format === "md" ? "text/markdown" : "application/json");
 }
 
 $("#newApocBtn").onclick = async () => {
