@@ -79,6 +79,22 @@ const ask = async (message, detail = "This cannot be undone.") =>
 const askFor = (message, value = "") =>
   askDialog({ title: message, confirmLabel: "Save", value: String(value ?? "") });
 
+/**
+ * Text onto the clipboard, by the modern way or, where that is refused, the old one — and whether it worked, so the
+ * page never says "copied" when nothing was. A WebView may refuse the clipboard API where a browser allows it.
+ */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(String(text ?? "")); return true; } catch {}
+  try {
+    const t = document.createElement("textarea");
+    t.value = String(text ?? ""); t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+    document.body.append(t); t.select();
+    const ok = document.execCommand("copy");
+    t.remove();
+    return ok;
+  } catch { return false; }
+}
+
 /** A short-lived bar offering to put back whatever was just removed. */
 let toastTimer = null;
 function toast(text, undo) {
@@ -1311,6 +1327,16 @@ async function openChat(id) {
   if (!got || got.error || !got.chat) {
     fail(got?.error ?? "That chat could not be opened.");
     return;
+  }
+  /*
+   * A chat is opened in its own room. Search and the recent bubbles reach chats of both, and a story chat opened
+   * at the table was played by the table's rules — its preset, its locked edits, its marks — and left the room's
+   * list saying the chat you were in had no chats. Through the doors first, as the mode card does.
+   */
+  const world = got.chat.character_world;
+  const here = document.body.dataset.mode === "tabletop" ? "tabletop" : "story";
+  if (!(typeof GUEST !== "undefined" && GUEST.on) && (world === "story" || world === "tabletop") && world !== here) {
+    await setMode(world);
   }
   const { chat, messages, members } = got;
   S.chatId = id;
@@ -4270,7 +4296,7 @@ $("#thread").addEventListener("click", async (e) => {
 
   if (e.target.closest("[data-copy]")) {
     const btn = e.target.closest("[data-copy]");
-    await navigator.clipboard.writeText(msg.dataset.raw || "").catch(() => {});
+    if (!(await copyText(msg.dataset.raw || ""))) { toast("Could not copy that here."); return; }
     btn.innerHTML = ICON.tick;
     btn.classList.add("done");
     setTimeout(() => { btn.innerHTML = ICON.copy; btn.classList.remove("done"); }, 1400);
@@ -9053,8 +9079,7 @@ $("#themeCopy").onclick = async () => {
     Object.entries(themeVars).map(([k, v]) => `  ${k}: ${v};`).join("\n") +
     `\n  --overlay-opacity: ${$("#overlay_opacity").value};` +
     `\n  --glow-opacity: ${$("#glow_opacity").value};\n}`;
-  await navigator.clipboard.writeText(css).catch(() => {});
-  $("#themeHint").textContent = "Theme copied to the clipboard.";
+  $("#themeHint").textContent = (await copyText(css)) ? "Theme copied to the clipboard." : "Could not copy it here — nothing was copied.";
   setTimeout(() => ($("#themeHint").textContent = ""), 3000);
 };
 
@@ -9403,8 +9428,8 @@ async function paintSelfLinks() {
     copy.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/>` +
       `<path d="M15 6.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1.5"/></svg>`;
     copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(link.url); toast("Copied."); }
-      catch { field.select(); }
+      if (await copyText(link.url)) toast("Copied.");
+      else field.select();
     };
     row.append(field, copy);
     box.append(row);
@@ -9807,7 +9832,7 @@ $("#tgClose").onclick = async () => {
 $("#tgCopy").onclick = async () => {
   if (!TG.share) return;
   try {
-    await navigator.clipboard.writeText(tgLinkFor(TG.share));
+    if (!(await copyText(tgLinkFor(TG.share)))) throw new Error("not copied");
     $("#tgCopy").classList.add("done");
     setTimeout(() => $("#tgCopy").classList.remove("done"), 1400);
   } catch {
@@ -10506,7 +10531,7 @@ $("#tablePassCopy").onclick = async () => {
   const v = $("#tablePass")?.value;
   if (!v) return;
   try {
-    await navigator.clipboard.writeText(v);
+    if (!(await copyText(v))) throw new Error("not copied");
     $("#tablePassCopy").classList.add("done");
     setTimeout(() => $("#tablePassCopy").classList.remove("done"), 1400);
   } catch { $("#tablePass").select(); }

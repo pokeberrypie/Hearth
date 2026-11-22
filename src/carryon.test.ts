@@ -307,7 +307,7 @@ describe("the browser's half", () => {
    */
   test("a chat that will not open leaves the app where it was", () => {
     const fn = APP.slice(APP.indexOf("async function openChat("));
-    const head = fn.slice(0, 1200);
+    const head = fn.slice(0, 2400);
     expect(head).toContain("if (!got || got.error || !got.chat)");
     // The assignment comes after the check, not before it.
     expect(head.indexOf("S.chatId = id")).toBeGreaterThan(head.indexOf("!got.chat"));

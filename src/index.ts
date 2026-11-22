@@ -709,7 +709,7 @@ api.post("/chats", async (c) => {
 api.get("/chats/:id", (c) => {
   const chat = db
     .query(
-      `SELECT chats.*, characters.name AS character_name, characters.avatar,
+      `SELECT chats.*, characters.name AS character_name, characters.avatar, characters.world AS character_world,
               (SELECT title FROM chats AS p WHERE p.id = chats.parent_chat_id) AS parent_title
        FROM chats JOIN characters ON characters.id = chats.character_id WHERE chats.id = ?`,
     )
