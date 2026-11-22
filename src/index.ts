@@ -4403,7 +4403,7 @@ function chronicleState(chatId: string) {
       ...chronicleView(pending(entries).filter(onStage).map((e) => ({ ...e, proposed: false })), { shared: isShared(chatId), host: true }),
       // A threat is asked about without being told: who is coming, and how, stays in the ledger.
       // Only when the author has asked to be asked: otherwise one waiting from before simply comes in, like a new one.
-      ...(getSettings().offstage_threat_ask === "1" ? pending(entries).filter((e) => e.kind === "threat") : [])
+      ...(threatsAsk(getSettings()) ? pending(entries).filter((e) => e.kind === "threat") : [])
         .map((e) => ({ id: e.id, kind: "threat", title: "", data: e.data })),
       // So is a conflict with the plan: which scene, and nothing of what happened. A scene not yet reached
       // in a book read blind is not named either.
@@ -5175,7 +5175,8 @@ async function castWantsOf(chatId: string): Promise<{ goals: number; ended: numb
   const dead = deadIn(entries);
   const status = statusOf(entries);
   const isHere = inScene(chat, entries);
-  const members = (membersOf(chat) as any[]).filter((m) => m.name && m.name !== player && !dead.has(m.name));
+  const outside = outsideTheWorld(chat, s);
+  const members = (membersOf(chat) as any[]).filter((m) => m.name && m.name !== player && !dead.has(m.name) && !outside.has(m.name));
   if (!members.length) return { goals: 0, ended: 0 };
   const active = agendasOf(entries).filter((g) => g.status === "active" && g.who);
   const conn = offstageConnection(s);
@@ -5370,7 +5371,7 @@ function afterDeaths(chatId: string, deaths: { who: string; evidence: string; me
   const from = deaths.map((d) => d.message_id).filter(Boolean).at(-1) ?? null;
   endGoalsOf(chatId, deaths.map((d) => d.who), from);
   const s = getSettings();
-  if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
+  if (levelOf(s.offstage_level) === "off" || s.story_world === "0") return;
   offstageStir(chatId, deaths.map((d) => `${d.who} has died: "${d.evidence}"`), "death", from).catch(() => {});
 }
 
@@ -5443,7 +5444,7 @@ async function stirOf(chatId: string, news: string[], from: string | null = null
   const given = `${news.join(" ")} ${rows.map((r) => r.content).join(" ")}`.toLowerCase();
   let t0 = now();
   const died = [...answer.matchAll(/^\W*DEAD\W*\|\s*([^|\n]+)/gim)].map((m) => m[1].replace(/[*_"]/g, "").trim().slice(0, 60))
-    .filter((n) => n && !saysNothing(n) && n.toLowerCase() !== player.toLowerCase() && !dead.has(n) && given.includes(n.toLowerCase())).slice(0, 4);
+    .filter((n) => n && !saysNothing(n) && n.toLowerCase() !== player.toLowerCase() && !dead.has(n) && !outsideTheWorld(chat, getSettings()).has(n) && given.includes(n.toLowerCase())).slice(0, 4);
   if (died.length) {
     // Asked about, as every death is: a reading of the news is no surer than a reading of the story.
     const asked = new Set(pending(chronicleOf(chatId)).filter((e) => e.kind === "status" && e.title === "dead").map((e) => e.subject));
@@ -5534,11 +5535,13 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
   // And everyone who has ever wanted something or done something offstage, whatever has become of it: a plan
   // finished, given up or put away does not take its person out of the world. Without them, every court
   // intrigue that ended took its schemer with it, until there was nobody left offstage to move.
+  const notInWorld = outsideTheWorld(chat, s);
   const pastAims = agendasOf(entries.map((e) => (e.kind === "agenda" ? { ...e, undone_at: null } : e)))
     .filter((g) => g.who && g.status !== "active").sort((a, b) => (a.ended ?? a.since) - (b.ended ?? b.since));
   const lastAim = new Map(pastAims.map((g) => [g.who, g]));
   const once = [...pastAims.map((g) => g.who), ...liveEntries(entries).filter((e) => e.kind === "offstage" && e.subject).map((e) => e.subject!)];
-  const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId), ...once])].filter((p) => p && p !== player && !dead.has(p));
+  const cast = [...new Set([...goals.map((g) => g.who), ...peopleOfChat(chatId), ...once])].filter((p) => p && p !== player && !dead.has(p) && !notInWorld.has(p));
+
   // News that travels: who has died lately. A death is the world's business, not a secret of the story's.
   const news = liveEntries(entries).filter((e) => e.kind === "status" && e.field === "physical" && isDead({ physical: { title: e.title } })
     && e.day !== null && e.day >= at.day - 10).map((e) => `Word has reached them: ${e.subject} is dead.`);
@@ -5598,7 +5601,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
   const trigger = (db.query("SELECT id FROM messages WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as any)?.id ?? null;
   const asOf = storyMark();
   const setAside = () => ({ acted, quiet, threats, setAside: true, note: "The story changed while the world was deciding — a reply swiped, edited or deleted — so this day was set aside. It goes again after your next reply." });
-  const protection = protectionOf(s.offstage_protection);
+  const protection = worldProtection(s);
   let acted = 0, quiet = 0, threats = 0, unread = 0, took = 0;
   let t = now();
   // The author's plan, the scene now and the two after: for the referee, never for the person deciding.
@@ -5703,7 +5706,7 @@ async function offstageTurnOf(chatId: string, o: { manual?: boolean; midday?: bo
       // ledger's, and the player's to find — a narrator told it is a hired knife that says whose regards it brings.
       add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "threat", subject: person, title: unnamed(r.act, person, `${card?.description ?? ""} ${card?.personality ?? ""}`), body: r.why,
         // Asked about first only if the author wants to be asked; otherwise it simply comes, in the next reply.
-        created_at: t++, proposed: s.offstage_threat_ask === "1", data: { player, harm: r.harm } }));
+        created_at: t++, proposed: threatsAsk(s), data: { player, harm: r.harm } }));
       threats++;
     }
     if (r.abandons) add.push(normaliseChronicleEntry({ ...base, id: uid(), kind: "agenda", subject: person, title: "", created_at: t++, data: { of: r.abandons, status: "abandoned" } }));
@@ -5906,7 +5909,7 @@ const OFFSTAGE_EVERY = 20;
 
 export async function offstageTurn(chatId: string) {
   const s = getSettings();
-  if (levelOf(s.offstage_level) === "off" || s.mode === "tabletop" || s.story_world === "0") return;
+  if (levelOf(s.offstage_level) === "off" || s.story_world === "0") return;
   try { archiveGoals(chatId); } catch (e) { console.error("[offstage] putting goals away:", e); }
   const chat = db.query("SELECT offstage_day FROM chats WHERE id = ?").get(chatId) as any;
   if (!chat) return;
@@ -6004,7 +6007,9 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
       : `News reaches the player's character — bring it into the story within the next few replies, the way it would arrive (${news.body || "word of it"}), at a natural moment, never in the middle of a conversation: ${news.title}. This is what they hear, which may not be the whole truth; never decide what they make of it, or what they do.`);
   }
   if (threat) {
-    out.push(`Bring this into the story now, as something happening in the scene: ${threat.title}. Play out the attempt, but do not decide whether it succeeds — the player's character may resist, escape or be helped. Never decide what they do, say or feel.`);
+    out.push(getSettings().mode === "tabletop"
+      ? `Bring this into the story now, as something happening in the scene: ${threat.title}. At the table the dice decide it, not you: if it comes to blows, start a fight with [[fight: the attackers]] and let the rolls and the sheets say who is hurt; otherwise call for a check. Never decide what the players do, say or feel.`
+      : `Bring this into the story now, as something happening in the scene: ${threat.title}. Play out the attempt, but do not decide whether it succeeds — the player's character may resist, escape or be helped. Never decide what they do, say or feel.`);
   }
   return out;
 }
@@ -6017,7 +6022,7 @@ function offstageBrief(chatId: string, entries: ChronicleEntry[]): string[] {
 function threatToPlay(entries: ChronicleEntry[], before = Infinity) {
   const mine = (e: ChronicleEntry) => e.kind === "threat" && e.created_at < before;
   const live = liveEntries(entries).filter(mine);
-  return (getSettings().offstage_threat_ask === "1" ? live : [...live, ...pending(entries).filter(mine)])
+  return (threatsAsk(getSettings()) ? live : [...live, ...pending(entries).filter(mine)])
     .sort((a, b) => a.created_at - b.created_at)[0];
 }
 
@@ -6246,7 +6251,8 @@ function peopleOfChat(chatId: string): string[] {
   const player = whoAmI(chat.persona_id)?.name ?? "";
   const entries = chronicleOf(chatId);
   const named = [...Object.keys(statusOf(entries)), ...bondsOf(entries).flatMap((b) => [b.from, b.to])];
-  return [...new Set([...peopleOf(chat).map((p: any) => p.name), ...named])].filter((n) => n && n !== player);
+  const outside = outsideTheWorld(chat, getSettings());
+  return [...new Set([...peopleOf(chat).map((p: any) => p.name), ...named])].filter((n) => n && n !== player && !outside.has(n));
 }
 
 api.post("/chats/:id/offstage/goal", async (c) => {
@@ -6362,6 +6368,35 @@ api.post("/chats/:id/offstage/stir", async (c) => {
 function stewardConnection(s: Record<string, string>) {
   const provider = s.steward_provider || s.provider;
   return { ...connectionFrom(s, provider), model: s.steward_model || modelFor(s, provider) };
+}
+
+/**
+ * The Living World at the table works as it does in a story, with three differences. How hard the world is on
+ * the players is the table's difficulty, not a second dial. A threat is never held back to ask about: at the
+ * table the dice and the sheet decide, and a threat is a fight waiting to happen. And the narrator (the
+ * Gamekeeper, or whoever founds a table chat) and the people at the table are not the world's to move: one
+ * tells the story, the others play it.
+ */
+export function worldProtection(s: any): ReturnType<typeof protectionOf> {
+  if (s.mode !== "tabletop") return protectionOf(s.offstage_protection);
+  return ({ hearthlight: "sheltered", faircount: "fair", hardwinter: "grim" } as Record<string, ReturnType<typeof protectionOf>>)[s.tabletop_difficulty] ?? "fair";
+}
+export function threatsAsk(s: any): boolean {
+  return s.mode !== "tabletop" && s.offstage_threat_ask === "1";
+}
+/** At the table: the narrator and every player, the host's guests included. Elsewhere, nobody. */
+function outsideTheWorld(chat: any, s: any): Set<string> {
+  const out = new Set<string>();
+  if (!chat || s.mode !== "tabletop") return out;
+  const founder = db.query("SELECT name FROM characters WHERE id = ?").get(chat.character_id) as any;
+  if (founder?.name) out.add(founder.name);
+  out.add(STARTER.name);
+  for (const p of db.query("SELECT p.name, p.persona_id FROM players p JOIN shares sh ON sh.id = p.share_id WHERE sh.chat_id = ?").all(chat.id) as any[]) {
+    if (p.name) out.add(p.name);
+    const per = p.persona_id ? db.query("SELECT name FROM personas WHERE id = ?").get(p.persona_id) as any : null;
+    if (per?.name) out.add(per.name);
+  }
+  return out;
 }
 
 /** Who the Steward may refer to, by number: the room, the people met on the way, and the player. */
@@ -6741,6 +6776,8 @@ async function stewardRun(chat: any, rows: any[], s: Record<string, string>) {
         // and not while the same question is still waiting.
         const waiting = pending(chronicleOf(chat.id)).some((e) => e.kind === "status" && e.title === "dead" && e.subject === claim.subject);
         if (waiting || deadIn(chronicleOf(chat.id)).has(claim.subject)) continue;
+        // At the table a player's life is the sheet's to end, at 0 hit points, and the narrator does not die.
+        if (getSettings().mode === "tabletop" && (outsideTheWorld(chat, getSettings()).has(claim.subject) || claim.subject === whoAmI(chat.persona_id)?.name)) continue;
         entries.push(normaliseChronicleEntry({
           id: uid(), kind: "status", message_id: claim.message_id, day: at.day, minute: at.minute,
           subject: claim.subject, field: "physical", title: "dead",

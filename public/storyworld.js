@@ -1070,12 +1070,13 @@ async function paintWorldSettings() {
           ["off", "Still", "Nobody acts unless you run a day by hand."],
           ["balanced", "Balanced", "Someone offstage does something now and then — each new day, and in long scenes."],
           ["dynamic", "Dynamic", "Up to three people a turn: a busier, less predictable world."]])}
-        ${swPills("offstage_protection", "Protecting your character", [
+        <small class="swsays sw-tableonly">At the table, how hard the world is on the party is your Difficulty (Hearthlight is gentle, Hard Winter is grim), and danger is never held back to ask: it arrives as a fight or a check for the dice to settle. The Gamekeeper and the players are never moved offstage.</small>
+        <div class="sw-storyonly">${swPills("offstage_protection", "Protecting your character", [
           ["sheltered", "Sheltered", "Only their name and standing can be harmed offstage."],
           ["fair", "Fair", "Anything — but harm to body or freedom always comes as a scene you can play."],
-          ["grim", "Grim", "Injury can happen offstage; death and maiming are still always scenes."]])}
+          ["grim", "Grim", "Injury can happen offstage; death and maiming are still always scenes."]])}</div>
         ${swSlider("offstage_per_day", "Most things done offstage in a day", 1, 6)}
-        ${swSwitch("offstage_threat_ask", "Ask me before danger comes in", "Off, a threat simply arrives in the next reply.")}
+        <div class="sw-storyonly">${swSwitch("offstage_threat_ask", "Ask me before danger comes in", "Off, a threat simply arrives in the next reply.")}</div>
         ${swSlider("news_reach", "How much news reaches you", 0, 100, 10)}
         ${swSwitch("news_wrong", "News can be wrong", "As word travels, a telling may be exaggerated, mistaken in a detail, or laid at the wrong door — never at your character's.")}
         ${swSwitch("goal_archive", "Put finished goals away", "Three days after a goal ends: one that came to pass becomes a lorebook entry in this chat's book — which the narrator can then read — and the rest are cleared from the ledger.")}

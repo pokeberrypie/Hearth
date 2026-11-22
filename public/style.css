@@ -8585,3 +8585,8 @@ dialog.calld::backdrop { background: rgba(4, 3, 2, 0.86); }
 .callend { background: var(--lumiverse-danger); color: #fff; border-color: transparent; }
 .callend svg { fill: currentColor; stroke: none; }
 .callbtn:focus-visible { outline: 2px solid var(--lumiverse-primary); outline-offset: 3px; }
+
+/* The Living World at the table: difficulty stands in for protection, and danger never waits to ask. */
+.sw-tableonly { display: none; }
+body[data-mode="tabletop"] .sw-tableonly { display: block; }
+body[data-mode="tabletop"] .sw-storyonly { display: none; }
