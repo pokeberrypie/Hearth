@@ -8526,7 +8526,7 @@ body.bleed[data-mode="tabletop"][data-msgstyle="banner"] .msg:not(.mine) .plate 
 @media (prefers-reduced-motion: reduce) { .newscard, .newscard.out { animation: none; } }
 
 /* ---- a call (public/call.js) ----------------------------------------------------------------------------------- */
-.voiceset { margin-top: 1.6rem; }
+.voiceset { margin-top: 0; }
 .voiceset label em { font-style: normal; color: var(--lumiverse-text-dim); margin-left: 0.4rem; }
 /* The call: on the right, beside send — not on the die's spot on the left, where it sat under the die. */
 .hc-call { left: auto; right: calc(15px + var(--hc-side) + 8px); }
@@ -8595,3 +8595,11 @@ body[data-mode="tabletop"] .sw-storyonly { display: none; }
 .tools [data-say] { display: none; }
 body.voice-ready:not(.guest) .tools [data-say] { display: grid; }
 .tools [data-say].on { color: var(--lumiverse-primary); }
+
+/* Connection's folds: voice and the computer, kept below the writing model. */
+.confold { margin-top: 1.2rem; }
+.confold:first-of-type { margin-top: 1.8rem; }
+.confold > summary { flex-wrap: wrap; row-gap: 0.1rem; }
+.confold > summary .foldsub { flex-basis: 100%; padding-left: 1.1rem; font-family: var(--lumiverse-font-family); font-variant: normal; text-transform: none; letter-spacing: normal; font-size: 0.8rem; color: var(--lumiverse-text-hint); }
+.confold > .foldbody { padding: 0 0.8rem 0.9rem; }
+.confold > .foldbody > h3:first-child { margin-top: 0.4rem; }

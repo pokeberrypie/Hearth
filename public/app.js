@@ -12276,3 +12276,10 @@ async function saveCastOrder(from, to, redraw) {
 }
 dragSort($("#memberList"), ".blockrow", ".grip", (from, to) => saveCastOrder(from, to, openRoom));
 dragSort($("#sceneMembers"), ".blockrow", ".grip", (from, to) => saveCastOrder(from, to, async () => { await loadRoom(); renderScene(); }));
+
+/** Connection's folds stay as you left them, on this device. Storage may be refused; then they simply start shut. */
+for (const fold of document.querySelectorAll("details[data-fold]")) {
+  const key = `hearth.fold.${fold.dataset.fold}`;
+  try { if (localStorage.getItem(key) === "1") fold.open = true; } catch {}
+  fold.addEventListener("toggle", () => { try { localStorage.setItem(key, fold.open ? "1" : "0"); } catch {} });
+}

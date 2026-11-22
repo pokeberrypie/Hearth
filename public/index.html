@@ -1091,9 +1091,12 @@
           <p class="hint" id="saveHint"></p>
 
           <!-- A call: speaking and listening through ElevenLabs (public/call.js, src/voice.ts). Saved as it changes. -->
-          <div id="voiceSet" class="voiceset">
-            <h3>Voice &mdash; calls</h3>
-            <p class="hint">Tap the phone by the message box to talk to a character hands free: you speak, they answer aloud.</p>
+          <!-- Below the writing model: the parts of Connection that are not where replies come from, each folded
+               away so the page opens on what you change most. Open or shut is remembered on this device. -->
+          <details class="fold confold" data-fold="voice">
+          <summary><span>Voice</span><small class="foldsub">ElevenLabs: calls, and reading messages aloud</small></summary>
+          <div id="voiceSet" class="voiceset foldbody">
+            <p class="hint">Tap the phone by the message box to talk to a character hands free: you speak, they answer aloud. Tap ▶ on any message to hear just that one.</p>
             <label>ElevenLabs key<input id="key_elevenlabs" type="password" autocomplete="off" spellcheck="false"></label>
             <label>Voice<select id="voice_default"></select></label>
             <label>Narrator's voice<select id="voice_narrator"></select></label>
@@ -1107,6 +1110,7 @@
             <button type="button" class="ghost wide" id="voiceTest">Hear the voice</button>
             <p class="hint" id="voiceHint"></p>
           </div>
+          </details>
 
           <!--
             Everything above is outbound: where Hearth goes to find a model.
@@ -1118,6 +1122,9 @@
             together with only a label between them is how somebody pastes the
             wrong one somewhere public.
           -->
+          <details class="fold confold" data-fold="computer">
+          <summary><span>Computer</span><small class="foldsub">Opening this library from your computer or another device</small></summary>
+          <div class="foldbody">
           <h3>Use this library from your computer</h3>
           <p class="hint">Your computer opens the library on this device over your home Wi-Fi —
             the same chats, live, with nothing copied and nothing to sync. Turn it on, type the
@@ -1128,6 +1135,8 @@
 
           <h3>Reaching this Hearth</h3>
           <div id="selfLinkBody"></div>
+          </div>
+          </details>
       </section>
 
       <!-- Story World, the Steward, the Living World, the Apocrypha and arms:
