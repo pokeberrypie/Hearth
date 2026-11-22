@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { held_ } from "./memory";
-import { elevenTrouble, linesOf, voiceBase } from "./voice";
+import { elevenTrouble, voiceSteadiness, linesOf, voiceBase } from "./voice";
 import { bareName, fielded, hasName } from "./fields";
 import { writeFile } from "./fsx";
 import { db, uid, now, getSettings, setSettings, KEY_FIELDS, mergeDatabase, settle } from "./db";
@@ -402,7 +402,23 @@ const NO_VOICE_KEY = { error: "Add an ElevenLabs key under Connection → Voice 
 api.get("/voice/status", (c) => {
   const s = getSettings();
   return c.json({ ready: !!elevenKey(), default: s.voice_default, narrator: s.voice_narrator, reads: s.voice_reads,
-    pause: Number(s.voice_pause) || 1.2, interrupt: s.voice_interrupt === "1", tts: s.voice_tts_model, stt: s.voice_stt_model });
+    pause: Number(s.voice_pause) || 1.2, interrupt: s.voice_interrupt === "1", tts: s.voice_tts_model, stt: s.voice_stt_model,
+    stability: s.voice_stability ?? "" });
+});
+
+/** The speaking models the account can use, newest ElevenLabs lists first. */
+api.get("/voice/models", async (c) => {
+  if (!elevenKey()) return c.json(NO_VOICE_KEY, 400);
+  try {
+    const res = await fetch(`${voiceBase()}/v1/models`, { headers: { "xi-api-key": elevenKey() }, signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) return c.json({ error: elevenTrouble(res.status, await res.text().catch(() => "")) }, 502);
+    const all = await res.json().catch(() => []);
+    const models = (Array.isArray(all) ? all : []).filter((m: any) => m?.model_id && m.can_do_text_to_speech !== false)
+      .map((m: any) => ({ id: String(m.model_id), name: String(m.name || m.model_id), description: String(m.description || "").slice(0, 240) }));
+    return c.json({ models });
+  } catch (e: any) {
+    return c.json({ error: `ElevenLabs could not be reached (${e?.message ?? "no connection"}).` }, 502);
+  }
 });
 
 /** The voices on the account, every page of them. */
@@ -449,7 +465,10 @@ api.post("/voice/speak", async (c) => {
     ? String((db.query("SELECT voice FROM characters WHERE id = ?").get(b.character_id) as any)?.voice ?? "") : "";
   const voice = text(b.voice) || (b.who === "narrator" ? s.voice_narrator : "") || own || s.voice_default;
   if (!voice) return c.json({ error: "Choose a voice under Connection → Voice, or one for this character." }, 400);
-  const model = s.voice_tts_model || "eleven_flash_v2_5";
+  const model = text(b.model) || s.voice_tts_model || "eleven_flash_v2_5";
+  // How steady the voice is, when chosen: lower varies more from line to line, higher keeps it even. Left unchosen,
+  // the voice's own setting on ElevenLabs stands. Eleven v3 takes only three steps of it.
+  const steady = voiceSteadiness(model, b.stability ?? s.voice_stability);
   let res: Response;
   try {
     res = await fetch(`${voiceBase()}/v1/text-to-speech/${encodeURIComponent(voice)}/stream?output_format=mp3_44100_64`, {
@@ -457,6 +476,7 @@ api.post("/voice/speak", async (c) => {
       headers: { "xi-api-key": elevenKey(), "content-type": "application/json", accept: "audio/mpeg" },
       // Flash reads numbers well only with normalisation on (ElevenLabs' models page).
       body: JSON.stringify({ text: said, model_id: model, apply_text_normalization: model.startsWith("eleven_flash") ? "on" : "auto",
+        ...(steady === null ? {} : { voice_settings: { stability: steady } }),
         ...(typeof b.previous === "string" && b.previous ? { previous_text: b.previous.slice(-600) } : {}) }),
       signal: c.req.raw.signal,
     });

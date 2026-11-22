@@ -111,3 +111,11 @@ export function elevenTrouble(status: number, body: string): string {
   if (status === 404 && /voice/i.test(detail)) return "That voice is not on this ElevenLabs account any more. Pick another under Connection → Voice.";
   return `ElevenLabs answered ${status}${detail ? `: ${detail}` : ""}.`;
 }
+
+/** The stability sent with a line: null to leave the voice's own; Eleven v3 only takes 0, 0.5 or 1. */
+export function voiceSteadiness(model: string, chosen: unknown): number | null {
+  const n = typeof chosen === "number" ? chosen : String(chosen ?? "").trim() === "" ? NaN : Number(chosen);
+  if (!Number.isFinite(n)) return null;
+  const v = Math.min(1, Math.max(0, n));
+  return /^eleven_v3/.test(model) ? (v < 0.25 ? 0 : v < 0.75 ? 0.5 : 1) : v;
+}

@@ -64,12 +64,41 @@
       hint.textContent = "Calls speak and listen through ElevenLabs. Paste an API key from elevenlabs.io (Profile → API keys).";
       return;
     }
+    el("voice_stability").value = st.stability ?? "";
     hint.textContent = "Loading your voices…";
-    await voices(true);
+    await Promise.all([voices(true), paintModels(st.tts)]);
     fillVoices(el("voice_default"), st.default, "Choose a voice");
     fillVoices(el("voice_narrator"), st.narrator, "The speaker's own voice");
     hint.textContent = voiceList.error ? voiceList.error
       : `${voiceList.length} voice${voiceList.length === 1 ? "" : "s"} on the account. Give a character its own in its editor.`;
+  }
+
+  /** The speaking models, as the account lists them; a short known list when it cannot be asked. */
+  const KNOWN_MODELS = [
+    { id: "eleven_flash_v2_5", name: "Eleven Flash v2.5", description: "Fastest and cheapest. Best for calls; can wobble on long lines." },
+    { id: "eleven_turbo_v2_5", name: "Eleven Turbo v2.5", description: "Quick, a little steadier than Flash." },
+    { id: "eleven_multilingual_v2", name: "Eleven Multilingual v2", description: "Steadiest and most lifelike; slower to start, costs more." },
+    { id: "eleven_v3", name: "Eleven v3", description: "Most expressive, least predictable; slowest to start." },
+  ];
+  const MODEL_NOTE = { eleven_flash_v2_5: KNOWN_MODELS[0].description, eleven_turbo_v2_5: KNOWN_MODELS[1].description,
+    eleven_multilingual_v2: KNOWN_MODELS[2].description, eleven_v3: KNOWN_MODELS[3].description };
+  let modelList = null;
+  async function paintModels(chosen) {
+    const select = el("voice_tts_model");
+    if (!select) return;
+    if (!modelList) {
+      const r = await api("/voice/models").catch(() => null);
+      modelList = Array.isArray(r?.models) && r.models.length ? r.models : KNOWN_MODELS;
+    }
+    const list = modelList.some((m) => m.id === chosen) || !chosen ? modelList : [...modelList, { id: chosen, name: chosen }];
+    select.innerHTML = list.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("");
+    select.value = chosen || "eleven_flash_v2_5";
+    noteModel();
+  }
+  function noteModel() {
+    const id = el("voice_tts_model")?.value ?? "";
+    const m = (modelList ?? []).find((x) => x.id === id);
+    el("voiceModelHint").textContent = MODEL_NOTE[id] ?? m?.description ?? "";
   }
 
   async function save(patch) {
@@ -85,7 +114,8 @@
       await save({ key_elevenlabs: v });
       paintVoiceSettings();
     });
-    for (const id of ["voice_default", "voice_narrator", "voice_reads"]) {
+    el("voice_tts_model").addEventListener("change", (e) => { noteModel(); save({ voice_tts_model: e.target.value }); });
+    for (const id of ["voice_default", "voice_narrator", "voice_reads", "voice_stability"]) {
       el(id).addEventListener("change", (e) => save({ [id]: e.target.value }));
     }
     el("voice_pause").addEventListener("input", (e) => { el("voice_pause_v").textContent = `${Number(e.target.value).toFixed(1)} s`; });
@@ -93,11 +123,24 @@
     el("voice_interrupt").addEventListener("change", (e) => save({ voice_interrupt: e.target.checked ? "1" : "0" }));
     el("voiceTest").addEventListener("click", async () => {
       const hint = el("voiceHint");
-      const voice = el("voice_default").value;
-      if (!voice) { hint.textContent = "Choose a voice first."; return; }
+      // Heard as it is set right now, whether or not it has been saved yet. With no voice chosen, the first on the
+      // account, said so: before, the button only said "Choose a voice first" in small grey type, and seemed dead.
+      let voice = el("voice_default").value;
+      let note = "";
+      if (!voice) {
+        const first = (await voices())[0];
+        if (!first) { hint.textContent = voiceList?.error || "There are no voices on this ElevenLabs account yet."; return; }
+        voice = first.id;
+        note = `That was ${first.name}, the first voice on the account. Choose one above to keep it.`;
+      }
+      readingStopped();
+      const run = R.run;
       hint.textContent = "Speaking…";
-      const r = await speakLine({ text: "The fire is lit, and I am listening. Say something when you are ready.", voice });
-      hint.textContent = r.error ?? "";
+      const got = await fetchLine({ text: "The fire is lit, and I am listening. Say something when you are ready.", voice,
+        model: el("voice_tts_model").value, stability: el("voice_stability").value });
+      if (got.error) { hint.textContent = got.error; return; }
+      const why = await playOnce(got.blob, run);
+      hint.textContent = why === "error" ? "That could not be played on this device." : note;
     });
     // Drawn whenever the Connection tab is opened.
     document.querySelectorAll('[data-tab="connection"]').forEach((b) => b.addEventListener("click", () => setTimeout(paintVoiceSettings, 50)));

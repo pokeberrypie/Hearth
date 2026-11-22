@@ -1100,6 +1100,15 @@
             <label>ElevenLabs key<input id="key_elevenlabs" type="password" autocomplete="off" spellcheck="false"></label>
             <label>Voice<select id="voice_default"></select></label>
             <label>Narrator's voice<select id="voice_narrator"></select></label>
+            <label>Model<select id="voice_tts_model"></select></label>
+            <p class="hint" id="voiceModelHint"></p>
+            <label>Steadiness<select id="voice_stability">
+              <option value="">The voice's own setting</option>
+              <option value="0.3">Expressive &mdash; more feeling, varies more</option>
+              <option value="0.5">Balanced</option>
+              <option value="0.75">Steady &mdash; even from line to line</option>
+              <option value="0.95">Very steady &mdash; can sound flat</option>
+            </select></label>
             <label>Reads<select id="voice_reads">
               <option value="speech">What they say aloud</option>
               <option value="all">Everything &mdash; the telling too</option>

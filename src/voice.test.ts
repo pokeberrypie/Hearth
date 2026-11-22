@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { db, setSettings, wipe } from "./test-support";
-import { linesOf, sayable } from "./voice";
+import { linesOf, sayable, voiceSteadiness } from "./voice";
 const { app } = await import("./index");
 
 const HOME = { incoming: { socket: { remoteAddress: "127.0.0.1" } } };
@@ -114,6 +114,43 @@ describe("speaking and listening, through ElevenLabs", () => {
     tiny.set("file", new Blob([new Uint8Array(100)]), "speech.webm");
     expect(await (await ask("/voice/hear", { method: "POST", body: tiny })).json()).toEqual({ text: "" });
     expect(sent.length).toBe(1);
+  });
+
+  test("the model chosen is the one used, and steadiness is sent only when chosen", async () => {
+    setSettings({ key_elevenlabs: "sk-el", voice_default: "v", voice_tts_model: "eleven_multilingual_v2" });
+    reply = () => new Response(new Uint8Array([1]), { headers: { "content-type": "audio/mpeg" } });
+    await post("/voice/speak", { text: "Hi." });
+    let body = JSON.parse(sent[0].init.body);
+    expect(body.model_id).toBe("eleven_multilingual_v2");
+    expect(body.apply_text_normalization).toBe("auto");
+    expect(body.voice_settings).toBeUndefined();
+    setSettings({ voice_stability: "0.75" });
+    await post("/voice/speak", { text: "Hi." });
+    expect(JSON.parse(sent[1].init.body).voice_settings).toEqual({ stability: 0.75 });
+    // "Hear the voice" tries what is picked before it is saved.
+    await post("/voice/speak", { text: "Hi.", model: "eleven_v3", stability: "0.3" });
+    body = JSON.parse(sent[2].init.body);
+    expect(body.model_id).toBe("eleven_v3");
+    expect(body.voice_settings).toEqual({ stability: 0.5 });
+  });
+
+  test("steadiness: the voice's own when unchosen, and v3's three steps", () => {
+    expect(voiceSteadiness("eleven_flash_v2_5", "")).toBeNull();
+    expect(voiceSteadiness("eleven_flash_v2_5", "nonsense")).toBeNull();
+    expect(voiceSteadiness("eleven_flash_v2_5", "0.3")).toBe(0.3);
+    expect(voiceSteadiness("eleven_flash_v2_5", "7")).toBe(1);
+    expect(["0.1", "0.3", "0.5", "0.75", "0.95"].map((v) => voiceSteadiness("eleven_v3", v))).toEqual([0, 0.5, 0.5, 1, 1]);
+  });
+
+  test("the speaking models on the account, and only those", async () => {
+    setSettings({ key_elevenlabs: "sk-el" });
+    reply = () => Response.json([
+      { model_id: "eleven_multilingual_v2", name: "Eleven Multilingual v2", can_do_text_to_speech: true, description: "Lifelike." },
+      { model_id: "eleven_english_sts_v2", name: "Speech to speech", can_do_text_to_speech: false },
+    ]);
+    const r = await (await ask("/voice/models")).json();
+    expect(r.models).toEqual([{ id: "eleven_multilingual_v2", name: "Eleven Multilingual v2", description: "Lifelike." }]);
+    expect(sent[0].url).toBe("https://api.elevenlabs.io/v1/models");
   });
 
   test("every page of voices", async () => {

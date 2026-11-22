@@ -617,6 +617,7 @@ export const DEFAULTS: Record<string, string> = {
   voice_narrator: "",
   voice_reads: "speech",
   voice_tts_model: "eleven_flash_v2_5",
+  voice_stability: "",
   voice_stt_model: "scribe_v3",
   voice_pause: "1.2",
   voice_interrupt: "0",
