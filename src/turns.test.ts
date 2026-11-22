@@ -98,6 +98,17 @@ describe("switching it on", () => {
     expect(r.turn).toEqual({ on: true, player: "host" });
   });
 
+  test("two people who sat down in the same moment take their turns in the order they sat", async () => {
+    const { share, ana, bo } = await tableOfTwo();
+    // The same millisecond: before, the database could list them either way round, and the turn after Ana went
+    // back to the host, skipping Bo, about one run in ten.
+    db.query("UPDATE players SET created_at = 1000 WHERE share_id = ?").run(share.id);
+    db.query("UPDATE players SET id = CASE id WHEN ? THEN 'zz-ana' ELSE id END WHERE share_id = ?").run(ana.id, share.id);
+    await onAt(share.id, "zz-ana");
+    expect((await say(ana.cookie, "Mine.")).status).toBe(200);
+    expect((await stateFor(bo.cookie)).turn.player).toBe(bo.id);
+  });
+
   test("switching it on again starts a fresh round rather than resuming the old one", async () => {
     const { share, ana, bo } = await tableOfTwo();
     await onAt(share.id, ana.id);

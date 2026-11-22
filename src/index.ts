@@ -3314,7 +3314,7 @@ function assembleWith(
     .get(chat.id) as any;
   let roster = "";
   if (openTable) {
-    const seats = db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at")
+    const seats = db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at, rowid")
       .all(openTable.id) as any[];
     if (seats.length) {
       const mine = sheetFor(me.id);
@@ -3566,7 +3566,7 @@ ${DICE_BRIEF}` : DICE_BRIEF;
   const players = (() => {
     const names = [me.name];
     if (openTable) {
-      for (const p of db.query("SELECT name FROM players WHERE share_id = ? ORDER BY created_at").all(openTable.id) as any[]) {
+      for (const p of db.query("SELECT name FROM players WHERE share_id = ? ORDER BY created_at, rowid").all(openTable.id) as any[]) {
         if (p.name && !names.includes(p.name)) names.push(p.name);
       }
     }
@@ -9674,7 +9674,7 @@ function playersAt(shareId: string) {
     // Everyone at the table sees the host in the strip, so "Waiting on Bingus"
     // names somebody they can see.
     { ...publicPlayer(host as any), sheet: sheetFor(host.persona_id) },
-    ...(db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at").all(shareId) as any[])
+    ...(db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at, rowid").all(shareId) as any[])
       .map((p) => ({ ...publicPlayer(p), sheet: sheetFor(p.id) })),
   ];
 }
@@ -9709,7 +9709,7 @@ const SEAT_GONE_AFTER = 60_000;
  */
 function seatOrder(shareId: string): any[] {
   const guests = db.query(
-    "SELECT * FROM players WHERE share_id = ? AND host = 0 AND seen_at >= ? ORDER BY created_at",
+    "SELECT * FROM players WHERE share_id = ? AND host = 0 AND seen_at >= ? ORDER BY created_at, rowid",
   ).all(shareId, now() - SEAT_GONE_AFTER) as any[];
   return [hostSeat(shareId), ...guests];
 }
@@ -10461,7 +10461,7 @@ app.get("/join/:token", (c) => {
       "INSERT INTO players (id, share_id, token, name, persona_id, host, seen_at, created_at) VALUES (?,?,?,?,?,0,?,?)",
     ).run(uid(), share.id, token2, tidyPlayerName("", taken), null, now(), now());
     publish(share.id, "players", {
-      players: (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at").all(share.id) as any[])
+      players: (db.query("SELECT * FROM players WHERE share_id = ? ORDER BY created_at, rowid").all(share.id) as any[])
         .map(publicPlayer),
     });
   }
