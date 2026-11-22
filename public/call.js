@@ -75,13 +75,15 @@
 
   /** The speaking models, as the account lists them; a short known list when it cannot be asked. */
   const KNOWN_MODELS = [
+    { id: "eleven_v4_turbo", name: "Eleven v4 Turbo", description: "Newest, built for talking back and forth: near-v4 quality, starts almost at once. Good for calls." },
+    { id: "eleven_v4", name: "Eleven v4", description: "Newest and highest quality, steady over long passages. Best for reading messages aloud; slower to start." },
     { id: "eleven_flash_v2_5", name: "Eleven Flash v2.5", description: "Fastest and cheapest. Best for calls; can wobble on long lines." },
     { id: "eleven_turbo_v2_5", name: "Eleven Turbo v2.5", description: "Quick, a little steadier than Flash." },
     { id: "eleven_multilingual_v2", name: "Eleven Multilingual v2", description: "Steadiest and most lifelike; slower to start, costs more." },
     { id: "eleven_v3", name: "Eleven v3", description: "Most expressive, least predictable; slowest to start." },
   ];
-  const MODEL_NOTE = { eleven_flash_v2_5: KNOWN_MODELS[0].description, eleven_turbo_v2_5: KNOWN_MODELS[1].description,
-    eleven_multilingual_v2: KNOWN_MODELS[2].description, eleven_v3: KNOWN_MODELS[3].description };
+  const MODEL_NOTE = Object.fromEntries(KNOWN_MODELS.map((m) => [m.id, m.description]));
+  MODEL_NOTE.eleven_v3_conversational = "v3 tuned for conversation: expressive, quicker than v3.";
   let modelList = null;
   async function paintModels(chosen) {
     const select = el("voice_tts_model");

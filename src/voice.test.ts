@@ -140,6 +140,9 @@ describe("speaking and listening, through ElevenLabs", () => {
     expect(voiceSteadiness("eleven_flash_v2_5", "0.3")).toBe(0.3);
     expect(voiceSteadiness("eleven_flash_v2_5", "7")).toBe(1);
     expect(["0.1", "0.3", "0.5", "0.75", "0.95"].map((v) => voiceSteadiness("eleven_v3", v))).toEqual([0, 0.5, 0.5, 1, 1]);
+    // v4 takes any value (tried against the API): not rounded as v3 is.
+    expect(voiceSteadiness("eleven_v4", "0.75")).toBe(0.75);
+    expect(voiceSteadiness("eleven_v4_turbo", "0.3")).toBe(0.3);
   });
 
   test("the speaking models on the account, and only those", async () => {
