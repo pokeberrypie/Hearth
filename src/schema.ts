@@ -278,6 +278,7 @@ export const ALTER_TABLES: string[] = [
   "ALTER TABLE characters ADD COLUMN voice TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE personas ADD COLUMN voice TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE chats ADD COLUMN music TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE chats ADD COLUMN offstage_since INTEGER NOT NULL DEFAULT 0",
   // And the same for personas: who you are at the table is not necessarily
   // who you are in your stories, and a mode that arrived already wearing one
   // of your personas has decided something personal on your behalf.

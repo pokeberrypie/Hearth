@@ -6050,11 +6050,11 @@ export async function offstageTurn(chatId: string) {
   const s = getSettings();
   if (levelOf(s.offstage_level) === "off" || s.story_world === "0") return;
   try { archiveGoals(chatId); } catch (e) { console.error("[offstage] putting goals away:", e); }
-  const chat = db.query("SELECT offstage_day FROM chats WHERE id = ?").get(chatId) as any;
+  const chat = db.query("SELECT offstage_day, offstage_since FROM chats WHERE id = ?").get(chatId) as any;
   if (!chat) return;
   const day = clockOf(calendarOf(chatId), chronicleOf(chatId)).day;
   // The first time, the day is only noted: turning this on does not set the world moving behind a scene already under way.
-  if (chat.offstage_day < 0) { db.query("UPDATE chats SET offstage_day = ? WHERE id = ?").run(day, chatId); return; }
+  if (chat.offstage_day < 0) { db.query("UPDATE chats SET offstage_day = ?, offstage_since = ? WHERE id = ?").run(day, now(), chatId); return; }
   // The clock gone back — a misread "a year later" taken back by hand — and the world's day with it. Left ahead, the
   // world would stand still until the story caught up with a day that never came; and what it had sent on its way,
   // timed from that day, would keep it waiting as long. Both are brought back by as much as the clock was.
@@ -6080,15 +6080,23 @@ export async function offstageTurn(chatId: string) {
     if ((r?.yielded && !r.acted) || r?.setAside || r?.busy) db.query("UPDATE chats SET offstage_day = ? WHERE id = ? AND offstage_day = ?").run(chat.offstage_day, chatId, day);
     return;
   }
-  // A long stretch of one day — a feast, a siege, a slow evening — still gives the world its turn:
-  // once enough has been said since anyone offstage last moved. Never before the world has moved once.
-  const last = db.query("SELECT MAX(created_at) t FROM chronicle WHERE chat_id = ? AND kind = 'offstage' AND undone_at IS NULL").get(chatId) as any;
-  if (!last?.t) return;
-  // Counted from its last try, not only its last success: a run that failed, or found nobody to move, is
-  // not tried again after every single reply — each try is a call to its model, paid for.
+  // A long stretch of one day — a feast, a siege, a slow evening — still gives the world its turn: once enough has
+  // been said since anyone offstage last moved, or since the world began watching this chat. Before, it waited for
+  // the world to have moved once, and a story that never left its first day never moved at all, however long it ran.
+  if (messagesUntilMidday(chatId, chat.offstage_since) === 0) await offstageRun(chatId, { midday: true });
+}
+
+/**
+ * How many more messages before a long day gives the world its turn: counted from whichever is latest of someone
+ * offstage moving, the world trying (a run that failed, or found nobody to move, is not tried again after every
+ * single reply — each try is a call to its model, paid for), and the world beginning to watch this chat.
+ */
+function messagesUntilMidday(chatId: string, since?: number): number {
+  const watched = since ?? (db.query("SELECT offstage_since FROM chats WHERE id = ?").get(chatId) as any)?.offstage_since ?? 0;
+  const last = (db.query("SELECT MAX(created_at) t FROM chronicle WHERE chat_id = ? AND kind = 'offstage' AND undone_at IS NULL").get(chatId) as any)?.t ?? 0;
   const tried = (db.query("SELECT MAX(created_at) t FROM offstage_runs WHERE chat_id = ?").get(chatId) as any)?.t ?? 0;
-  const since = (db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND created_at > ?").get(chatId, Math.max(last.t, tried)) as any)?.n ?? 0;
-  if (since >= OFFSTAGE_EVERY) await offstageRun(chatId, { midday: true });
+  const said = (db.query("SELECT COUNT(*) n FROM messages WHERE chat_id = ? AND created_at > ?").get(chatId, Math.max(last, tried, watched)) as any)?.n ?? 0;
+  return Math.max(0, OFFSTAGE_EVERY - said);
 }
 
 /**
@@ -6368,6 +6376,11 @@ api.get("/chats/:id/offstage", (c) => {
       in: Math.max(0, Number(dataOf(e).due ?? 0) - clockOf(cal, entries).day), when: when(e) })),
     // Its last runs, kept across restarts: what came of each, or why nothing did.
     runs: (db.query("SELECT kind, note, acted, goals, problem, created_at FROM offstage_runs WHERE chat_id = ? ORDER BY created_at DESC LIMIT 8").all(chatId) as any[]),
+    // When it will next move by itself: a new day in the story, or this many more messages in this one.
+    waiting: (() => {
+      const ch = db.query("SELECT offstage_day FROM chats WHERE id = ?").get(chatId) as any;
+      return { watching: (ch?.offstage_day ?? -1) >= 0, messages: messagesUntilMidday(chatId) };
+    })(),
     // Who knows what: every version, where it came from, and whether it is still going around.
     whispers: knowingsOf(entries).reverse().slice(0, 60),
     // Matters moving out of sight, and what was done offstage to the ones the story has.

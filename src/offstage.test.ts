@@ -1977,3 +1977,44 @@ describe("word of it, said", () => {
     expect(rule(real, o).news?.told).toBe("the river lords are summoned to King's Landing");
   });
 });
+
+describe("a story that never leaves its first day", () => {
+  const talk = (n: number, from = 100) => {
+    const add = db.query("INSERT INTO messages (id, chat_id, role, name, content, created_at) VALUES (?, 'ch', ?, ?, 'And so it went on.', ?)");
+    for (let i = 0; i < n; i++) add.run(`t${from + i}`, i % 2 ? "assistant" : "user", i % 2 ? "Jaime Lannister" : "", Date.now() + from + i);
+  };
+  const deciding = () => sent.filter((b) => JSON.stringify(b.messages).includes("You are deciding for:")).length;
+
+  test("still gets its turn after a long stretch: before, it waited for a first move that never came", async () => {
+    seed();
+    await goal("Cersei Lannister", "be rid of the Hightower girl");
+    await offstageTurn("ch"); // begins watching: the day is noted, nothing moves yet
+    expect((await ledger()).waiting).toEqual({ watching: true, messages: 20 });
+    talk(19);
+    await offstageTurn("ch");
+    expect(deciding()).toBe(0);
+    expect((await ledger()).waiting.messages).toBe(1);
+    talk(1, 200);
+    await offstageTurn("ch");
+    expect(deciding()).toBe(1);
+  });
+
+  test("a chat already stuck that way moves on its next reply", async () => {
+    seed();
+    await goal("Cersei Lannister", "be rid of the Hightower girl");
+    // Watched since before the world kept when it began: day noted, nothing ever moved, a long story since.
+    db.query("UPDATE chats SET offstage_day = 0, offstage_since = 0 WHERE id = 'ch'").run();
+    talk(30);
+    await offstageTurn("ch");
+    expect(deciding()).toBe(1);
+  });
+
+  test("not watching yet: said so, and nothing moves on the first look", async () => {
+    seed();
+    expect((await ledger()).waiting.watching).toBe(false);
+    talk(40);
+    await offstageTurn("ch");
+    expect(deciding()).toBe(0);
+    expect((await ledger()).waiting.watching).toBe(true);
+  });
+});

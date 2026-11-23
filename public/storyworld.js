@@ -558,7 +558,12 @@ async function paintOffstage() {
   const runs = (l.runs ?? []).map((r) => `<li><span class="wdwhen">${ago(r.created_at)} · ${txt(KIND[r.kind] ?? r.kind)}</span>
       <div>${r.problem ? `<span class="wdbad">Failed: ${txt(r.problem)}</span>`
         : [r.acted ? `${r.acted} ${r.acted === 1 ? "person" : "people"} took a turn` : "", r.goals ? `${r.goals} new goal${r.goals === 1 ? "" : "s"}` : "", r.note ? txt(r.note) : ""].filter(Boolean).join(" · ") || "Nobody moved."}</div></li>`).join("");
-  const run = `<button type="button" class="solid wide" id="wdRunDay"${busy ? " disabled" : ""}>${busy === "day" ? "The day goes by offstage…" : "Run a day offstage"}</button>
+  // When it will move by itself next, said plainly: "nothing is happening" is otherwise indistinguishable from broken.
+  const w = l.waiting;
+  const next = level === "off" || !w ? ""
+    : !w.watching ? `<p class="hint wdnext">The world starts watching this chat after your next reply. From then on it moves whenever a new day begins in the story, and every ${20} messages in a long one.</p>`
+    : `<p class="hint wdnext">Next by itself: when a new day begins in the story, or ${w.messages ? `in ${w.messages} more message${w.messages === 1 ? "" : "s"}` : "after your next reply"}, whichever comes first.</p>`;
+  const run = next + `<button type="button" class="solid wide" id="wdRunDay"${busy ? " disabled" : ""}>${busy === "day" ? "The day goes by offstage…" : "Run a day offstage"}</button>
     <div class="wdoffadd wdstir">
       <input id="wdStirWhat" placeholder="What just happened? — King Robert is dead (optional)" autocomplete="off">
       <button type="button" class="ghost" id="wdStir"${busy ? " disabled" : ""}>${busy === "stir" ? "The news spreads…" : "Stir the world"}</button>
