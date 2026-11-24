@@ -23,7 +23,9 @@ npx tsc --noEmit -p . > "$W/tsc.log" 2>&1 || { grep error "$W/tsc.log" | head; e
 (cd mobile && node build.mjs)
 unzip -p "$BASE" AndroidManifest.xml > "$W/AndroidManifest.xml"
 python3 -I mobile/patch/version.py "$W/AndroidManifest.xml" "$N"
-python3 -I mobile/patch/repack.py "$BASE" mobile/dist/nodejs-project "$W/AndroidManifest.xml" "$W/unsigned.apk"
+# The boot screen (boot.html, hearthfire.js) goes in from mobile/android's assets: src/hearthfire.test.ts holds its
+# hearthfire.js to the app's own, so the drawing on the way in is the one the app carries on.
+python3 -I mobile/patch/repack.py "$BASE" mobile/dist/nodejs-project "$W/AndroidManifest.xml" "$W/unsigned.apk" mobile/android/app/src/main/assets
 javac -nowarn -cp "$APKSIG" -d "$W" mobile/patch/Sign.java 2>&1 | grep -v JAVA_TOOL || true
 java -cp "$W:$APKSIG" Sign "$W/unsigned.apk" "$W/signed.apk" "$KEY" 2>&1 | grep -v JAVA_TOOL
 cp "$W/signed.apk" "$BASE"

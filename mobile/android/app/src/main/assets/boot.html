@@ -5,16 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Hearth</title>
 <!--
-  The hearth, lit while the server wakes up.
+  The inside of the hearth, while the server wakes up.
 
   Loaded out of the APK the instant the activity starts, several seconds
   before Node is listening. It draws with hearthfire.js, beside it in the
   APK's assets — a copy of public/hearthfire.js, the same file the app's own
-  loading screen uses, so the fire is the same fire. It never splits: when
-  the app is ready the activity loads it with #lit, and the app's copy carries
-  on from full height and splits from there.
+  loading screen uses (the build copies it in). It never bursts: when the app
+  is ready the activity loads it with #lit, and the app's copy carries on with
+  the ball exactly where this one left it (its place is set by the clock),
+  and bursts from there.
 -->
-<style>html, body { margin: 0; height: 100%; background: #120c09; overflow: hidden; }</style>
+<style>html, body { margin: 0; height: 100%; background: #0b0705; overflow: hidden; }</style>
 </head>
 <body>
 <div id="boot" aria-hidden="true"></div>

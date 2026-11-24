@@ -1,201 +1,330 @@
 /*
- * The hearth, lit — what sits over Hearth while it loads.
+ * The hearth, from inside — what sits over Hearth while it loads.
  *
- * One file for both places it is drawn: the app's own loading screen
- * (public/index.html) and the phone's boot.html, shown out of the APK while
- * the server wakes. The phone burns first and hands over with #lit, and the
- * app's copy carries on from a fire already at full height — so the two must
- * be the same fire, which is why this is one file and not two kept in step.
+ * You are in the firebox, looking at its back: a soot-black brick wall, the side walls running in to it, the
+ * arch of the mouth around the edge of the screen, and an ash floor with two logs smouldering on it. A small
+ * ball of fire circles in the middle, trailing light and throwing sparks, and lights the brick as it passes.
+ * When Hearth is ready it spirals in, quicker and brighter, and bursts: the blast clears the hearth away from
+ * the middle out, embers fly, and the app is there behind it.
  *
- * The hearth is the icon's own drawing (mobile/android/icon/boot_hearth.py
- * writes it from gen_icon.py). The fire is drawn the way the icon draws fire —
- * flat bands of its own colours, deep red to a pale-gold heart — but it is one
- * body, not shapes: a field of heat, hottest where it burns, with turbulence
- * rising through it, and each colour is where that field passes a level. So
- * tongues rise out of the mass, pinch off and go, and the bands run together
- * the way a fire's do; nothing in it is a piece that can be told apart.
+ * One file for both places it is drawn: the app's own loading screen (public/index.html) and the phone's
+ * boot.html, shown out of the APK while the server wakes. The phone draws first and hands over with #lit; the
+ * ball's place on its circle is worked out from the clock, not from when each page started, so the app's copy
+ * picks it up exactly where the phone's left it.
  *
- * It starts on the logs, in front of everything, and only ever grows: up out
- * of the mouth of the hearth, over the stone, and out and down until it is the
- * whole screen. There is one fire, so nothing passes from behind the stone to
- * in front of it.
+ * Canvas 2D: no WebGL, nothing a phone's GPU can refuse. The hearth is drawn once per size and kept; each frame
+ * is that picture, the light on it, the ball, its trail and the sparks. With reduced motion asked for, the
+ * hearth is shown still and fades.
  *
- * And then it parts, the way water would: an opening wells up in the middle of
- * the flames — a rippling oval with a thick rim, each colour drawn back by its
- * own amount so the rim is layered — and spreads, taller and wider, throwing
- * drops of flame off its edge, until the fire has drawn away to the sides of
- * the screen. The app is in the opening.
- *
- * Drawn on the GPU (WebGL), because the field is worked out for every pixel.
- * Where there is no WebGL the hearth is shown as it is, and fades when it parts.
- *
- *   HearthFire.light(el, { lit })   start it; lit = already at full height
- *   HearthFire.part()               part it; resolves when it is gone
+ *   HearthFire.light(el, { lit })   start it; lit = it has already been circling (the phone's copy)
+ *   HearthFire.part()               burst; resolves when it is gone
+ *   HearthFire.RISE_MS              how long it circles, at least, before it may burst
  */
 (function () {
   "use strict";
 
-  const HEARTH = `<defs><clipPath id="bh0"><path clip-rule="evenodd" d="M40,22 L68,22 L72,32 L80,42 L80,74 L77,80 L31,80 L28,74 L28,42 L36,32 Z M40,80 L40,58 Q40,50 54,50 Q68,50 68,58 L68,80 Z"/></clipPath></defs><path d="M40,22 L68,22 L72,32 L80,42 L80,74 L77,80 L31,80 L28,74 L28,42 L36,32 Z M40,80 L40,58 Q40,50 54,50 Q68,50 68,58 L68,80 Z" fill-rule="evenodd" fill="#3F3124"/><g clip-path="url(#bh0)"><path d="M26.4,23 L34.6,23 A1.4,1.4 0 0 1 36,24.4 L36,27.6 A1.4,1.4 0 0 1 34.6,29 L26.4,29 A1.4,1.4 0 0 1 25,27.6 L25,24.4 A1.4,1.4 0 0 1 26.4,23 Z" fill="#9A7E60"/><path d="M38.4,23 L46.6,23 A1.4,1.4 0 0 1 48,24.4 L48,27.6 A1.4,1.4 0 0 1 46.6,29 L38.4,29 A1.4,1.4 0 0 1 37,27.6 L37,24.4 A1.4,1.4 0 0 1 38.4,23 Z" fill="#8A6E52"/><path d="M50.4,23 L58.6,23 A1.4,1.4 0 0 1 60,24.4 L60,27.6 A1.4,1.4 0 0 1 58.6,29 L50.4,29 A1.4,1.4 0 0 1 49,27.6 L49,24.4 A1.4,1.4 0 0 1 50.4,23 Z" fill="#A88B69"/><path d="M62.4,23 L70.6,23 A1.4,1.4 0 0 1 72,24.4 L72,27.6 A1.4,1.4 0 0 1 70.6,29 L62.4,29 A1.4,1.4 0 0 1 61,27.6 L61,24.4 A1.4,1.4 0 0 1 62.4,23 Z" fill="#7E6448"/><path d="M74.4,23 L82.6,23 A1.4,1.4 0 0 1 84,24.4 L84,27.6 A1.4,1.4 0 0 1 82.6,29 L74.4,29 A1.4,1.4 0 0 1 73,27.6 L73,24.4 A1.4,1.4 0 0 1 74.4,23 Z" fill="#937A5C"/><path d="M20.4,30 L28.6,30 A1.4,1.4 0 0 1 30,31.4 L30,34.6 A1.4,1.4 0 0 1 28.6,36 L20.4,36 A1.4,1.4 0 0 1 19,34.6 L19,31.4 A1.4,1.4 0 0 1 20.4,30 Z" fill="#9A7E60"/><path d="M32.4,30 L40.6,30 A1.4,1.4 0 0 1 42,31.4 L42,34.6 A1.4,1.4 0 0 1 40.6,36 L32.4,36 A1.4,1.4 0 0 1 31,34.6 L31,31.4 A1.4,1.4 0 0 1 32.4,30 Z" fill="#8A6E52"/><path d="M44.4,30 L52.6,30 A1.4,1.4 0 0 1 54,31.4 L54,34.6 A1.4,1.4 0 0 1 52.6,36 L44.4,36 A1.4,1.4 0 0 1 43,34.6 L43,31.4 A1.4,1.4 0 0 1 44.4,30 Z" fill="#A88B69"/><path d="M56.4,30 L64.6,30 A1.4,1.4 0 0 1 66,31.4 L66,34.6 A1.4,1.4 0 0 1 64.6,36 L56.4,36 A1.4,1.4 0 0 1 55,34.6 L55,31.4 A1.4,1.4 0 0 1 56.4,30 Z" fill="#7E6448"/><path d="M68.4,30 L76.6,30 A1.4,1.4 0 0 1 78,31.4 L78,34.6 A1.4,1.4 0 0 1 76.6,36 L68.4,36 A1.4,1.4 0 0 1 67,34.6 L67,31.4 A1.4,1.4 0 0 1 68.4,30 Z" fill="#937A5C"/><path d="M80.4,30 L88.6,30 A1.4,1.4 0 0 1 90,31.4 L90,34.6 A1.4,1.4 0 0 1 88.6,36 L80.4,36 A1.4,1.4 0 0 1 79,34.6 L79,31.4 A1.4,1.4 0 0 1 80.4,30 Z" fill="#9A7E60"/><path d="M26.4,37 L34.6,37 A1.4,1.4 0 0 1 36,38.4 L36,41.6 A1.4,1.4 0 0 1 34.6,43 L26.4,43 A1.4,1.4 0 0 1 25,41.6 L25,38.4 A1.4,1.4 0 0 1 26.4,37 Z" fill="#8A6E52"/><path d="M38.4,37 L46.6,37 A1.4,1.4 0 0 1 48,38.4 L48,41.6 A1.4,1.4 0 0 1 46.6,43 L38.4,43 A1.4,1.4 0 0 1 37,41.6 L37,38.4 A1.4,1.4 0 0 1 38.4,37 Z" fill="#A88B69"/><path d="M50.4,37 L58.6,37 A1.4,1.4 0 0 1 60,38.4 L60,41.6 A1.4,1.4 0 0 1 58.6,43 L50.4,43 A1.4,1.4 0 0 1 49,41.6 L49,38.4 A1.4,1.4 0 0 1 50.4,37 Z" fill="#7E6448"/><path d="M62.4,37 L70.6,37 A1.4,1.4 0 0 1 72,38.4 L72,41.6 A1.4,1.4 0 0 1 70.6,43 L62.4,43 A1.4,1.4 0 0 1 61,41.6 L61,38.4 A1.4,1.4 0 0 1 62.4,37 Z" fill="#937A5C"/><path d="M74.4,37 L82.6,37 A1.4,1.4 0 0 1 84,38.4 L84,41.6 A1.4,1.4 0 0 1 82.6,43 L74.4,43 A1.4,1.4 0 0 1 73,41.6 L73,38.4 A1.4,1.4 0 0 1 74.4,37 Z" fill="#9A7E60"/><path d="M20.4,44 L28.6,44 A1.4,1.4 0 0 1 30,45.4 L30,48.6 A1.4,1.4 0 0 1 28.6,50 L20.4,50 A1.4,1.4 0 0 1 19,48.6 L19,45.4 A1.4,1.4 0 0 1 20.4,44 Z" fill="#8A6E52"/><path d="M32.4,44 L40.6,44 A1.4,1.4 0 0 1 42,45.4 L42,48.6 A1.4,1.4 0 0 1 40.6,50 L32.4,50 A1.4,1.4 0 0 1 31,48.6 L31,45.4 A1.4,1.4 0 0 1 32.4,44 Z" fill="#A88B69"/><path d="M44.4,44 L52.6,44 A1.4,1.4 0 0 1 54,45.4 L54,48.6 A1.4,1.4 0 0 1 52.6,50 L44.4,50 A1.4,1.4 0 0 1 43,48.6 L43,45.4 A1.4,1.4 0 0 1 44.4,44 Z" fill="#7E6448"/><path d="M56.4,44 L64.6,44 A1.4,1.4 0 0 1 66,45.4 L66,48.6 A1.4,1.4 0 0 1 64.6,50 L56.4,50 A1.4,1.4 0 0 1 55,48.6 L55,45.4 A1.4,1.4 0 0 1 56.4,44 Z" fill="#937A5C"/><path d="M68.4,44 L76.6,44 A1.4,1.4 0 0 1 78,45.4 L78,48.6 A1.4,1.4 0 0 1 76.6,50 L68.4,50 A1.4,1.4 0 0 1 67,48.6 L67,45.4 A1.4,1.4 0 0 1 68.4,44 Z" fill="#9A7E60"/><path d="M80.4,44 L88.6,44 A1.4,1.4 0 0 1 90,45.4 L90,48.6 A1.4,1.4 0 0 1 88.6,50 L80.4,50 A1.4,1.4 0 0 1 79,48.6 L79,45.4 A1.4,1.4 0 0 1 80.4,44 Z" fill="#8A6E52"/><path d="M26.4,51 L34.6,51 A1.4,1.4 0 0 1 36,52.4 L36,55.6 A1.4,1.4 0 0 1 34.6,57 L26.4,57 A1.4,1.4 0 0 1 25,55.6 L25,52.4 A1.4,1.4 0 0 1 26.4,51 Z" fill="#A88B69"/><path d="M38.4,51 L46.6,51 A1.4,1.4 0 0 1 48,52.4 L48,55.6 A1.4,1.4 0 0 1 46.6,57 L38.4,57 A1.4,1.4 0 0 1 37,55.6 L37,52.4 A1.4,1.4 0 0 1 38.4,51 Z" fill="#7E6448"/><path d="M50.4,51 L58.6,51 A1.4,1.4 0 0 1 60,52.4 L60,55.6 A1.4,1.4 0 0 1 58.6,57 L50.4,57 A1.4,1.4 0 0 1 49,55.6 L49,52.4 A1.4,1.4 0 0 1 50.4,51 Z" fill="#937A5C"/><path d="M62.4,51 L70.6,51 A1.4,1.4 0 0 1 72,52.4 L72,55.6 A1.4,1.4 0 0 1 70.6,57 L62.4,57 A1.4,1.4 0 0 1 61,55.6 L61,52.4 A1.4,1.4 0 0 1 62.4,51 Z" fill="#9A7E60"/><path d="M74.4,51 L82.6,51 A1.4,1.4 0 0 1 84,52.4 L84,55.6 A1.4,1.4 0 0 1 82.6,57 L74.4,57 A1.4,1.4 0 0 1 73,55.6 L73,52.4 A1.4,1.4 0 0 1 74.4,51 Z" fill="#8A6E52"/><path d="M20.4,58 L28.6,58 A1.4,1.4 0 0 1 30,59.4 L30,62.6 A1.4,1.4 0 0 1 28.6,64 L20.4,64 A1.4,1.4 0 0 1 19,62.6 L19,59.4 A1.4,1.4 0 0 1 20.4,58 Z" fill="#A88B69"/><path d="M32.4,58 L40.6,58 A1.4,1.4 0 0 1 42,59.4 L42,62.6 A1.4,1.4 0 0 1 40.6,64 L32.4,64 A1.4,1.4 0 0 1 31,62.6 L31,59.4 A1.4,1.4 0 0 1 32.4,58 Z" fill="#7E6448"/><path d="M68.4,58 L76.6,58 A1.4,1.4 0 0 1 78,59.4 L78,62.6 A1.4,1.4 0 0 1 76.6,64 L68.4,64 A1.4,1.4 0 0 1 67,62.6 L67,59.4 A1.4,1.4 0 0 1 68.4,58 Z" fill="#937A5C"/><path d="M80.4,58 L88.6,58 A1.4,1.4 0 0 1 90,59.4 L90,62.6 A1.4,1.4 0 0 1 88.6,64 L80.4,64 A1.4,1.4 0 0 1 79,62.6 L79,59.4 A1.4,1.4 0 0 1 80.4,58 Z" fill="#9A7E60"/><path d="M26.4,65 L34.6,65 A1.4,1.4 0 0 1 36,66.4 L36,69.6 A1.4,1.4 0 0 1 34.6,71 L26.4,71 A1.4,1.4 0 0 1 25,69.6 L25,66.4 A1.4,1.4 0 0 1 26.4,65 Z" fill="#8A6E52"/><path d="M74.4,65 L82.6,65 A1.4,1.4 0 0 1 84,66.4 L84,69.6 A1.4,1.4 0 0 1 82.6,71 L74.4,71 A1.4,1.4 0 0 1 73,69.6 L73,66.4 A1.4,1.4 0 0 1 74.4,65 Z" fill="#A88B69"/><path d="M20.4,72 L28.6,72 A1.4,1.4 0 0 1 30,73.4 L30,76.6 A1.4,1.4 0 0 1 28.6,78 L20.4,78 A1.4,1.4 0 0 1 19,76.6 L19,73.4 A1.4,1.4 0 0 1 20.4,72 Z" fill="#7E6448"/><path d="M32.4,72 L40.6,72 A1.4,1.4 0 0 1 42,73.4 L42,76.6 A1.4,1.4 0 0 1 40.6,78 L32.4,78 A1.4,1.4 0 0 1 31,76.6 L31,73.4 A1.4,1.4 0 0 1 32.4,72 Z" fill="#937A5C"/><path d="M68.4,72 L76.6,72 A1.4,1.4 0 0 1 78,73.4 L78,76.6 A1.4,1.4 0 0 1 76.6,78 L68.4,78 A1.4,1.4 0 0 1 67,76.6 L67,73.4 A1.4,1.4 0 0 1 68.4,72 Z" fill="#9A7E60"/><path d="M80.4,72 L88.6,72 A1.4,1.4 0 0 1 90,73.4 L90,76.6 A1.4,1.4 0 0 1 88.6,78 L80.4,78 A1.4,1.4 0 0 1 79,76.6 L79,73.4 A1.4,1.4 0 0 1 80.4,72 Z" fill="#8A6E52"/><path d="M28,22 L80,22 L80,44 L28,44 Z" fill="#120A06" fill-opacity="0.3"/><path d="M28,62 L80,62 L80,82 L28,82 Z" fill="#FFB861" fill-opacity="0.14"/><path d="M30,56 A24,19 0 1 0 78,56 A24,19 0 1 0 30,56 Z" fill="#120A06" fill-opacity="0.22"/><path d="M37,52 A17,14 0 1 0 71,52 A17,14 0 1 0 37,52 Z" fill="#120A06" fill-opacity="0.2"/></g><path d="M40,80 L40,58 Q40,50 54,50 Q68,50 68,58 L68,80 L66,80 L66,58.4 Q66,52 54,52 Q42,52 42,58.4 L42,80 Z" fill="#D6A96F" fill-opacity="0.5"/><path d="M30,78 L78,78 L73,85 L35,85 Z" fill="#7E6448"/><path d="M30,78 L78,78 L76.6,80 L31.4,80 Z" fill="#AD8E6A"/><path d="M32,82 A22,4.2 0 1 0 76,82 A22,4.2 0 1 0 32,82 Z" fill="#FFB861" fill-opacity="0.26"/><path d="M45.2,75.2 L62.8,75.2 A2.2,2.2 0 0 1 65,77.4 L65,77.4 A2.2,2.2 0 0 1 62.8,79.6 L45.2,79.6 A2.2,2.2 0 0 1 43,77.4 L43,77.4 A2.2,2.2 0 0 1 45.2,75.2 Z" fill="#FF7A2E"/><path d="M45.1,77.4 A0.9,0.9 0 1 0 46.9,77.4 A0.9,0.9 0 1 0 45.1,77.4 Z" fill="#FFC46A"/><path d="M50.3,78.2 A0.7,0.7 0 1 0 51.7,78.2 A0.7,0.7 0 1 0 50.3,78.2 Z" fill="#FFC46A"/><path d="M56.2,77.2 A0.8,0.8 0 1 0 57.8,77.2 A0.8,0.8 0 1 0 56.2,77.2 Z" fill="#FFC46A"/><path d="M61.3,78 A0.7,0.7 0 1 0 62.7,78 A0.7,0.7 0 1 0 61.3,78 Z" fill="#FFC46A"/><g transform="rotate(-8 54 73.7)"><path d="M43.2,71 L64.8,71 A2.7,2.7 0 0 1 67.5,73.7 L67.5,73.7 A2.7,2.7 0 0 1 64.8,76.4 L43.2,76.4 A2.7,2.7 0 0 1 40.5,73.7 L40.5,73.7 A2.7,2.7 0 0 1 43.2,71 Z" fill="#5B3B26"/><path d="M39.4,74.4 A1.8,2.7 0 1 0 43,74.4 A1.8,2.7 0 1 0 39.4,74.4 Z" fill="#8A6442"/></g><g transform="rotate(7 54 76)"><path d="M44.1,73.4 L64.9,73.4 A2.6,2.6 0 0 1 67.5,76 L67.5,76 A2.6,2.6 0 0 1 64.9,78.6 L44.1,78.6 A2.6,2.6 0 0 1 41.5,76 L41.5,76 A2.6,2.6 0 0 1 44.1,73.4 Z" fill="#47301F"/><path d="M64.7,76 A1.7,2.6 0 1 0 68.1,76 A1.7,2.6 0 1 0 64.7,76 Z" fill="#79573A"/></g><path d="M46,74.6 C50,74.2 54,74.6 58,74.2" fill="none" stroke="#FF7A2E" stroke-width="0.8" stroke-linecap="round"/><path d="M24,36 L84,36 L84,43.6 L81.6,46 L26.4,46 L24,43.6 Z" fill="#5A3A24"/><path d="M24,36 L84,36 L84,38.2 L24,38.2 Z" fill="#8A5F3C"/><path d="M28,41 L46,41" fill="none" stroke="#3A2214" stroke-width="0.6" stroke-linecap="round"/><path d="M50,43.2 L72,43.2" fill="none" stroke="#3A2214" stroke-width="0.6" stroke-linecap="round"/><path d="M58,40.2 L80,40.2" fill="none" stroke="#3A2214" stroke-width="0.6" stroke-linecap="round"/><path d="M33.2,36 L35,36 A0.6,0.6 0 0 1 35.6,36.6 L35.6,45.4 A0.6,0.6 0 0 1 35,46 L33.2,46 A0.6,0.6 0 0 1 32.6,45.4 L32.6,36.6 A0.6,0.6 0 0 1 33.2,36 Z" fill="#241D18"/><path d="M73,36 L74.8,36 A0.6,0.6 0 0 1 75.4,36.6 L75.4,45.4 A0.6,0.6 0 0 1 74.8,46 L73,46 A0.6,0.6 0 0 1 72.4,45.4 L72.4,36.6 A0.6,0.6 0 0 1 73,36 Z" fill="#241D18"/><path d="M33.3,38.6 A0.8,0.8 0 1 0 34.9,38.6 A0.8,0.8 0 1 0 33.3,38.6 Z" fill="#5E544B"/><path d="M33.3,43.4 A0.8,0.8 0 1 0 34.9,43.4 A0.8,0.8 0 1 0 33.3,43.4 Z" fill="#5E544B"/><path d="M73.1,38.6 A0.8,0.8 0 1 0 74.7,38.6 A0.8,0.8 0 1 0 73.1,38.6 Z" fill="#5E544B"/><path d="M73.1,43.4 A0.8,0.8 0 1 0 74.7,43.4 A0.8,0.8 0 1 0 73.1,43.4 Z" fill="#5E544B"/><path d="M29.8,35.2 A4.2,1.5 0 1 0 38.2,35.2 A4.2,1.5 0 1 0 29.8,35.2 Z" fill="#6E6159"/><path d="M31.8,35.2 A2.2,1.8 0 0 1 36.2,35.2 Z" fill="#5E544B"/><path d="M33.7,27.6 L34.3,27.6 A1,1 0 0 1 35.3,28.6 L35.3,34.6 A1,1 0 0 1 34.3,35.6 L33.7,35.6 A1,1 0 0 1 32.7,34.6 L32.7,28.6 A1,1 0 0 1 33.7,27.6 Z" fill="#F0E2C2"/><path d="M32.7,31 C33.5,32.4 32.9,33.6 32.7,34.6 L31.6,34.6 C31.6,33.2 31.9,32 32.7,31 Z" fill="#D8C8A4"/><path d="M34,23.6 C35.5,25.6 35.9,26.4 35.9,27.4 C35.9,28.8 35.1,29.7 34,29.7 C32.9,29.7 32.1,28.8 32.1,27.4 C32.1,26.4 32.5,25.6 34,23.6 Z" fill="#FFD276"/><path d="M34,26.4 C34.7,27.4 34.9,27.9 34.9,28.4 C34.9,29.1 34.5,29.5 34,29.5 C33.5,29.5 33.1,29.1 33.1,28.4 C33.1,27.9 33.3,27.4 34,26.4 Z" fill="#FFF6DC"/><path d="M78.4,30.2 A2.5,2.5 0 0 1 78.4,34.6" fill="none" stroke="#8C8475" stroke-width="1.7"/><path d="M71.1,28.2 L77.3,28.2 A1.3,1.3 0 0 1 78.6,29.5 L78.6,34.7 A1.3,1.3 0 0 1 77.3,36 L71.1,36 A1.3,1.3 0 0 1 69.8,34.7 L69.8,29.5 A1.3,1.3 0 0 1 71.1,28.2 Z" fill="#8C8475"/><path d="M69.8,30.4 L78.6,30.4 L78.6,31.5 L69.8,31.5 Z" fill="#B9B2A2" fill-opacity="0.7"/><path d="M69.8,33.6 L78.6,33.6 L78.6,34.7 L69.8,34.7 Z" fill="#B9B2A2" fill-opacity="0.55"/><path d="M69.6,28.2 A4.6,1.8 0 1 0 78.8,28.2 A4.6,1.8 0 1 0 69.6,28.2 Z" fill="#EFE7D4"/>`;
-  // Where the fire sits in the drawing: the grate, in the icon's 108-unit viewBox, and how high the opening is.
-  const GRATE = { x: 54, y: 78.5, half: 11, top: 52 };
-  const RISE_MS = 2600;
-  const PART_MS = 2000;
+  const RISE_MS = 1700;            // about a lap: it is seen going round before it goes
+  const LAP_MS = 1600;
+  const SPIRAL_MS = 650;
+  const BURST_MS = 1100;
 
-  // The fire's colours, outermost first — a red-orange rim, oranges inside it, a light gold heart — and how far
-  // in from the outline each begins, as a share of the flame's half-width there: so each is a smaller flame
-  // nested inside the last, as a drawn flame's are.
-  const COLOURS = ["#a8321a", "#e2531e", "#f5792a", "#ffa040", "#ffc96e"];
-  const LEVELS = [0, 0.12, 0.26, 0.5, 0.78];
-
-  const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
-  // Easing for the rise itself: gentle at both ends.
-  const glide = (t) => (1 - Math.cos(Math.PI * t)) / 2;
-  const lerp = (a, b, t) => a + (b - a) * t;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const smooth = (a, b, v) => { const x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
-  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-
-  const VERT = `attribute vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }`;
-  const FRAG = `
-// High precision where the GPU has it; some older phones' do not, and a shader asking for it there does not
-// compile at all — no fire. Medium is enough for a flame a screen tall.
-#ifdef GL_FRAGMENT_PRECISION_HIGH
-precision highp float;
-#else
-precision mediump float;
-#endif
-uniform vec2 uRes;          // the canvas, in its own pixels
-uniform float uT;
-uniform vec2 uSrc;          // the middle of the flame's base
-uniform vec2 uSize;         // its half-width at the base, and its height
-uniform vec2 uGrain;        // how big its tongues are, across and up, in pixels: they grow far more slowly than it
-uniform float uFill;        // at the end, fire everywhere, so the screen is fire edge to edge
-uniform vec4 uOpen;         // the opening: centre, and radii
-uniform float uRim;
-uniform vec3 uC[5];
-uniform float uL[5];
-
-// Simplex noise (Gustavson): no grid in it to show through as the flame moves.
-vec3 permute(vec3 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }
-float snoise(vec2 v) {
-  const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-  vec2 i = floor(v + dot(v, C.yy));
-  vec2 x0 = v - i + dot(i, C.xx);
-  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-  vec4 x12 = x0.xyxy + C.xxzz;
-  x12.xy -= i1;
-  i = mod(i, 289.0);
-  vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
-  vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
-  m = m * m; m = m * m;
-  vec3 x = 2.0 * fract(p * C.www) - 1.0;
-  vec3 h = abs(x) - 0.5;
-  vec3 ox = floor(x + 0.5);
-  vec3 a0 = x - ox;
-  m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
-  vec3 g;
-  g.x = a0.x * x0.x + h.x * x0.y;
-  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-  return 130.0 * dot(m, g);
-}
-
-void main() {
-  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
-  float W = uSize.x, H = uSize.y, GX = uGrain.x, GY = uGrain.y;
-  float up = uSrc.y - p.y;                 // height above the base
-  float v = up / H;
-  // The flame bends, and the bend runs up it: an S that travels, more the higher it goes. Its waves are the
-  // size of its tongues, not of the whole fire, so a big fire ripples rather than one huge flame leaning.
-  float sway = snoise(vec2(up / (GY * 0.67) - uT * 0.85, 3.7)) * 0.6 + snoise(vec2(up / (GY * 0.31) - uT * 1.6, 9.1)) * 0.22;
-  float x = p.x - uSrc.x - sway * GX * 0.6 * pow(clamp(v, 0.0, 1.6), 1.3);
-  // Its outline: a round base, full low down, tapering to a point.
-  float hw;
-  if (v < 0.0) { float b = -up / (W * 0.8); hw = W * sqrt(max(0.0, 1.0 - b * b)); }
-  else hw = W * pow(max(0.0, 1.0 - v), 0.8) * (1.0 + 0.6 * v * (1.0 - v));
-  float f = 1.0 - abs(x) / max(hw, 0.001);
-  // Tongues: turbulence stretched upward and rising, cutting the upper flame into tips that lean and part.
-  // More toward the top, and more toward its sides than its heart, so tongues break from the flanks too.
-  // Sized by the grain, not the flame: as the fire grows it grows more tongues, not bigger ones — measured by
-  // the flame, the whole picture only scaled up, and a fire growing looked like a camera moving in on it.
-  float top = smoothstep(-0.05, 0.8, v);
-  float side = 0.55 + 0.45 * clamp(abs(x) / max(hw, 0.001), 0.0, 1.0);
-  float t1 = snoise(vec2(x / (GX * 0.3), up / (GY * 0.42) - uT * 1.5)) * 0.5 + 0.5;
-  float t2 = snoise(vec2(x / (GX * 0.18) + 5.0, up / (GY * 0.24) - uT * 2.4)) * 0.5 + 0.5;
-  f -= (t1 * 0.85 + t2 * 0.4) * top * side;
-  // Licks: pieces broken off above the tips, rising and going.
-  float l = snoise(vec2(x / (GX * 0.2) + 11.0, up / (GY * 0.15) - uT * 3.2));
-  float near = smoothstep(0.7, 0.95, v) * (1.0 - smoothstep(1.15, 1.5, v)) * (1.0 - smoothstep(0.15, 0.5, abs(x) / W));
-  // A blob only where the turbulence is strong, and fewer as they rise out of their band; elsewhere well
-  // below the edge, so nothing half-there shows.
-  f = max(f, (l - 0.55 - (1.0 - near) * 0.5) * 2.5);
-  f += uFill;
-  // How much f changes across a pixel, near enough, for a clean edge without derivatives.
-  float aa = 1.2 / max(hw, max(W * 0.12, 4.0));
-
-  // The opening, rippling; each colour drawn back from it by its own amount, the brightest most.
-  vec2 e = p - uOpen.xy;
-  float ang = atan(e.y, e.x);
-  float ripple = 1.0 + 0.07 * sin(ang * 5.0 + uT * 6.5) + 0.035 * sin(ang * 11.0 - uT * 9.5) + 0.02 * sin(ang * 17.0 + uT * 13.0);
-
-  vec3 col = uC[0];
-  float alpha = 0.0;
-  for (int i = 0; i < 5; i++) {
-    float on = smoothstep(uL[i] - aa, uL[i] + aa, f);
-    if (uOpen.z > 0.0) {
-      float g = float(i) * uRim;
-      float k = length(vec2(e.x / ((uOpen.z + g) * ripple), e.y / ((uOpen.w + g * 1.6) * ripple)));
-      on *= smoothstep(1.0 - 1.5 / (uOpen.z + g), 1.0 + 1.5 / (uOpen.z + g), k);
-    }
-    if (i == 0) alpha = on; else col = mix(col, uC[i], on);
-  }
-  gl_FragColor = vec4(col * alpha, alpha);
-}`;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const easeIn = (t) => t * t * t;
+  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 
   const CSS = `
-#boot.hf { position: fixed; inset: 0; z-index: 999; pointer-events: none; overflow: hidden; background: #120c09; }
-#boot.hf svg { fill: initial; stroke: none; stroke-width: 0; }
-#boot.hf .hf-room { position: absolute; inset: 0;
-  background: radial-gradient(75% 55% at 50% 82%, #3a2014 0%, #1e120c 45%, #0e0907 100%); }
-#boot.hf .hf-hearth { position: absolute; left: 50%; bottom: 4vh; transform: translateX(-50%);
-  width: min(88vw, 64vh); height: auto; aspect-ratio: 80 / 74; overflow: visible;
-  filter: brightness(calc(0.6 + var(--heat, 0) * 0.55)); }
-#boot.hf .hf-fire { position: absolute; inset: 0; width: 100%; height: 100%; }
-#boot.hf .hf-light { position: absolute; inset: 0; mix-blend-mode: screen;
-  background: radial-gradient(70% 55% at 50% 80%, rgba(255, 170, 80, .28), rgba(194, 90, 30, .10) 55%, transparent 80%);
-  opacity: calc(0.3 + var(--heat, 0) * 0.7); }
-#boot.hf.parting { background: transparent; }
-#boot.hf.parting .hf-room, #boot.hf.parting .hf-hearth, #boot.hf.parting .hf-light { display: none; }
+.hf { position: fixed; inset: 0; z-index: 2147483000; background: #0b0705; overflow: hidden; pointer-events: auto; }
+.hf.parting { background: transparent; pointer-events: none; }
+.hf canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 `;
+
+  /** A repeatable random: the same bricks every time the hearth is drawn. */
+  function seeded(n) {
+    let x = n >>> 0 || 1;
+    return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return ((x >>> 0) % 100000) / 100000; };
+  }
 
   let state = null;
 
-  /** The GPU side: the field, compiled once. Null where there is no WebGL. */
-  function fieldOn(canvas) {
-    const gl = canvas.getContext("webgl", { premultipliedAlpha: true, antialias: false, alpha: true });
-    if (!gl) return null;
-    const shader = (type, src) => {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      return gl.getShaderParameter(sh, gl.COMPILE_STATUS) ? sh : null;
+  /** The hearth itself, drawn once for this size of screen. */
+  function paintHearth(s) {
+    const { w, h, dpr } = s;
+    const c = document.createElement("canvas");
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+    const g = c.getContext("2d");
+    g.scale(dpr, dpr);
+    const rnd = seeded(1971);
+
+    // Where things are: the back wall's edges, where it meets the floor, and the point the side walls run to.
+    const back = { l: w * 0.17, r: w * 0.83, floor: h * 0.74 };
+    const vp = { x: w / 2, y: h * 0.5 };
+    s.layout = { back, vp, ball: { x: w / 2, y: h * 0.44, r: Math.min(w, h) * 0.15 }, logs: { x: w / 2, y: back.floor + (h - back.floor) * 0.42 } };
+
+    g.fillStyle = "#0b0705";
+    g.fillRect(0, 0, w, h);
+
+    // The back wall: brick, in a running bond, each a little its own colour, under soot that is thickest at the top.
+    const bh = clamp(Math.min(w, h) * 0.042, 12, 30), bw = bh * 2.5, mortar = Math.max(1.2, bh * 0.1);
+    g.save();
+    g.beginPath(); g.rect(back.l, 0, back.r - back.l, back.floor); g.clip();
+    g.fillStyle = "#140b07"; g.fillRect(back.l, 0, back.r - back.l, back.floor);
+    for (let row = 0, y = back.floor - bh; y > -bh; row++, y -= bh) {
+      const shift = row % 2 ? bw / 2 : 0;
+      for (let x = back.l - bw + shift; x < back.r + bw; x += bw) {
+        const k = rnd();
+        const r = 50 + k * 34, gg = 24 + k * 14, b = 15 + k * 8;
+        g.fillStyle = `rgb(${r | 0},${gg | 0},${b | 0})`;
+        g.fillRect(x + mortar / 2, y + mortar / 2, bw - mortar, bh - mortar);
+        // A worn face: a lighter top edge, a darker underside.
+        g.fillStyle = "rgba(255,190,140,0.05)"; g.fillRect(x + mortar / 2, y + mortar / 2, bw - mortar, bh * 0.18);
+        g.fillStyle = "rgba(0,0,0,0.18)"; g.fillRect(x + mortar / 2, y + bh * 0.72, bw - mortar, bh * 0.28 - mortar / 2);
+      }
+    }
+    // Soot: black at the top, thinning to the warm brick low down, where the fire has been licking it clean;
+    // and in smears and blooms across it, where smoke has hung for years.
+    const soot = g.createLinearGradient(0, 0, 0, back.floor);
+    soot.addColorStop(0, "rgba(4,2,1,0.98)"); soot.addColorStop(0.4, "rgba(6,3,2,0.82)"); soot.addColorStop(0.8, "rgba(8,4,2,0.5)"); soot.addColorStop(1, "rgba(10,5,2,0.32)");
+    g.fillStyle = soot; g.fillRect(back.l, 0, back.r - back.l, back.floor);
+    for (let i = 0; i < 18; i++) {
+      const x = lerp(back.l, back.r, rnd()), y = back.floor * (0.15 + rnd() * 0.8), r = Math.min(w, h) * (0.06 + rnd() * 0.16);
+      const blot = g.createRadialGradient(x, y, 0, x, y, r);
+      blot.addColorStop(0, `rgba(3,2,1,${0.25 + rnd() * 0.3})`); blot.addColorStop(1, "rgba(3,2,1,0)");
+      g.fillStyle = blot; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    // Where the fire has stood longest, low in the middle, the brick is scorched black right through.
+    const scorch = g.createRadialGradient(w / 2, back.floor, 0, w / 2, back.floor, (back.r - back.l) * 0.45);
+    scorch.addColorStop(0, "rgba(2,1,0,0.6)"); scorch.addColorStop(1, "rgba(2,1,0,0)");
+    g.fillStyle = scorch; g.fillRect(back.l, 0, back.r - back.l, back.floor);
+    g.restore();
+
+    // The side walls, running in to the back: their courses of brick drawn toward the vanishing point.
+    const side = (edgeX, wallX) => {
+      g.save();
+      g.beginPath(); g.moveTo(wallX, 0); g.lineTo(wallX, back.floor); g.lineTo(edgeX, h); g.lineTo(edgeX, 0); g.closePath(); g.clip();
+      const grad = g.createLinearGradient(edgeX, 0, wallX, 0);
+      grad.addColorStop(0, "#090504"); grad.addColorStop(1, "#24130b");
+      g.fillStyle = grad; g.fillRect(Math.min(edgeX, wallX), 0, Math.abs(wallX - edgeX), h);
+      g.strokeStyle = "rgba(0,0,0,0.55)"; g.lineWidth = mortar;
+      for (let y = back.floor; y > -h; y -= bh) {
+        // The same course on the back wall, carried out to the screen's edge along the line from the vanishing point.
+        const t = (edgeX - vp.x) / (wallX - vp.x);
+        g.beginPath(); g.moveTo(wallX, y); g.lineTo(edgeX, vp.y + (y - vp.y) * t); g.stroke();
+      }
+      const sootSide = g.createLinearGradient(0, 0, 0, h);
+      sootSide.addColorStop(0, "rgba(4,2,1,0.9)"); sootSide.addColorStop(0.7, "rgba(4,2,1,0.35)"); sootSide.addColorStop(1, "rgba(4,2,1,0.6)");
+      g.fillStyle = sootSide; g.fillRect(0, 0, w, h);
+      g.restore();
     };
-    const vs = shader(gl.VERTEX_SHADER, VERT), fs = shader(gl.FRAGMENT_SHADER, FRAG);
-    if (!vs || !fs) return null;
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-    gl.useProgram(prog);
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const a = gl.getAttribLocation(prog, "a");
-    gl.enableVertexAttribArray(a);
-    gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
-    const u = {};
-    for (const n of ["uRes", "uT", "uSrc", "uSize", "uGrain", "uFill", "uOpen", "uRim", "uC", "uL"]) u[n] = gl.getUniformLocation(prog, n);
-    gl.uniform3fv(u.uC, new Float32Array(COLOURS.flatMap(rgb)));
-    gl.uniform1fv(u.uL, new Float32Array(LEVELS));
-    return { gl, u };
+    side(0, back.l);
+    side(w, back.r);
+
+    // The floor: ash, in perspective, warmest under the logs.
+    g.save();
+    g.beginPath(); g.moveTo(back.l, back.floor); g.lineTo(back.r, back.floor); g.lineTo(w, h); g.lineTo(0, h); g.closePath(); g.clip();
+    const ash = g.createLinearGradient(0, back.floor, 0, h);
+    ash.addColorStop(0, "#2a1c14"); ash.addColorStop(1, "#140c08");
+    g.fillStyle = ash; g.fillRect(0, back.floor, w, h - back.floor);
+    for (let i = 0; i < 260; i++) {
+      const t = rnd(), y = lerp(back.floor, h, t), half = lerp((back.r - back.l) / 2, w / 2, t);
+      const x = w / 2 + (rnd() * 2 - 1) * half, r = lerp(0.6, 2.2, t) * (0.5 + rnd());
+      g.fillStyle = `rgba(${120 + rnd() * 60 | 0},${100 + rnd() * 40 | 0},${90 + rnd() * 30 | 0},${0.08 + rnd() * 0.12})`;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+    g.restore();
+
+    // The logs: two, crossed, charred black, split along the grain where they have burned, the cracks still hot.
+    const L = s.layout.logs, len = Math.min(w * 0.5, 360), thick = clamp(len * 0.15, 14, 46);
+    const log = (angle, dx, dy, endRight) => {
+      g.save(); g.translate(L.x + dx, L.y + dy); g.rotate(angle);
+      const body = g.createLinearGradient(0, -thick / 2, 0, thick / 2);
+      body.addColorStop(0, "#2a1810"); body.addColorStop(0.45, "#170d08"); body.addColorStop(1, "#070403");
+      g.fillStyle = body;
+      g.beginPath(); g.roundRect ? g.roundRect(-len / 2, -thick / 2, len, thick, thick / 2.2) : g.rect(-len / 2, -thick / 2, len, thick); g.fill();
+      // Bark, in checks: the charred skin split into blocks.
+      g.strokeStyle = "rgba(0,0,0,0.6)"; g.lineWidth = 1.2;
+      for (let i = 0; i < 9; i++) {
+        const x = -len / 2 + len * (0.08 + i * 0.1) + (rnd() - 0.5) * 8;
+        g.beginPath(); g.moveTo(x, -thick / 2 + 2); g.lineTo(x + (rnd() - 0.5) * 6, thick / 2 - 2); g.stroke();
+      }
+      // The cracks still glowing: along the underside, where the heat is.
+      g.strokeStyle = "rgba(255,110,30,0.55)"; g.lineWidth = Math.max(1, thick * 0.05); g.lineCap = "round";
+      for (let i = 0; i < 4; i++) {
+        const x0 = -len / 2 + len * (0.15 + rnd() * 0.6), y0 = thick * (0.05 + rnd() * 0.3);
+        g.beginPath(); g.moveTo(x0, y0);
+        for (let j = 1; j <= 4; j++) g.lineTo(x0 + j * len * 0.03, y0 + (rnd() - 0.5) * thick * 0.25);
+        g.stroke();
+      }
+      // The sawn end: dark rings, burned at the rim.
+      const ex = (endRight ? 1 : -1) * (len / 2 - thick * 0.2);
+      g.fillStyle = "#3a2416"; g.beginPath(); g.ellipse(ex, 0, thick * 0.28, thick / 2, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "rgba(255,120,40,0.45)"; g.lineWidth = 1.5;
+      g.beginPath(); g.ellipse(ex, 0, thick * 0.28, thick / 2, 0, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = "rgba(15,8,4,0.8)"; g.lineWidth = 1;
+      for (const k of [0.35, 0.65]) { g.beginPath(); g.ellipse(ex, 0, thick * 0.28 * k, thick / 2 * k, 0, 0, Math.PI * 2); g.stroke(); }
+      g.restore();
+    };
+    log(0.13, len * 0.04, thick * 0.45, false);
+    log(-0.1, -len * 0.04, 0, true);
+    s.layout.logs.len = len; s.layout.logs.thick = thick;
+
+    // The mouth of the hearth: an arch of dark stone round the edge of the screen, its inner edge caught by the light.
+    const rim = clamp(Math.min(w, h) * 0.05, 18, 46), top = rim + Math.min(w * 0.36, h * 0.2);
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, w, h);
+    g.moveTo(rim, h);
+    g.lineTo(rim, top);
+    g.quadraticCurveTo(rim, rim, w / 2, rim);
+    g.quadraticCurveTo(w - rim, rim, w - rim, top);
+    g.lineTo(w - rim, h);
+    g.closePath();
+    g.fillStyle = "#0a0605";
+    g.fill("evenodd");
+    g.strokeStyle = "rgba(255,170,100,0.16)"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(rim, h); g.lineTo(rim, top); g.quadraticCurveTo(rim, rim, w / 2, rim); g.quadraticCurveTo(w - rim, rim, w - rim, top); g.lineTo(w - rim, h); g.stroke();
+    g.restore();
+
+    s.hearth = c;
+  }
+
+  /** Where the ball is on its circle at a moment, by the clock: the same place on the phone's copy and the app's. */
+  function onCircle(s, squeeze = 1) {
+    const B = s.layout.ball;
+    const a = ((Date.now() % LAP_MS) / LAP_MS) * Math.PI * 2;
+    const wob = Math.sin(a * 3) * B.r * 0.05;
+    return { x: B.x + Math.cos(a) * (B.r + wob) * squeeze, y: B.y + Math.sin(a) * (B.r * 0.78 + wob) * squeeze, a };
+  }
+
+  function drawBall(g, x, y, r, heat) {
+    const halo = g.createRadialGradient(x, y, 0, x, y, r * 3.4);
+    halo.addColorStop(0, `rgba(255,190,90,${0.55 * heat})`); halo.addColorStop(0.35, `rgba(255,110,30,${0.25 * heat})`); halo.addColorStop(1, "rgba(255,80,20,0)");
+    g.fillStyle = halo; g.beginPath(); g.arc(x, y, r * 3.4, 0, Math.PI * 2); g.fill();
+    const core = g.createRadialGradient(x - r * 0.2, y - r * 0.25, 0, x, y, r);
+    core.addColorStop(0, "#fff8e6"); core.addColorStop(0.35, "#ffd36e"); core.addColorStop(0.75, "#ff8a2a"); core.addColorStop(1, "rgba(230,70,20,0)");
+    g.fillStyle = core; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+
+  function frame(now) {
+    const s = state;
+    if (!s) return;
+    const { ctx: g, w, h } = s;
+    const dt = Math.min(0.05, (now - s.last) / 1000);
+    s.last = now;
+    g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    const B = s.layout.ball, size = clamp(Math.min(w, h) * 0.022, 7, 16);
+    let x, y, r = size, heat = 1, burst = 0;
+    if (s.partAt) {
+      const t = (now - s.partAt) / SPIRAL_MS;
+      if (t < 1) {
+        // In, quicker and quicker, and brighter: the circle closes on the middle.
+        const k = easeIn(clamp(t, 0, 1));
+        // From the speed it was circling at, faster and faster: no jump as it starts in.
+        const a = s.spinFrom + ((t * SPIRAL_MS) / LAP_MS + t * t * 2.4) * Math.PI * 2;
+        const rad = B.r * (1 - k);
+        x = B.x + Math.cos(a) * rad; y = B.y + Math.sin(a) * rad * 0.78;
+        r = size * (1 + k * 1.6); heat = 1 + k;
+      } else {
+        x = B.x; y = B.y;
+        burst = clamp((now - s.partAt - SPIRAL_MS) / BURST_MS, 0, 1);
+        if (!s.blown) blow(s, x, y, size);
+      }
+    } else {
+      const p = onCircle(s);
+      x = p.x; y = p.y;
+    }
+
+    // The hearth, and the light the ball throws on it.
+    if (burst < 1) {
+      g.globalAlpha = 1;
+      g.drawImage(s.hearth, 0, 0, w, h);
+      // The embers under the logs, breathing.
+      const L = s.layout.logs, breathe = 0.75 + 0.25 * Math.sin(now / 700) + 0.08 * Math.sin(now / 173);
+      const bed = g.createRadialGradient(L.x, L.y + L.thick * 0.4, 0, L.x, L.y + L.thick * 0.4, L.len * 0.6);
+      bed.addColorStop(0, `rgba(255,120,40,${0.38 * breathe})`); bed.addColorStop(1, "rgba(255,90,20,0)");
+      g.globalCompositeOperation = "lighter";
+      g.fillStyle = bed; g.fillRect(0, 0, w, h);
+      for (const e of s.coals) {
+        const glow = 0.4 + 0.6 * Math.max(0, Math.sin(now / e.speed + e.phase));
+        g.fillStyle = `rgba(255,${110 + glow * 90 | 0},40,${0.55 * glow})`;
+        g.beginPath(); g.arc(L.x + e.dx * L.len * 0.5, L.y + e.dy * L.thick, e.r, 0, Math.PI * 2); g.fill();
+      }
+      // The ball's own light on the brick around it.
+      const lit = g.createRadialGradient(x, y, 0, x, y, Math.max(w, h) * 0.45);
+      lit.addColorStop(0, `rgba(255,140,60,${0.22 * heat})`); lit.addColorStop(0.4, `rgba(255,100,40,${0.08 * heat})`); lit.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = lit; g.fillRect(0, 0, w, h);
+      g.globalCompositeOperation = "source-over";
+    }
+
+    if (burst > 0) {
+      // The blast clears the hearth from the middle out: a hole with a burning edge, growing past every corner.
+      const far = Math.hypot(Math.max(x, w - x), Math.max(y, h - y)) * 1.15;
+      const hole = easeOut(burst) * far;
+      g.globalCompositeOperation = "destination-out";
+      const cut = g.createRadialGradient(x, y, Math.max(0, hole * 0.82), x, y, Math.max(1, hole));
+      cut.addColorStop(0, "rgba(0,0,0,1)"); cut.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = cut; g.beginPath(); g.arc(x, y, hole, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#000"; g.beginPath(); g.arc(x, y, Math.max(0, hole * 0.82), 0, Math.PI * 2); g.fill();
+      g.globalCompositeOperation = "lighter";
+      // The burning edge of it.
+      const ring = g.createRadialGradient(x, y, Math.max(0, hole * 0.78), x, y, Math.max(1, hole * 1.02));
+      ring.addColorStop(0, "rgba(255,140,40,0)"); ring.addColorStop(0.6, `rgba(255,170,70,${0.55 * (1 - burst)})`); ring.addColorStop(1, "rgba(255,90,20,0)");
+      g.fillStyle = ring; g.beginPath(); g.arc(x, y, hole * 1.02, 0, Math.PI * 2); g.fill();
+      // The flash, at the very start.
+      const flash = Math.max(0, 1 - burst * 5);
+      if (flash > 0) { g.fillStyle = `rgba(255,230,180,${0.6 * flash})`; g.fillRect(0, 0, w, h); }
+      g.globalCompositeOperation = "source-over";
+    }
+
+    // The trail: where it has just been, fading.
+    g.globalCompositeOperation = "lighter";
+    if (!burst) {
+      s.trail.push({ x, y, r });
+      if (s.trail.length > 18) s.trail.shift();
+      s.trail.forEach((p, i) => {
+        const k = i / s.trail.length;
+        g.fillStyle = `rgba(255,${120 + k * 60 | 0},40,${0.22 * k * k})`;
+        g.beginPath(); g.arc(p.x, p.y, p.r * (0.4 + 0.6 * k), 0, Math.PI * 2); g.fill();
+      });
+      // Sparks thrown off it, rising as they cool.
+      for (let i = 0; i < (s.partAt ? 4 : 2); i++) {
+        s.sparks.push({ x, y, vx: (Math.random() - 0.5) * 60, vy: -20 - Math.random() * 60, life: 0.5 + Math.random() * 0.6, age: 0, r: 0.8 + Math.random() * 1.6 });
+      }
+    }
+    for (const p of s.sparks) {
+      p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vx *= p.drag ?? 0.98; p.vy = p.vy * (p.drag ?? 0.98) - (p.burst ? -40 : 30) * dt;
+      const k = 1 - p.age / p.life;
+      if (k <= 0) continue;
+      g.fillStyle = `rgba(255,${150 + k * 80 | 0},${60 + k * 60 | 0},${k})`;
+      g.beginPath(); g.arc(p.x, p.y, p.r * (0.5 + k * 0.5), 0, Math.PI * 2); g.fill();
+    }
+    s.sparks = s.sparks.filter((p) => p.age < p.life);
+    if (!burst) drawBall(g, x, y, r, heat);
+    else if (burst < 0.25) drawBall(g, x, y, size * 2.6 * (1 + burst * 8), Math.max(0, 1 - burst * 4) * 2);
+    g.globalCompositeOperation = "source-over";
+
+    if (burst >= 1 && !s.sparks.length) return finish(s);
+    s.raf = requestAnimationFrame(frame);
+  }
+
+  /** The burst: embers flung out in every direction, fast, slowing as they go. */
+  function blow(s, x, y, size) {
+    s.blown = true;
+    s.root.classList.add("parting");
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2, v = 250 + Math.random() * 700;
+      s.sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, drag: 0.93, burst: true, life: 0.6 + Math.random() * 0.7, age: 0, r: size * (0.12 + Math.random() * 0.3) });
+    }
+  }
+
+  function finish(s) {
+    cancelAnimationFrame(s.raf);
+    window.removeEventListener("resize", s.onResize);
+    state = null;
+    if (s.done) s.done();
   }
 
   function light(root, opts = {}) {
@@ -208,210 +337,45 @@ void main() {
     }
     const still = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
     root.classList.add("hf");
-    // The fire is in front of the hearth from the first: it starts on the logs. Embers and the drops thrown
-    // off the opening are drawn over it.
-    root.innerHTML = `<div class="hf-room"></div>
-      <svg class="hf-hearth" viewBox="14 16 80 74" preserveAspectRatio="xMidYMax meet" aria-hidden="true">${HEARTH}</svg>
-      <canvas class="hf-fire hf-field"></canvas><canvas class="hf-fire hf-sparks"></canvas><div class="hf-light"></div>`;
-    const svg = root.querySelector(".hf-hearth");
-    const field = root.querySelector(".hf-field");
-    const sparks = root.querySelector(".hf-sparks");
+    root.innerHTML = `<canvas></canvas>`;
+    const canvas = root.querySelector("canvas");
     const s = {
-      root, svg, field, gpu: fieldOn(field), sparks, ctx: sparks.getContext("2d"), still,
-      unit: 4, archTop: 0, mouth: 50,
-      start: performance.now() - (opts.lit ? RISE_MS : 0),
-      split: 0, splitStart: 0, last: performance.now(), raf: 0, done: null,
-      licks: [], embers: [], w: 0, h: 0, dpr: 1, gdpr: 1, grate: { x: 0, y: 0, half: 10, open: 40 }, hearthBottom: 0,
+      root, canvas, ctx: canvas.getContext("2d"), still, lit: !!opts.lit,
+      w: 0, h: 0, dpr: 1, last: performance.now(), raf: 0, done: null,
+      trail: [], sparks: [], partAt: 0, blown: false, spinFrom: 0,
+      coals: Array.from({ length: 14 }, () => ({ dx: Math.random() * 2 - 1, dy: Math.random() * 0.9 + 0.1, r: 1 + Math.random() * 2.2, speed: 300 + Math.random() * 500, phase: Math.random() * 6 })),
     };
     state = s;
     const size = () => {
       s.dpr = Math.min(window.devicePixelRatio || 1, 2);
-      // The field is smooth bands; it needs fewer pixels than the sparks, and the phone's GPU thanks it.
-      s.gdpr = Math.min(window.devicePixelRatio || 1, 1.5);
       s.w = window.innerWidth; s.h = window.innerHeight;
-      sparks.width = Math.round(s.w * s.dpr); sparks.height = Math.round(s.h * s.dpr);
-      field.width = Math.round(s.w * s.gdpr); field.height = Math.round(s.h * s.gdpr);
-      if (s.gpu) s.gpu.gl.viewport(0, 0, field.width, field.height);
-      const m = svg.getScreenCTM();
-      if (m) {
-        const pt = (x, y) => { const p = svg.createSVGPoint(); p.x = x; p.y = y; return p.matrixTransform(m); };
-        const at = pt(GRATE.x, GRATE.y), edge = pt(GRATE.x + GRATE.half, GRATE.y), top = pt(GRATE.x, GRATE.top);
-        s.grate = { x: at.x, y: at.y, half: Math.max(8, edge.x - at.x), open: Math.max(20, at.y - top.y) };
-        s.hearthBottom = pt(GRATE.x, 84).y;
-        // The mouth of the firebox: its arch, in screen pixels — 14 units either side of the middle, its
-        // crown 50 units down.
-        s.unit = pt(1, 0).x - pt(0, 0).x;
-        s.archTop = pt(GRATE.x, 50).y;
-        s.mouth = 14 * s.unit;
-      } else {
-        s.grate = { x: s.w / 2, y: s.h * 0.8, half: s.w * 0.07, open: s.h * 0.1 };
-        s.hearthBottom = s.h * 0.9;
-        s.archTop = s.grate.y - s.grate.open;
-        s.mouth = s.grate.half * 1.3;
-      }
+      canvas.width = Math.round(s.w * s.dpr); canvas.height = Math.round(s.h * s.dpr);
+      paintHearth(s);
+      s.trail = [];
     };
     size();
     s.onResize = size;
     window.addEventListener("resize", size);
-    if (still || !s.gpu) { draw(s, 0.25, performance.now() / 1000, 0); return; }
+    if (still) {
+      s.ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
+      s.ctx.drawImage(s.hearth, 0, 0, s.w, s.h);
+      return;
+    }
     s.raf = requestAnimationFrame(frame);
   }
 
-  /**
-   * How big the flame is a given way through its rise (0 to 1), in screen pixels: the middle of its base (x, y), its half-width there
-   * (rx) and its height (ry), and how big its tongues are (gx, gy). Short, then tall, then filling out — one
-   * after the other, never two at once: first the flame grows taller and only taller, on the logs, no wider and its
-   * tongues no bigger, until it reaches the top of the screen; then it spreads, its sides moving out across it. Grown all at once — taller, wider, its tongues with it, its
-   * base sinking — it looked like the camera moving in on a fire, not a fire growing.
-   */
-  function reach(s, at) {
-    const { w, h, grate } = s;
-    const u0 = s.unit || 4, mouth = s.mouth;
-    const inBox = Math.max(10, grate.y - s.archTop);
-    const rx0 = mouth * 0.88, ry0 = inBox * 1.05;
-    // Timed by the clock, each its own way — not by the rise's eased heat, whose slow start, stacked on another,
-    // held the flame where it was and then shot it up. It climbs at a steady rate, only easing into its start
-    // and its end; then it spreads, gently at both ends.
-    const climb = clamp(at / 0.5, 0, 1);
-    const longer = climb < 0.1 ? climb * climb * 5 : climb > 0.9 ? 1 - (1 - climb) * (1 - climb) * 5 : 0.05 + (climb - 0.1) * 1.125;
-    const wider = ease(clamp((at - 0.4) / 0.6, 0, 1));
-    // By the end of the first its tongues are at the top of the screen, the whole flame in view; then it goes on up
-    // as it spreads, so the top of the screen is its body. It spreads only as far as covers the screen, and
-    // evenly, so its edges are seen going out — wider, and it was there at once, and all heart.
-    const ry = lerp(ry0, grate.y * 0.92, longer) + lerp(0, h * 1.1, wider);
-    // No wider at all while it climbs — it only grows taller; any wider, and it was simply bigger, and came at you.
-    const rx = lerp(rx0, rx0 * 1.9 + w * 0.62, Math.pow(wider, 1.2));
-    return {
-      x: grate.x,
-      y: grate.y + u0,
-      rx, ry,
-      // Its tongues stay the size they were on the logs while it climbs, and grow only as it spreads.
-      gx: lerp(rx0, rx0 * 1.9, wider),
-      gy: lerp(ry0, ry0 * 2.6, wider),
-      fill: smooth(0.82, 1, at) * 0.35,
-    };
-  }
-
-  /** One frame of the fire, a given way through its rise (0 to 1, by the clock) and its parting. */
-  function draw(s, at, t, split) {
-    const { ctx, w, h, dpr, gpu } = s;
-    const r = reach(s, at);
-    // The opening: an oval welling up in the middle of the fire, taller than it is wide. It spreads until it is
-    // past every edge of the screen.
-    const cx = r.x, cy = h * 0.52;
-    const rx = Math.pow(split, 1.25) * w * 0.85;
-    const ry = Math.min(h * 1.4, rx * 2.3 + split * h * 0.15);
-    const rim = Math.min(1, split * 5) * Math.max(5, Math.min(w, h) * 0.022);
-    if (gpu) {
-      const { gl, u } = gpu, k = s.gdpr;
-      gl.uniform2f(u.uRes, s.field.width, s.field.height);
-      gl.uniform1f(u.uT, t % 1000);
-      gl.uniform2f(u.uSrc, r.x * k, r.y * k);
-      gl.uniform2f(u.uSize, r.rx * k, r.ry * k);
-      gl.uniform2f(u.uGrain, r.gx * k, r.gy * k);
-      gl.uniform1f(u.uFill, r.fill);
-      gl.uniform4f(u.uOpen, cx * k, cy * k, rx * k, ry * k);
-      gl.uniform1f(u.uRim, rim * k);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    // Drops thrown off the opening's rim as it spreads; embers going up.
-    for (const k of s.licks) {
-      const f = k.age / k.life, rr = k.size * (1 - f * 0.7);
-      ctx.fillStyle = COLOURS[k.layer];
-      ctx.globalAlpha = 1 - f * f;
-      ctx.beginPath();
-      const x = k.x, y = k.y;
-      ctx.moveTo(x, y - 2.1 * rr);
-      ctx.bezierCurveTo(x + 0.35 * rr, y - 1.15 * rr, x + rr, y - 0.5 * rr, x + rr, y + 0.15 * rr);
-      ctx.bezierCurveTo(x + rr, y + 0.75 * rr, x + 0.5 * rr, y + rr, x, y + rr);
-      ctx.bezierCurveTo(x - 0.5 * rr, y + rr, x - rr, y + 0.75 * rr, x - rr, y + 0.15 * rr);
-      ctx.bezierCurveTo(x - rr, y - 0.5 * rr, x - 0.35 * rr, y - 1.15 * rr, x, y - 2.1 * rr);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = "#ffe3a0";
-    for (const e of s.embers) {
-      const f = e.age / e.life, rr = e.size * (1 - f);
-      ctx.globalAlpha = 1 - f * 0.6;
-      ctx.beginPath();
-      ctx.moveTo(e.x, e.y - rr); ctx.lineTo(e.x + rr * 0.7, e.y); ctx.lineTo(e.x, e.y + rr); ctx.lineTo(e.x - rr * 0.7, e.y);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    return { r, cx, cy, rx, ry };
-  }
-
-  function frame(now) {
-    const s = state;
-    if (!s) return;
-    const dt = Math.min(0.05, (now - s.last) / 1000);
-    s.last = now;
-    const t = now / 1000;
-    const at = clamp((now - s.start) / RISE_MS, 0, 1);
-    const heat = glide(at);
-    if (s.splitStart) s.split = ease(clamp((now - s.splitStart) / PART_MS, 0, 1));
-    s.root.style.setProperty("--heat", heat.toFixed(3));
-    // The hearth goes as the fire takes it, not before and not after.
-    const gone = smooth(0.5, 0.75, at);
-    s.svg.style.opacity = String(1 - gone);
-    const g = draw(s, at, t, s.split);
-
-    // Drops of flame thrown off the rim of the opening as it spreads, outward from its middle.
-    if (s.split > 0 && s.split < 0.85 && g.rx > 0) {
-      for (let n = 0; n < 2 && Math.random() < 40 * dt; n++) {
-        const a = Math.random() * Math.PI * 2;
-        const x = g.cx + g.rx * Math.cos(a), y = g.cy + g.ry * Math.sin(a);
-        const speed = lerp(140, 420, Math.random());
-        s.licks.push({ layer: 1 + Math.floor(Math.random() * 3), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed * 0.7 - 60,
-          size: Math.min(s.w, s.h) * lerp(0.014, 0.032, Math.random()), age: 0, life: lerp(0.35, 0.7, Math.random()) });
-      }
-    }
-    // Embers off the top of the fire.
-    if (!s.splitStart && Math.random() < (1 + heat * 8) * dt) {
-      const x = g.r.x + (Math.random() - 0.5) * g.r.rx * 0.9;
-      s.embers.push({ x, y: Math.max(s.h * 0.05, g.r.y - g.r.ry * lerp(0.55, 0.95, Math.random())),
-        vx: (Math.random() - 0.5) * 30, vy: -lerp(50, 200, Math.random()) * lerp(1, 2, heat), size: lerp(1.5, 3.2, Math.random()),
-        age: 0, life: lerp(1, 2.4, Math.random()), seed: Math.random() * 9 });
-    }
-    s.licks = s.licks.filter((k) => { k.age += dt; k.x += k.vx * dt; k.y += k.vy * dt; k.vy *= 1 - 0.4 * dt; return k.age < k.life; });
-    s.embers = s.embers.filter((e) => { e.age += dt; e.vx += Math.sin(t * 3 + e.seed) * 40 * dt; e.x += e.vx * dt; e.y += e.vy * dt; return e.age < e.life; });
-
-    // Done when the opening is past every edge and the last drops thrown off it have gone — not later,
-    // with a few of them hanging over the app.
-    const inside = (x, y) => Math.pow((x - g.cx) / (g.rx * 0.86), 2) + Math.pow((y - g.cy) / (g.ry * 0.86), 2) < 1;
-    const open = g.rx > 0 && inside(0, 0) && inside(s.w, 0) && inside(0, s.h) && inside(s.w, s.h);
-    if (s.split >= 1 || (open && !s.licks.length)) { finish(); return; }
-    if (open) s.embers = [];
-    s.raf = requestAnimationFrame(frame);
-  }
-
-  function finish() {
-    const s = state;
-    if (!s) return;
-    cancelAnimationFrame(s.raf);
-    window.removeEventListener("resize", s.onResize);
-    state = null;
-    if (s.done) s.done();
-  }
-
-  /** The fire parts and draws away to either side. Resolves once it is gone; the caller removes the element. */
+  /** The ball spirals in and bursts. Resolves once it is gone; the caller removes the element. */
   function part() {
     const s = state;
     if (!s) return Promise.resolve();
-    if (s.still || !s.gpu) {
+    if (s.still) {
       s.root.style.transition = "opacity .35s linear";
       s.root.style.opacity = "0";
       return new Promise((r) => setTimeout(() => { state = null; r(); }, 380));
     }
-    if (s.splitStart) return new Promise((r) => { const prev = s.done; s.done = () => { prev && prev(); r(); }; });
-    // At full height the fire covers everything, so the room and the hearth behind it can go unseen:
-    // what is left is the fire, and the gap in it shows the app.
-    s.root.classList.add("parting");
-    s.splitStart = performance.now();
+    if (s.partAt) return new Promise((r) => { const prev = s.done; s.done = () => { prev && prev(); r(); }; });
+    s.spinFrom = onCircle(s).a;
+    s.partAt = performance.now();
     return new Promise((r) => { s.done = r; });
   }
 

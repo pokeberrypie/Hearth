@@ -10850,8 +10850,8 @@ function openTheHearth() {
   const RISE = lit ? 260 : (window.HearthFire?.RISE_MS ?? 2600);
   const wait = Math.max(0, RISE - performance.now());
   setTimeout(async () => {
-    // The fire splits down the middle and draws apart, and the app is there in the gap. Gone rather than
-    // hidden afterwards: it sits over the whole app, and a decoration has no business staying in the tree.
+    // The ball of fire spirals in and bursts, and the blast clears the hearth away to show the app. Gone rather
+    // than hidden afterwards: it sits over the whole app, and a decoration has no business staying in the tree.
     if (window.HearthFire) await window.HearthFire.part();
     el.remove();
   }, wait);
