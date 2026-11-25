@@ -67,7 +67,8 @@ async function paintWorldLine() {
   $("#worldDate").textContent = dated ? s.now.text : "Story World";
   const note = $("#worldNote");
   note.hidden = !waiting;
-  note.textContent = waiting ? String(waiting) : "";
+  // In a <b> of its own: the figure, trimmed to its own height, is what the circle centres (style.css).
+  note.replaceChildren(...(waiting ? [Object.assign(document.createElement("b"), { textContent: String(waiting) })] : []));
   note.title = waiting ? `${waiting} waiting for you` : "";
   fitWorldLine();
   if (!$("#worldDialog")?.open) return;

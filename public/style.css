@@ -8225,6 +8225,13 @@ body[data-msgstyle="banner"] .plate:has(> .inlay .blank) > .inlay { float: left;
   background: var(--lumiverse-primary);
   vertical-align: 0.12em;
 }
+/* Where the browser can trim a line to its letters — top of the figures to their baseline — the box is the digit
+   itself, and centring the box centres the digit, in any font, on any phone. The padding above stood in for that,
+   measured on one browser, and on Android's, which seats the figures a pixel lower, the "1" sat low in its circle. */
+@supports (text-box: trim-both cap alphabetic) {
+  .titlestack .worldline #worldNote { padding: 0 0.38em; }
+  .titlestack .worldline #worldNote > b { display: block; font: inherit; text-box: trim-both cap alphabetic; }
+}
 .titlestack .worldline #worldNote[hidden] { display: none; }
 /* On a phone the bar takes a little more height while the line is there, so
    a title on two lines and the line under it are not packed against the top. */
