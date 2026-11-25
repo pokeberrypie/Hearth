@@ -359,7 +359,44 @@
       g.beginPath(); g.moveTo(corners[0][0], corners[0][1]); g.lineTo(corners[1][0], corners[1][1]); g.stroke();
     }
 
+    s.layout.ball = fitCircle(w, h, rim, top, rx, ry);
     s.hearth = c;
+  }
+
+  /**
+   * The fireball's circle, fitted inside the arch on this screen: the ball, its whole tail and a margin never cross
+   * onto the stones. The tail streams straight back from the ball, so near the edge of a big circle it reaches out
+   * past it; the circle (then the ball) is made smaller until nothing touches.
+   */
+  function fitCircle(w, h, rim, top, rx, ry) {
+    const MARGIN = 10;
+    // A disc of radius q at (x, y) is inside the opening: clear of both sides, and under the arch's curve.
+    const inside = (x, y, q) => {
+      if (x - q < rim + MARGIN || x + q > w - rim - MARGIN || y + q > h) return false;
+      if (y >= top) return true;
+      const ex = rx - q - MARGIN, ey = ry - q - MARGIN;
+      if (ex <= 0 || ey <= 0) return false;
+      return ((x - w / 2) / ex) ** 2 + ((y - top) / ey) ** 2 <= 1;
+    };
+    const cx = w / 2, cy = h * 0.33;
+    let size = clamp(Math.min(w, h) * 0.095, 30, 66), r = Math.min(w * 0.25, h * 0.15);
+    for (let tries = 0; tries < 40; tries++) {
+      let ok = true;
+      for (let i = 0; i < 72 && ok; i++) {
+        const a = (i / 72) * Math.PI * 2, wob = 1.05;
+        const x = cx + Math.cos(a) * r * wob, y = cy + Math.sin(a) * r * 0.78 * wob;
+        if (!inside(x, y, size * 1.1)) { ok = false; break; }
+        // Its tail, trailing back along the circle: wide near the ball, narrowing to the tongues' tips.
+        for (const [t, spread] of [[1.2, 1], [2.2, 0.85], [3.1, 0.65], [3.6, 0.35]]) {
+          const back = a - (size * t) / Math.max(r, 1);
+          if (!inside(cx + Math.cos(back) * r * wob, cy + Math.sin(back) * r * 0.78 * wob, size * spread)) { ok = false; break; }
+        }
+      }
+      if (ok) return { x: cx, y: cy, r, size };
+      // Smaller circle first; once it is small, a smaller ball too.
+      if (r > size * 1.6) r *= 0.94; else size *= 0.94;
+    }
+    return { x: cx, y: cy, r, size };
   }
 
   /** Where the ball is on its circle at a moment, by the clock: the same place on the phone's copy and the app's. */
@@ -376,8 +413,17 @@
    * going; the tail always points the other way.
    */
   const BANDS = [["#d9381b", 1, 1], ["#f26a1f", 0.84, 0.86], ["#ffa62b", 0.68, 0.7], ["#ffd84d", 0.5, 0.52], ["#fff4cf", 0.3, 0.2]];
-  function drawFireball(g, x, y, R, dir, t, heat = 1) {
+  function drawFireball(g, x, y, R, dir, t, heat = 1, bend = 0) {
     const L = R * 3.5;
+    // The tail follows the path it came along: a point `d` back and `off` to the side of a straight tail, carried
+    // round a curve of radius 1/bend (its centre on the side the sign says) — so on a circle it trails along the
+    // circle, not out past it.
+    const curve = ([px, py]) => {
+      if (px >= 0 || !bend) return [px, py];
+      const rho = 1 / Math.abs(bend), sgn = Math.sign(bend), th = -px / rho;
+      const cxp = -rho * Math.sin(th), cyp = sgn * rho * (1 - Math.cos(th));
+      return [cxp + py * sgn * Math.sin(th), cyp + py * Math.cos(th)];
+    };
     // The glow round it, first, under everything.
     const halo = g.createRadialGradient(x, y, R * 0.5, x, y, R * 3.6);
     halo.addColorStop(0, `rgba(255,150,50,${0.45 * heat})`); halo.addColorStop(0.45, `rgba(255,90,25,${0.16 * heat})`); halo.addColorStop(1, "rgba(255,70,20,0)");
@@ -400,7 +446,7 @@
       pts.push([-len * 0.58, -r * 0.28]);
       pts.push(tip(0.8, -0.8, 4.1));
       for (let u = 0.45; u >= 0.15; u -= 0.15) pts.push([-u * len, -r * Math.pow(1 - u, 0.7) * (1 + 0.14 * Math.sin(ph * 1.1 + u * 8 + 1))]);
-      rounded(g, pts);
+      rounded(g, pts.map(curve));
       g.fillStyle = colour; g.fill();
     });
     // The hot spot, at the front.
@@ -429,7 +475,7 @@
     g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
     g.clearRect(0, 0, w, h);
 
-    const B = s.layout.ball, size = clamp(Math.min(w, h) * 0.095, 30, 66);
+    const B = s.layout.ball, size = B.size;
     let x, y, r = size, heat = 1, burst = 0;
     if (s.partAt) {
       const t = (now - s.partAt) / SPIRAL_MS;
@@ -517,7 +563,12 @@
       if (k > 0) drawFlake(g, p, k);
     }
     s.sparks = s.sparks.filter((p) => p.age < p.life);
-    if (!burst) drawFireball(g, x, y, r, s.dir, now / 1000, heat);
+    if (!burst) {
+      // Which side the circle's centre is on, as it goes, and how tight the curve is there.
+      const toC = (B.x - x) * -Math.sin(s.dir) + (B.y - y) * Math.cos(s.dir);
+      const rad = Math.max(r * 1.2, Math.hypot(B.x - x, B.y - y));
+      drawFireball(g, x, y, r, s.dir, now / 1000, heat, rad > 1 ? Math.sign(toC) / rad : 0);
+    }
     else if (burst < 0.3) {
       // The burst itself: the bands thrown out as rings, fast, and gone.
       const k = burst / 0.3, big = size * (2 + k * 9);
