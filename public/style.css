@@ -8639,20 +8639,22 @@ body.voice-ready:not(.guest) .voiceonly { display: block; }
 .musiclist .mrow:not(.on) .mtitle { color: var(--lumiverse-text-dim); }
 
 /* ---- message buttons that never sit on the name ------------------------------------------------------------------
-   Banner put the buttons over the corner of the header, with a gap kept for them beside the name and its stats. The
-   gap was sized for four buttons; ▶ made five, the name and the stats line ran underneath, and on a phone the
-   column left beside them was so narrow that "Jaime Lannister" and "read 62,480 in 8s" broke into a tall stack.
+   Banner put the buttons over the header's corner, with a gap kept for them beside the name and its stats. The gap
+   was sized for four buttons; ▶ made five, the name and the stats line ran underneath, and on a phone the column
+   left beside them was so narrow that "Jaime Lannister" and "read 62,480 in 8s" broke into a tall stack.
 
-   A phone: the buttons move to their own row at the foot of the message, on the right — the name, the date and the
-   stats have the whole width. Wider: the buttons stay in the top corner, and the gap beside the name and the stats
-   is the width the buttons really take (five with ▶, four without). */
+   A phone: the buttons stay at the top, on the right, in a line of their own just above the name — not beside it,
+   where there is no room for both — so the name, the date and the stats have the whole width under them. (Not at
+   the foot of the message: tried, and hated.) Wider: they stay in the corner, and the gap beside the name and the
+   stats is the width the buttons really take (five with ▶, four without). */
 @media (max-width: 700px) {
-  body[data-msgstyle="banner"] .tools {
+  body[data-msgstyle="banner"] .tools,
+  body[data-msgstyle="banner"] .msg.mine .tools {
     position: static;
-    grid-column: auto;
-    grid-row: auto;
+    order: -1;
+    justify-self: end;
     justify-content: flex-end;
-    margin: 0.7rem 0 0;
+    margin: 0 0 0.3rem;
     padding: 0;
   }
   body[data-msgstyle="banner"] .platename,
@@ -8663,8 +8665,4 @@ body.voice-ready:not(.guest) .voiceonly { display: block; }
   body[data-msgstyle="banner"] .meta-line { padding-right: 7.8rem; }
   body[data-msgstyle="banner"].voice-ready:not(.guest) .platename,
   body[data-msgstyle="banner"].voice-ready:not(.guest) .meta-line { padding-right: 9.8rem; }
-}
-@media (max-width: 700px) {
-  /* Yours too: on the right, under your words, as the characters' are under theirs. */
-  body[data-msgstyle="banner"] .msg.mine .tools { justify-content: flex-end; align-self: stretch; width: auto; }
 }
