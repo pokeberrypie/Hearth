@@ -8637,3 +8637,34 @@ body.voice-ready:not(.guest) .voiceonly { display: block; }
 .musiclist .mrow > label { flex: 1; min-width: 0; margin: 0; }
 .musiclist .mtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .musiclist .mrow:not(.on) .mtitle { color: var(--lumiverse-text-dim); }
+
+/* ---- message buttons that never sit on the name ------------------------------------------------------------------
+   Banner put the buttons over the corner of the header, with a gap kept for them beside the name and its stats. The
+   gap was sized for four buttons; ▶ made five, the name and the stats line ran underneath, and on a phone the
+   column left beside them was so narrow that "Jaime Lannister" and "read 62,480 in 8s" broke into a tall stack.
+
+   A phone: the buttons move to their own row at the foot of the message, on the right — the name, the date and the
+   stats have the whole width. Wider: the buttons stay in the top corner, and the gap beside the name and the stats
+   is the width the buttons really take (five with ▶, four without). */
+@media (max-width: 700px) {
+  body[data-msgstyle="banner"] .tools {
+    position: static;
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: flex-end;
+    margin: 0.7rem 0 0;
+    padding: 0;
+  }
+  body[data-msgstyle="banner"] .platename,
+  body[data-msgstyle="banner"] .meta-line { padding-right: 0; }
+}
+@media (min-width: 701px) {
+  body[data-msgstyle="banner"] .platename,
+  body[data-msgstyle="banner"] .meta-line { padding-right: 7.8rem; }
+  body[data-msgstyle="banner"].voice-ready:not(.guest) .platename,
+  body[data-msgstyle="banner"].voice-ready:not(.guest) .meta-line { padding-right: 9.8rem; }
+}
+@media (max-width: 700px) {
+  /* Yours too: on the right, under your words, as the characters' are under theirs. */
+  body[data-msgstyle="banner"] .msg.mine .tools { justify-content: flex-end; align-self: stretch; width: auto; }
+}
