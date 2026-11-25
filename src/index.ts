@@ -5482,7 +5482,7 @@ async function rippleOf(chatId: string, since: number): Promise<{ landed: number
     used.add(n);
     const days = Math.max(0, Math.min(30, daysIn(m[3] ?? "") ?? 1));
     // Played out as a scene, with no name behind it: the effect is the story's; whose doing it was is the player's to find.
-    add.push(normaliseChronicleEntry({ id: uid(), kind: "news", subject: plot.subject, title: felt.slice(0, 400), body: "",
+    add.push(normaliseChronicleEntry({ id: uid(), kind: "news", subject: plot.subject, title: felt, body: "",
       message_id: plot.message_id, day: at.day, minute: at.minute, source: "offstage", visibility: "private", created_at: t++,
       data: { due: at.day + days, state: "travelling", tries: 0, touches: true, mode: "scene", ripple: true, of: plot.id, ...(where ? { at: where } : {}) } }));
   }

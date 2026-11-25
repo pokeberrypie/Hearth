@@ -107,6 +107,21 @@ export type Entry = {
 };
 
 const str = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+
+/**
+ * Words kept to a length the way a person would shorten them: at the end of a sentence if one ends late enough,
+ * else at the end of a word, with "…" — never through the middle of a word. A news item cut at 200 characters
+ * flat read "…Brienne was to drill with him t".
+ */
+export function clip(v: unknown, max: number): string {
+  const t = String(v ?? "").replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const room = t.slice(0, max - 1);
+  const sentence = Math.max(room.lastIndexOf(". "), room.lastIndexOf("! "), room.lastIndexOf("? "), room.lastIndexOf("; "));
+  if (sentence > max * 0.6) return room.slice(0, sentence + 1).trim();
+  const word = room.lastIndexOf(" ");
+  return (word > max * 0.5 ? room.slice(0, word) : room).replace(/[\s,;:—–-]+$/, "") + "…";
+}
 const intOrNull = (v: unknown) => {
   if (v === null || v === undefined || v === "") return null;
   const n = Math.round(Number(v));
@@ -128,7 +143,8 @@ export function normaliseEntry(raw: any): Entry {
     day: intOrNull(raw?.day),
     minute: intOrNull(raw?.minute),
     span: Number.isFinite(span) ? Math.max(-MAX_SPAN, Math.min(MAX_SPAN, span)) : 0,
-    title: str(raw?.title, 200),
+    // Room for a whole piece of news or a scene's worth of what someone did; cut, if ever, between words.
+    title: clip(raw?.title, 600),
     body: str(raw?.body, 4000),
     visibility: pick(raw?.visibility, VISIBILITY, "table"),
     source: pick(raw?.source, SOURCES, "user"),

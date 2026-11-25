@@ -102,7 +102,7 @@ describe("whatever comes in is made safe", () => {
     expect(e.kind).toBe("event");
     expect(e.visibility).toBe("table");
     expect(e.source).toBe("user");
-    expect(e.title.length).toBe(200);
+    expect(e.title.length).toBeLessThanOrEqual(600);
     expect(e.span).toBe(1e12);
   });
 });
@@ -273,4 +273,17 @@ describe("in a chat", () => {
     expect((db.query("SELECT auto_lore_book_id AS b FROM chats WHERE id = 'old'").get() as any).b).toBe(r.book);
     expect((db.query("SELECT auto_lore_book_id AS b FROM chats WHERE id = 'ch'").get() as any).b).toBe("notes");
   });
+});
+
+test("a long title is kept whole, and anything too long is cut between words, never through one", async () => {
+  const { clip, normaliseEntry } = await import("./chronicle");
+  const news = "At first light a stableboy comes to the yard asking who authorized the tall maid of Tarth taking the grey mare and a day's fodder, and Davren stops mid-bootlace because Brienne was to drill with him that morning.";
+  expect(normaliseEntry({ kind: "news", title: news }).title).toBe(news);
+  // Too long even so: at a sentence's end when one is near, else at a word, with an ellipsis.
+  expect(clip("The lord read the letter twice and then burned it. Nobody saw him do it.", 58)).toBe("The lord read the letter twice and then burned it.");
+  const cut = clip("The grey stands warm and fully saddled at the stable door just across the yard where she walks", 60);
+  expect(cut.endsWith("…")).toBe(true);
+  expect("The grey stands warm and fully saddled at the stable door just across the yard where she walks".startsWith(cut.slice(0, -1))).toBe(true);
+  expect(cut.slice(0, -1).split(" ").every((w) => "The grey stands warm and fully saddled at the stable door just across the yard where she walks".split(" ").includes(w))).toBe(true);
+  expect(clip("short", 60)).toBe("short");
 });

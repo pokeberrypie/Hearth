@@ -24,6 +24,7 @@
  * Pure: storing all of this, and asking a model, is index.ts's business.
  */
 import { fielded, hasName, nameWords } from "./fields";
+import { clip } from "./chronicle";
 
 export const LEVELS = ["off", "balanced", "dynamic"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -344,7 +345,7 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
   others?: string[] }): Ruling {
   const notes: string[] = [];
   const r: Ruling = { kind: d.kind, act: d.act.slice(0, 300), why: d.why.slice(0, 400), difficulty: d.difficulty, harm: d.harm,
-    threat: false, seen: d.seen.slice(0, 240), fact: d.fact.slice(0, 240), clue: d.clue.slice(0, 240), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", achieves: "", how: "", news: null, notes };
+    threat: false, seen: clip(d.seen, 500), fact: clip(d.fact, 500), clue: clip(d.clue, 500), goal: d.goal, threads: [], plan: [], witness: null, abandons: "", achieves: "", how: "", news: null, notes };
   if (d.kind === "nothing") { r.seen = ""; r.fact = ""; r.clue = ""; r.harm = "none"; r.difficulty = "easy"; }
   // Something that cannot fail leaves no careless trace.
   if (r.difficulty === "easy") r.clue = "";
@@ -358,7 +359,7 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
     const said = words(d.done.goal);
     const target = o.goals.find((g) => said.filter((w) => w.length > 3 && words(g.goal).includes(w)).length >= Math.min(2, said.filter((w) => w.length > 3).length))
       ?? (o.goals.length === 1 ? o.goals[0] : undefined);
-    if (target) { r.achieves = target.id; r.how = d.done.how.replace(/\s+/g, " ").trim().slice(0, 240); }
+    if (target) { r.achieves = target.id; r.how = clip(d.done.how, 500); }
     else notes.push("said it finished a goal it could not name");
   }
   // Only ever their own actions: a line that puts words or deeds in the player's mouth is not a decision of theirs.
@@ -371,13 +372,13 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
     const who = d.witness.who.replace(/\s+/g, " ").trim().slice(0, 80);
     if (!who || byOwnName(who, o.who)) notes.push("the witness was the one acting");
     else if (o.player && byOwnName(who, o.player)) notes.push("the witness was the player's character");
-    else r.witness = { who, saw: d.witness.saw.replace(/\s+/g, " ").trim().slice(0, 240) };
+    else r.witness = { who, saw: clip(d.witness.saw, 500) };
   }
   // How it bears on the plan: only for something they actually did, once per scene, at most two.
   if (d.kind === "act") {
     for (const m of d.plan) {
       if (r.plan.length >= 2 || r.plan.some((p) => p.n === m.n)) continue;
-      r.plan.push({ n: m.n, relation: m.relation, how: m.how.replace(/\s+/g, " ").trim().slice(0, 240) });
+      r.plan.push({ n: m.n, relation: m.relation, how: clip(m.how, 500) });
     }
   }
   // A thread's name is public the moment it comes out: it may no more point to them than what could be seen.
@@ -387,7 +388,7 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
       const name = t.name.replace(/\s+/g, " ").trim().slice(0, 80);
       if (!name) continue;
       if (names(name, o.who, o.identity ?? [])) { notes.push("a thread's name pointed to who is behind it"); continue; }
-      r.threads.push({ move: t.move, name, note: t.note.replace(/\s+/g, " ").trim().slice(0, 240) });
+      r.threads.push({ move: t.move, name, note: clip(t.note, 500) });
     }
   }
   // Aimed at the player's character: by her own name; or, since harm in ACT is by its own rule harm to her, any harm
@@ -413,7 +414,7 @@ export function rule(d: Decision, o: { who: string; player: string; protection: 
   // News: only of something they did, and — when it was done in secret, which a deliberate trace says it was —
   // never naming them. Done openly (a decree, a public disowning), the messenger may well say who.
   if (d.kind === "act" && d.reaches && !r.threat) {
-    const told = d.reaches.told.replace(/\s+/g, " ").trim().slice(0, 240);
+    const told = clip(d.reaches.told, 560);
     if ((d.clue || r.clue) && names(told, o.who, id)) notes.push("the news named who was secretly behind it");
     // What they would hear, said: not a word or two — "a day", "—" — which is a field left empty and the next one
     // read into it. Queued as a scene, those went ahead of real news and held it back for replies on end.
